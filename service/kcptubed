@@ -1,0 +1,43 @@
+#!/bin/sh
+#
+# $FreeBSD$
+#
+
+# PROVIDE: kcptube
+# REQUIRE: LOGIN DAEMON
+# KEYWORD: shutdown
+
+# Add these lines to /etc/rc.conf.local or /etc/rc.conf to enable `kcptubed':
+#
+# kcptubed_enable (bool):          Set to "NO" by default.
+#                                  Set it to "YES" to enable kcptubed
+# kcptubed_config (path):          Set to "/usr/local/etc/kcptubed/config.conf" by default
+#                                  Set it to the kcptubed server config
+
+. /etc/rc.subr
+
+name="kcptubed"
+rcvar="${name}_enable"
+
+eval ": \${${name}_enable:=\"NO\"}"
+eval ": \${${name}_config:=\"/usr/local/etc/${name}/config.conf\"}"
+
+pidfile="/var/run/${name}.pid"
+procname="/usr/local/bin/kcptube"
+configfile="$(eval echo \${${name}_config})"
+
+start_precmd="kcptubed_startprecmd"
+start_cmd=kcptubed_start
+
+kcptubed_startprecmd()
+{
+	touch "${pidfile}"
+}
+
+kcptubed_start()
+{
+	/usr/sbin/daemon -c -p ${pidfile} ${procname} ${configfile} > /dev/null 2>&1
+}
+
+load_rc_config "$name"
+run_rc_command "$1"

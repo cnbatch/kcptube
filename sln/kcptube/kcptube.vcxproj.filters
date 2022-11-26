@@ -1,0 +1,84 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Source Files\shares">
+      <UniqueIdentifier>{4f574b7f-7082-4250-8445-9556140752c3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Header Files\shares">
+      <UniqueIdentifier>{559170aa-eb60-493d-9441-9a73b2870ca2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\networks">
+      <UniqueIdentifier>{7a266116-f8af-4b27-a817-85da14af059d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\networks">
+      <UniqueIdentifier>{96b73df5-637c-4aee-a558-ef3d9b6a2a2e}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\shares\share_defines.cpp">
+      <Filter>Source Files\shares</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\networks\client.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\networks\client_tcp.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\networks\client_udp.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\networks\connections.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\networks\kcp.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\networks\server.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\networks\stun.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\src\shares\aes-256.hpp">
+      <Filter>Header Files\shares</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\shares\share_defines.hpp">
+      <Filter>Header Files\shares</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\shares\string_utils.hpp">
+      <Filter>Header Files\shares</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\server.hpp">
+      <Filter>Header Files\networks</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\client.hpp">
+      <Filter>Header Files\networks</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\connections.hpp">
+      <Filter>Header Files\networks</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\kcp.hpp">
+      <Filter>Header Files\networks</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\stun.hpp">
+      <Filter>Header Files\networks</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
