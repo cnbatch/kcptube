@@ -3,7 +3,6 @@
 #include <random>
 #include <thread>
 #include "client.hpp"
-#include "../shares/aes-256.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono;

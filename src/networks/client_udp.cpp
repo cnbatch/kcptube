@@ -3,7 +3,6 @@
 #include <random>
 #include <thread>
 #include "client.hpp"
-#include "../shares/aes-256.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono;
@@ -422,7 +421,7 @@ void udp_to_forwarder::kcp_loop_updates(const asio::error_code &e)
 	loop_update_connections();
 
 	timer_send_data.expires_after(KCP_UPDATE_INTERVAL);
-	timer_send_data.async_wait([this](const asio::error_code &e) { kcp_loop_updates(e); });	// ¸Ä³ÉÓÃasio::post
+	timer_send_data.async_wait([this](const asio::error_code &e) { kcp_loop_updates(e); });	// ï¿½Ä³ï¿½ï¿½ï¿½asio::post
 }
 
 void udp_to_forwarder::expiring_kcp_loops(const asio::error_code & e)

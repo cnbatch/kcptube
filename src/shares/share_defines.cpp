@@ -5,7 +5,7 @@
 #include <fstream>
 #include "share_defines.hpp"
 #include "string_utils.hpp"
-#include "aes-256.hpp"
+#include "aead.hpp"
 
 
 struct default_values
@@ -244,11 +244,12 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 			case strhash("aes-ocb"):
 				current_user_settings.encryption = encryption_mode::aes_ocb;
 				break;
-			//case strhash("chacha20"):
-			//	[[fallthrough]];
-			//case strhash("chacha20-ietf"):
-			//	current_user_settings.encryption = encryption_mode::chacha20;
-			//	break;
+			case strhash("chacha20"):
+				current_user_settings.encryption = encryption_mode::chacha20;
+				break;
+			case strhash("xchacha20"):
+				current_user_settings.encryption = encryption_mode::xchacha20;
+				break;
 			default:
 				current_user_settings.encryption = encryption_mode::unknow;
 				error_msg.emplace_back("encryption_algorithm is incorrect: " + value);
@@ -562,155 +563,265 @@ std::vector<uint8_t> create_raw_random_data(size_t mtu_size)
 	return temp_array;
 }
 
-std::pair<std::string, size_t> encrypt_data(const std::string &password, encryption_mode mode, uint8_t *data_ptr, int length)
+std::pair<std::string, size_t> encrypt_data(const std::string& password, encryption_mode mode, uint8_t* data_ptr, int length)
 {
 	size_t cipher_legnth = 0;
 	std::string error_message;
-
-	if (mode == encryption_mode::aes_gcm)
+	switch (mode)
+	{
+	case encryption_mode::aes_gcm:
 	{
 		thread_local encrypt_decrypt<aes_256_gcm> gcm;
 		error_message = gcm.encrypt(password, data_ptr, length, data_ptr, cipher_legnth);
+		break;
 	}
-	else if (mode == encryption_mode::aes_gcm)
+	case encryption_mode::aes_ocb:
 	{
 		thread_local encrypt_decrypt<aes_256_ocb> ocb;
 		error_message = ocb.encrypt(password, data_ptr, length, data_ptr, cipher_legnth);
+		break;
 	}
-	else
+	case encryption_mode::chacha20:
 	{
+		thread_local encrypt_decrypt<chacha20> cc20;
+		error_message = cc20.encrypt(password, data_ptr, length, data_ptr, cipher_legnth);
+		break;
+	}
+	case encryption_mode::xchacha20:
+	{
+		thread_local encrypt_decrypt<xchacha20> xcc20;
+		error_message = xcc20.encrypt(password, data_ptr, length, data_ptr, cipher_legnth);
+		break;
+	}
+	default:
 		cipher_legnth = length;
 		bitwise_not(data_ptr, length);
-	}
+		break;
+	};
 
 	xor_backward(data_ptr, cipher_legnth);
 
 	return { std::move(error_message), cipher_legnth };
 }
 
-std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode mode, const void *data_ptr, int length, std::string &error_message)
+std::vector<uint8_t> encrypt_data(const std::string& password, encryption_mode mode, const void* data_ptr, int length, std::string& error_message)
 {
 	size_t cipher_legnth = length;
 	std::vector<uint8_t> cipher_cache(length + 48);
-	
-	if (mode == encryption_mode::aes_gcm)
+
+	switch (mode)
+	{
+	case encryption_mode::aes_gcm:
 	{
 		thread_local encrypt_decrypt<aes_256_gcm> gcm;
-		error_message = gcm.encrypt(password, (const uint8_t *)data_ptr, length, cipher_cache.data(), cipher_legnth);
+		error_message = gcm.encrypt(password, (const uint8_t*)data_ptr, length, cipher_cache.data(), cipher_legnth);
 		if (error_message.empty() && cipher_legnth > 0)
 			cipher_cache.resize(cipher_legnth);
+		break;
 	}
-	else if (mode == encryption_mode::aes_gcm)
+	case encryption_mode::aes_ocb:
 	{
 		thread_local encrypt_decrypt<aes_256_ocb> ocb;
-		error_message = ocb.encrypt(password, (const uint8_t *)data_ptr, length, cipher_cache.data(), cipher_legnth);
+		error_message = ocb.encrypt(password, (const uint8_t*)data_ptr, length, cipher_cache.data(), cipher_legnth);
 		if (error_message.empty() && cipher_legnth > 0)
 			cipher_cache.resize(cipher_legnth);
+		break;
 	}
-	else
+	case encryption_mode::chacha20:
 	{
-		cipher_cache.resize(length);
-		std::transform((const uint8_t *)data_ptr, (const uint8_t *)data_ptr + length, cipher_cache.begin(), [](auto ch) { return ~ch; });
+		thread_local encrypt_decrypt<chacha20> cc20;
+		error_message = cc20.encrypt(password, (const uint8_t*)data_ptr, length, cipher_cache.data(), cipher_legnth);
+		if (error_message.empty() && cipher_legnth > 0)
+			cipher_cache.resize(cipher_legnth);
+		break;
 	}
+	case encryption_mode::xchacha20:
+	{
+		thread_local encrypt_decrypt<xchacha20> xcc20;
+		error_message = xcc20.encrypt(password, (const uint8_t*)data_ptr, length, cipher_cache.data(), cipher_legnth);
+		if (error_message.empty() && cipher_legnth > 0)
+			cipher_cache.resize(cipher_legnth);
+		break;
+	}
+	default:
+		cipher_cache.resize(length);
+		std::transform((const uint8_t*)data_ptr, (const uint8_t*)data_ptr + length, cipher_cache.begin(), [](auto ch) { return ~ch; });
+		break;
+	};
 
 	xor_backward(cipher_cache);
 
 	return cipher_cache;
 }
 
-std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode mode, std::vector<uint8_t> &&input_data, std::string &error_message)
+std::vector<uint8_t> encrypt_data(const std::string& password, encryption_mode mode, std::vector<uint8_t>&& input_data, std::string& error_message)
 {
-	if (mode == encryption_mode::aes_gcm)
+	switch (mode)
+	{
+	case encryption_mode::aes_gcm:
 	{
 		thread_local encrypt_decrypt<aes_256_gcm> gcm;
 		input_data = gcm.encrypt(password, std::move(input_data), error_message);
 		if (!error_message.empty() || input_data.size() == 0)
 			return input_data;
+		break;
 	}
-	else if (mode == encryption_mode::aes_gcm)
+	case encryption_mode::aes_ocb:
 	{
 		thread_local encrypt_decrypt<aes_256_ocb> ocb;
 		input_data = ocb.encrypt(password, std::move(input_data), error_message);
 		if (!error_message.empty() || input_data.size() == 0)
 			return input_data;
+		break;
 	}
-	else
+	case encryption_mode::chacha20:
 	{
-		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
+		thread_local encrypt_decrypt<chacha20> cc20;
+		input_data = cc20.encrypt(password, std::move(input_data), error_message);
+		if (!error_message.empty() || input_data.size() == 0)
+			return input_data;
+		break;
 	}
+	case encryption_mode::xchacha20:
+	{
+		thread_local encrypt_decrypt<xchacha20> xcc20;
+		input_data = xcc20.encrypt(password, std::move(input_data), error_message);
+		if (!error_message.empty() || input_data.size() == 0)
+			return input_data;
+		break;
+	}
+	default:
+		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
+		break;
+	};
 
 	xor_backward(input_data);
 	return input_data;
 }
 
-std::pair<std::string, size_t> decrypt_data(const std::string &password, encryption_mode mode, uint8_t *data_ptr, int length)
+std::pair<std::string, size_t> decrypt_data(const std::string& password, encryption_mode mode, uint8_t* data_ptr, int length)
 {
 	xor_forward(data_ptr, length);
 
 	size_t data_legnth = 0;
 	std::string error_message;
-	if (mode == encryption_mode::aes_gcm)
+	switch (mode)
+	{
+	case encryption_mode::aes_gcm:
 	{
 		thread_local encrypt_decrypt<aes_256_gcm> gcm;
 		error_message = gcm.decrypt(password, data_ptr, length, data_ptr, data_legnth);
+		break;
 	}
-	else if (mode == encryption_mode::aes_gcm)
+	case encryption_mode::aes_ocb:
 	{
 		thread_local encrypt_decrypt<aes_256_ocb> ocb;
 		error_message = ocb.decrypt(password, data_ptr, length, data_ptr, data_legnth);
+		break;
 	}
-	else
+	case encryption_mode::chacha20:
 	{
+		thread_local encrypt_decrypt<chacha20> cc20;
+		error_message = cc20.decrypt(password, data_ptr, length, data_ptr, data_legnth);
+		break;
+	}
+	case encryption_mode::xchacha20:
+	{
+		thread_local encrypt_decrypt<xchacha20> xcc20;
+		error_message = xcc20.decrypt(password, data_ptr, length, data_ptr, data_legnth);
+		break;
+	}
+	default:
 		data_legnth = length;
 		bitwise_not(data_ptr, length);
-	}
+		break;
+	};
 
 	return { std::move(error_message), data_legnth };
 }
 
-std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode mode, const void *data_ptr, int length, std::string &error_message)
+std::vector<uint8_t> decrypt_data(const std::string& password, encryption_mode mode, const void* data_ptr, int length, std::string& error_message)
 {
-	std::vector<uint8_t> data_cache((const uint8_t *)data_ptr, (const uint8_t *)data_ptr + length);
+	std::vector<uint8_t> data_cache((const uint8_t*)data_ptr, (const uint8_t*)data_ptr + length);
 	xor_forward(data_cache);
 
-	if (mode == encryption_mode::aes_gcm)
+	switch (mode)
+	{
+	case encryption_mode::aes_gcm:
 	{
 		thread_local encrypt_decrypt<aes_256_gcm> gcm;
 		data_cache = gcm.decrypt(password, std::move(data_cache), error_message);
+		break;
 	}
-	else if (mode == encryption_mode::aes_gcm)
+	case encryption_mode::aes_ocb:
 	{
 		thread_local encrypt_decrypt<aes_256_ocb> ocb;
 		data_cache = ocb.decrypt(password, std::move(data_cache), error_message);
+		break;
 	}
-	else
+	case encryption_mode::chacha20:
 	{
-		std::transform(data_cache.begin(), data_cache.end(), data_cache.begin(), [](auto ch) { return ~ch; });
+		thread_local encrypt_decrypt<chacha20> cc20;
+		data_cache = cc20.decrypt(password, std::move(data_cache), error_message);
+		break;
 	}
+	case encryption_mode::xchacha20:
+	{
+		thread_local encrypt_decrypt<xchacha20> xcc20;
+		data_cache = xcc20.decrypt(password, std::move(data_cache), error_message);
+		break;
+	}
+	default:
+		std::transform(data_cache.begin(), data_cache.end(), data_cache.begin(), [](auto ch) { return ~ch; });
+		break;
+	};
 
 	return data_cache;
 }
 
-std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode mode, std::vector<uint8_t> &&input_data, std::string &error_message)
+std::vector<uint8_t> decrypt_data(const std::string& password, encryption_mode mode, std::vector<uint8_t>&& input_data, std::string& error_message)
 {
 	xor_forward(input_data);
 
-	if (mode == encryption_mode::aes_gcm)
+	switch (mode)
+	{
+	case encryption_mode::aes_gcm:
 	{
 		thread_local encrypt_decrypt<aes_256_gcm> gcm;
 		input_data = gcm.decrypt(password, std::move(input_data), error_message);
 		if (!error_message.empty() || input_data.size() == 0)
 			return input_data;
+		break;
 	}
-	else if (mode == encryption_mode::aes_ocb)
+	case encryption_mode::aes_ocb:
 	{
 		thread_local encrypt_decrypt<aes_256_ocb> ocb;
 		input_data = ocb.decrypt(password, std::move(input_data), error_message);
 		if (!error_message.empty() || input_data.size() == 0)
 			return input_data;
+		break;
 	}
+	case encryption_mode::chacha20:
+	{
+		thread_local encrypt_decrypt<chacha20> cc20;
+		input_data = cc20.decrypt(password, std::move(input_data), error_message);
+		if (!error_message.empty() || input_data.size() == 0)
+			return input_data;
+		break;
+	}
+	case encryption_mode::xchacha20:
+	{
+		thread_local encrypt_decrypt<xchacha20> xcc20;
+		input_data = xcc20.decrypt(password, std::move(input_data), error_message);
+		if (!error_message.empty() || input_data.size() == 0)
+			return input_data;
+		break;
+	}
+	default:
+		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
+		break;
+	};
 
-	std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
 	return input_data;
 }
 

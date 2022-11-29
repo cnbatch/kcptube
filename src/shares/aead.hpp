@@ -5,9 +5,10 @@
 #include <botan/gcm.h>
 #include <botan/ocb.h>
 #include <botan/sha3.h>
+#include <botan/chacha20poly1305.h>
 
-#ifndef __AES_256_HPP__
-#define __AES_256_HPP__
+#ifndef __AEAD_HPP__
+#define __AEAD_HPP__
 
 class encryption_base
 {
@@ -342,5 +343,125 @@ public:
 	}
 };
 
+class chacha20 : public encryption_base
+{
+private:
+	void set_key(const std::string &input_key)
+	{
+		iv.resize(8);
+		if (input_key.size() == 0)
+		{
+			key.fill(0);
+			std::fill(iv.begin(), iv.end(), 0);
+			return;
+		}
+
+		Botan::SHA_3_256 sha3;
+		Botan::secure_vector<uint8_t> output_key = sha3.process((const uint8_t *)input_key.c_str(), input_key.size());
+		std::copy(output_key.begin(), output_key.end(), key.begin());
+
+		Botan::secure_vector<uint8_t> output = head_tail_xor(output_key);
+		while (output.size() > iv.size())
+		{
+			auto new_output = head_tail_xor(output);
+			output.resize(new_output.size());
+			std::copy(new_output.begin(), new_output.end(), output.begin());
+		}
+
+		std::copy(output.begin(), output.end(), iv.begin());
+
+		encoder = Botan::ChaCha20Poly1305_Mode::create("ChaCha20Poly1305", Botan::ENCRYPTION);
+		decoder = Botan::ChaCha20Poly1305_Mode::create("ChaCha20Poly1305", Botan::DECRYPTION);
+
+		encoder->set_key(key.data(), key.size());
+		encoder->set_associated_data((const uint8_t *)associated_data.c_str(), associated_data.size());
+
+		decoder->set_key(key.data(), key.size());
+		decoder->set_associated_data((const uint8_t *)associated_data.c_str(), associated_data.size());
+	}
+
+public:
+	chacha20() = delete;
+
+	chacha20(chacha20 &&other) noexcept
+	{
+		key = std::move(other.key);
+		iv = std::move(other.iv);
+		encoder = std::move(other.encoder);
+		decoder = std::move(other.decoder);
+	}
+
+	chacha20(const std::string &input_key)
+	{
+		set_key(input_key);
+	}
+
+	chacha20& operator=(chacha20 &&other) noexcept
+	{
+		key = std::move(other.key);
+		iv = std::move(other.iv);
+		encoder = std::move(other.encoder);
+		decoder = std::move(other.decoder);
+		return *this;
+	}
+};
+
+class xchacha20 : public encryption_base
+{
+private:
+	void set_key(const std::string &input_key)
+	{
+		iv.resize(24);
+		if (input_key.size() == 0)
+		{
+			key.fill(0);
+			std::fill(iv.begin(), iv.end(), 0);
+			return;
+		}
+
+		Botan::SHA_3_256 sha3_256;
+		Botan::secure_vector<uint8_t> output_key = sha3_256.process((const uint8_t *)input_key.c_str(), input_key.size());
+		std::copy(output_key.begin(), output_key.end(), key.begin());
+
+		Botan::SHA_3_384 sha3_384;
+		Botan::secure_vector<uint8_t> output_key_384 = sha3_384.process((const uint8_t *)input_key.c_str(), input_key.size());
+
+		head_tail_xor(output_key_384, iv);
+
+		encoder = Botan::ChaCha20Poly1305_Mode::create("ChaCha20Poly1305", Botan::ENCRYPTION);
+		decoder = Botan::ChaCha20Poly1305_Mode::create("ChaCha20Poly1305", Botan::DECRYPTION);
+
+		encoder->set_key(key.data(), key.size());
+		encoder->set_associated_data((const uint8_t *)associated_data.c_str(), associated_data.size());
+
+		decoder->set_key(key.data(), key.size());
+		decoder->set_associated_data((const uint8_t *)associated_data.c_str(), associated_data.size());
+	}
+
+public:
+	xchacha20() = delete;
+
+	xchacha20(xchacha20 &&other) noexcept
+	{
+		key = std::move(other.key);
+		iv = std::move(other.iv);
+		encoder = std::move(other.encoder);
+		decoder = std::move(other.decoder);
+	}
+
+	xchacha20(const std::string &input_key)
+	{
+		set_key(input_key);
+	}
+
+	xchacha20& operator=(xchacha20 &&other) noexcept
+	{
+		key = std::move(other.key);
+		iv = std::move(other.iv);
+		encoder = std::move(other.encoder);
+		decoder = std::move(other.decoder);
+		return *this;
+	}
+};
 
 #endif

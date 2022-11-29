@@ -35,7 +35,7 @@
     <ClInclude Include="..\..\src\networks\kcp.hpp" />
     <ClInclude Include="..\..\src\networks\server.hpp" />
     <ClInclude Include="..\..\src\networks\stun.hpp" />
-    <ClInclude Include="..\..\src\shares\aes-256.hpp" />
+    <ClInclude Include="..\..\src\shares\aead.hpp" />
     <ClInclude Include="..\..\src\shares\share_defines.hpp" />
     <ClInclude Include="..\..\src\shares\string_utils.hpp" />
   </ItemGroup>
