@@ -125,7 +125,7 @@ encryption_algorithm=AES-GCM
 | destination_port | 1 - 65535 |是|以客户端运行时可以指定端口范围|
 | destination_address  | IP地址、域名 |是|填入 IPv6 地址时不需要中括号|
 | dport_refresh  | 20 - 65535 |否|单位“秒”。预设值 60 秒，小于20秒按20秒算，大于65535时按65536秒算|
-| encryption_algorithm  | AES-GCM<br>AES-OCB |否|AES-256-GCM-AEAD<br>AES-256-OCB-AEAD|
+| encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20 |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305 |
 | encryption_password  | 任意字符 |视情况|设置了 encryption_algorithm 时必填|
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|
