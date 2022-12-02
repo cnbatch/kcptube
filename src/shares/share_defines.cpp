@@ -551,7 +551,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 int64_t calculate_difference(int64_t number1, int64_t number2)
 {
-	return abs(number1 - number2);
+	return std::abs(number1 - number2);
 }
 
 std::vector<uint8_t> create_raw_random_data(size_t mtu_size)
