@@ -5,7 +5,7 @@ UDP Hop 只支持转发 UDP 流量，为了能够转发 TCP 流量，因此就�
 
 利用 KCP 的可靠重传保证转手的 TCP 不会丢包。
 
-当然了，其实这两个工具都是同时构想出来的。所以为了方便起见，先做好了KCP Tube，接着再在KCP Pipe的基础上裁剪成UDP Hop。
+当然了，其实这两个工具都是同时构想出来的。所以为了方便起见，先做好了KCP Tube，接着再在KCP Tube的基础上裁剪成UDP Hop。
 
 为了方便家宽 Full Cone NAT 用户使用，KCP Tube以服务端基本模式运行的时候可以利用 STUN 打洞，同时支持 IPv4 与 IPv6。
 
