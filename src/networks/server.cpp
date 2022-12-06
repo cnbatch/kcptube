@@ -148,24 +148,22 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	if (kcp_ptr->Input((const char *)data_ptr, (long)plain_size) < 0)
 		return;
 
-	std::shared_lock shared_locker_kcp_session_map_to_source_udp{ mutex_kcp_session_map_to_source_udp, std::defer_lock };
-	std::unique_lock unique_locker_kcp_session_map_to_source_udp{ mutex_kcp_session_map_to_source_udp, std::defer_lock };
-	shared_locker_kcp_session_map_to_source_udp.lock();
-	if (auto kcp_iter = kcp_session_map_to_source_udp.find(kcp_ptr); kcp_iter != kcp_session_map_to_source_udp.end())
 	{
-		if (kcp_iter->second != peer)
+		std::shared_lock shared_locker_kcp_session_map_to_source_udp{ mutex_kcp_session_map_to_source_udp };
+		if (auto kcp_iter = kcp_session_map_to_source_udp.find(kcp_ptr); kcp_iter != kcp_session_map_to_source_udp.end())
 		{
-			std::cout << "peer address changed, old: " << kcp_iter->second << ", new: " << peer << "; KCP " << conv << "\n";
-			shared_locker_kcp_session_map_to_source_udp.unlock();
-			unique_locker_kcp_session_map_to_source_udp.lock();
-			kcp_iter->second = std::move(peer);
-			unique_locker_kcp_session_map_to_source_udp.unlock();
-			shared_locker_kcp_session_map_to_source_udp.lock();
+			if (kcp_iter->second != peer)
+			{
+				std::cout << "peer address changed, old: " << kcp_iter->second << ", new: " << peer << "; KCP " << conv << "\n";
+				shared_locker_kcp_session_map_to_source_udp.unlock();
+				std::unique_lock unique_locker_kcp_session_map_to_source_udp{ mutex_kcp_session_map_to_source_udp };
+				if (kcp_iter->second != peer)
+					kcp_iter->second = std::move(peer);
+			}
 		}
+		else
+			return;
 	}
-	else
-		return;
-	shared_locker_kcp_session_map_to_source_udp.unlock();
 
 	while (true)
 	{
@@ -645,7 +643,7 @@ void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_
 		ss << "External IPv4 Port: " << ipv4_port << "\n";
 		std::string message = ss.str();
 		if (!current_settings.log_ip_address.empty())
-			asio::post(asio_strand, [message, log_ip_address = current_settings.log_ip_address]() { print_message_to_file(message, log_ip_address); });
+			print_ip_to_file(message, current_settings.log_ip_address);
 		std::cout << message;
 	}
 
@@ -662,7 +660,7 @@ void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_
 		ss << "External IPv6 Port: " << ipv6_port << "\n";
 		std::string message = ss.str();
 		if (!current_settings.log_ip_address.empty())
-			asio::post(asio_strand, [message, log_ip_address = current_settings.log_ip_address]() { print_message_to_file(message, log_ip_address); });
+			print_ip_to_file(message, current_settings.log_ip_address);
 		std::cout << message;
 	}
 }

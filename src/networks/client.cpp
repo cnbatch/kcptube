@@ -45,6 +45,8 @@ bool handshake::send_handshake(protocol_type ptype, const std::string &destinati
 		else if (udp_endpoints.size() == 0)
 		{
 			std::cerr << "destination address not found\n";
+			if (!current_settings.log_messages.empty())
+				print_message_to_file("destination address not found\n", current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else

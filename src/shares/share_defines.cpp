@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <map>
 #include <fstream>
+#include <mutex>
 #include "share_defines.hpp"
 #include "string_utils.hpp"
 #include "aead.hpp"
@@ -538,7 +539,10 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		if (std::filesystem::exists(current_user_settings.log_directory))
 		{
 			if (std::filesystem::is_directory(current_user_settings.log_directory))
+			{
 				current_user_settings.log_ip_address = current_user_settings.log_directory / "ip_address.log";
+				current_user_settings.log_messages = current_user_settings.log_directory / "log_output.log";
+			}
 			else
 				error_msg.emplace_back("Log Path is not directory");
 		}
@@ -886,9 +890,20 @@ void bitwise_not(uint8_t *input_data, size_t length)
 	}
 }
 
-void print_message_to_file(const std::string &message, const std::filesystem::path &log_file)
+void print_ip_to_file(const std::string& message, const std::filesystem::path& log_file)
 {
-	std::ofstream output_file;
+	static std::ofstream output_file{};
+	static std::mutex mtx;
+	std::unique_lock locker{ mtx };
+	output_file.open(log_file, std::ios::out | std::ios::app);
+	output_file << message;
+}
+
+void print_message_to_file(const std::string& message, const std::filesystem::path& log_file)
+{
+	static std::ofstream output_file{};
+	static std::mutex mtx;
+	std::unique_lock locker{ mtx };
 	output_file.open(log_file, std::ios::out | std::ios::app);
 	output_file << message;
 }

@@ -1,6 +1,9 @@
 add_subdirectory(shares)
 add_subdirectory(networks)
 
+target_link_libraries(${PROJECT_NAME} PRIVATE SHAREDEFINES)
+target_link_libraries(${PROJECT_NAME} PRIVATE NETCONNECTIONS)
+
 if (WIN32)
 	target_link_libraries(${PROJECT_NAME} PUBLIC wsock32 ws2_32)
 endif()
@@ -28,10 +31,6 @@ endif()
 #if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 #	target_link_libraries(${PROJECT_NAME} PUBLIC uring)
 #endif()
-
-
-target_link_libraries(${PROJECT_NAME} PRIVATE SHAREDEFINES)
-target_link_libraries(${PROJECT_NAME} PRIVATE NETCONNECTIONS)
 
 add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
 add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")

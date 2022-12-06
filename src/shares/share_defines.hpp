@@ -50,6 +50,7 @@ struct user_settings
 	std::string stun_server;
 	std::filesystem::path log_directory;
 	std::filesystem::path log_ip_address;
+	std::filesystem::path log_messages;
 };
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
@@ -69,6 +70,7 @@ void xor_backward(uint8_t *data, size_t data_size);
 void xor_backward(std::vector<uint8_t> &data);
 void bitwise_not(uint8_t *input_data, size_t length);
 
+void print_ip_to_file(const std::string &message, const std::filesystem::path &log_file);
 void print_message_to_file(const std::string &message, const std::filesystem::path &log_file);
 
 #endif // !_SHARE_HEADER_
