@@ -189,19 +189,17 @@ encryption_algorithm=AES-GCM
 - FreeBSD
 - Linux
 
-Linux 用户请先安装 botan-2，以便使用加解密共享库。
-
-FreeBSD 用户可将下载好的二进制文件复制到 `/usr/local/bin/`，然后运行命令
-```
-chmod +x /usr/local/bin/kcptube
-```
+预编译的二进制文件全部都是静态编译。Linux 版本基本上都是静态编译，但 libc 除外，因此准备了两个版本，一个用于 glibc，另一个用于 musl。
 
 ---
 
 ## 建立服务
 ### FreeBSD
 
-**提示：务必事先做完上一个步骤，将二进制文件复制到 `/usr/local/bin/`**
+FreeBSD 用户可将下载好的二进制文件复制到 `/usr/local/bin/`，然后运行命令
+```
+chmod +x /usr/local/bin/kcptube
+```
 
 本项目的 `service` 目录已经准备好相应服务文件。
 
