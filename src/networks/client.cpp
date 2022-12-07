@@ -125,9 +125,9 @@ void handshake::start_receive()
 		std::shared_ptr<udp::endpoint> udp_ep_ptr = std::make_shared<udp::endpoint>();
 		std::shared_ptr<uint8_t[]> recv_buffer(new uint8_t[BUFFER_SIZE]());
 		udp_socket.async_receive_from(asio::buffer(recv_buffer.get(), BUFFER_SIZE), *udp_ep_ptr,
-			[this, udp_ep_ptr, recv_buffer](const asio::error_code &error, size_t bytes_transferred)
+			[/*this*/this_handshake = shared_from_this(), udp_ep_ptr, recv_buffer](const asio::error_code &error, size_t bytes_transferred)
 			{
-				handle_receive(recv_buffer, error, bytes_transferred);
+			this_handshake->handle_receive(recv_buffer, error, bytes_transferred);
 			});
 	}
 }
@@ -145,21 +145,23 @@ void handshake::handle_receive(std::shared_ptr<uint8_t[]> recv_buffer, const asi
 	}
 
 	start_receive();
-	asio::post(task_assigner, [this, recv_buffer, bytes_transferred]() { process_handshake(recv_buffer, bytes_transferred); });
+	asio::post(task_assigner, [/*this*/this_handshake = shared_from_this(), recv_buffer, bytes_transferred]() { this_handshake->process_handshake(recv_buffer, bytes_transferred); });
 }
 
 void handshake::process_handshake(std::shared_ptr<uint8_t[]> recv_buffer, std::size_t bytes_transferred)
 {
-	size_t plain_data_size = 0;
+	//size_t plain_data_size = 0;
 	uint8_t *data_ptr = recv_buffer.get();
-	std::tie(error_message, plain_data_size) = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)bytes_transferred);
+	//std::string err_msg;
+	auto [error_message, plain_data_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)bytes_transferred);
 	if (!error_message.empty() || plain_data_size == 0)
 	{
 		std::cerr << error_message << "\n";
+		//error_message = err_msg;
 		return;
 	}
 	kcp_ptr->Input((char *)data_ptr, (long)plain_data_size);
-	kcp_ptr->Update(time_now_for_kcp());
+	//kcp_ptr->Update(time_now_for_kcp());
 	int data_size = kcp_ptr->PeekSize();
 	if (data_size <= 0)
 	{

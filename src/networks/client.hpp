@@ -59,7 +59,7 @@ private:
 	int32_t handshake_timeout;
 	int64_t start_time;
 	user_settings current_settings;
-	std::string error_message;
+	//std::string error_message;
 	std::string destination_address_cache;
 	std::atomic<bool> stop;
 	std::unique_ptr<KCP::KCP> kcp_ptr;
