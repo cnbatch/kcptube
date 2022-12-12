@@ -322,11 +322,11 @@ void udp_to_forwarder::loop_update_connections()
 	std::shared_lock lockers{ mutex_kcp_channels };
 	for (auto &[conv, kcp_ptr] : kcp_channels)
 	{
-		std::unique_lock locker_id_map_to_forwarder{ mutex_id_map_to_forwarder };
-		forwarder *udp_forwarder = id_map_to_forwarder.find(conv)->second.get();
-		locker_id_map_to_forwarder.unlock();
+		//std::unique_lock locker_id_map_to_forwarder{ mutex_id_map_to_forwarder };
+		//forwarder *udp_forwarder = id_map_to_forwarder.find(conv)->second.get();
+		//locker_id_map_to_forwarder.unlock();
 
-		asio::post(asio_strand, [data_kcp = kcp_ptr.get()]() { data_kcp->Update(time_now_for_kcp()); });
+		kcp_ptr->Update(time_now_for_kcp());
 	}
 }
 

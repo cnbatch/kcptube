@@ -429,9 +429,9 @@ void tcp_to_forwarder::loop_update_connections()
 	std::shared_lock lockers{ mutex_kcp_channels };
 	for (auto &[conv, kcp_ptr] : kcp_channels)
 	{
-		std::shared_lock locker_id_map_to_session{ mutex_id_map_to_session };
-		tcp_session *tcp_channel = id_map_to_session.find(conv)->second.get();
-		locker_id_map_to_session.unlock();
+		//std::shared_lock locker_id_map_to_session{ mutex_id_map_to_session };
+		//tcp_session *tcp_channel = id_map_to_session.find(conv)->second.get();
+		//locker_id_map_to_session.unlock();
 
 		kcp_ptr->Update(time_now_for_kcp());
 		//asio::post(asio_strand, [data_kcp = kcp_ptr.get()]() { data_kcp->Update(time_now_for_kcp()); });

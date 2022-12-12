@@ -770,7 +770,7 @@ void server_mode::loop_update_connections()
 	std::shared_lock locker_kcp_looping{ mutex_kcp_looping };
 	for (auto iter = kcp_looping.begin(); iter != kcp_looping.end(); ++iter)
 	{
-		std::shared_ptr<KCP::KCP> kcp_ptr = *iter;
+		KCP::KCP *kcp_ptr = iter->get();
 		uint32_t conv = kcp_ptr->GetConv();
 
 		kcp_ptr->Update(time_now_for_kcp());
