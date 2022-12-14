@@ -109,6 +109,7 @@ class tcp_to_forwarder
 
 	std::shared_mutex mutex_udp_target;
 	std::unique_ptr<udp::endpoint> udp_target;
+	std::unique_ptr<udp::endpoint> previous_udp_target;
 
 	std::shared_mutex mutex_kcp_changeport_timestamp;
 	std::map<KCP::KCP *, std::atomic<int64_t>> kcp_changeport_timestamp;
@@ -213,6 +214,7 @@ class udp_to_forwarder
 
 	std::shared_mutex mutex_udp_target;
 	std::unique_ptr<udp::endpoint> udp_target;
+	std::unique_ptr<udp::endpoint> previous_udp_target;
 
 	std::shared_mutex mutex_kcp_changeport_timestamp;
 	std::map<KCP::KCP *, std::atomic<int64_t>> kcp_changeport_timestamp;

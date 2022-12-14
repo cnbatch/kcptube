@@ -203,9 +203,18 @@ void tcp_to_forwarder::udp_client_incoming_to_tcp(KCP::KCP *kcp_ptr, std::shared
 		case feature::data:
 		{
 			tcp_channel->async_send_data(buffer_cache, unbacked_data_ptr, unbacked_data_size);
-			std::scoped_lock locker{ mutex_udp_target };
-			*udp_target = peer;
 			output_count += data_size;
+			std::shared_lock shared_lock_udp_target{ mutex_udp_target };
+			if (*udp_target != peer && *previous_udp_target != peer)
+			{
+				shared_lock_udp_target.unlock();
+				std::unique_lock unique_lock_udp_target{ mutex_udp_target };
+				if (*udp_target != peer)
+				{
+					*previous_udp_target = *udp_target;
+					*udp_target = peer;
+				}
+			}
 			break;
 		}
 		default:
@@ -507,19 +516,15 @@ void tcp_to_forwarder::loop_change_new_port()
 		if (udp_forwarder == nullptr)
 			continue;
 
-		uint16_t new_port_numer = current_settings.destination_port;
 		if (current_settings.destination_port_start != current_settings.destination_port_end)
-			new_port_numer = generate_new_port_number(current_settings.destination_port_start, current_settings.destination_port_end);
+		{
+			uint16_t new_port_numer = generate_new_port_number(current_settings.destination_port_start, current_settings.destination_port_end);
+			std::scoped_lock locker{ mutex_udp_target };
+			*previous_udp_target = *udp_target;
+			*udp_target = udp::endpoint(udp_target->address(), new_port_numer);
+		}
 
-		udp::endpoint current_udp_target;
-		std::shared_lock locker{ mutex_udp_target };
-		if (current_settings.destination_port_start != current_settings.destination_port_end)
-			current_udp_target = udp::endpoint(udp_target->address(), new_port_numer);
-		else
-			current_udp_target = *udp_target;
-		locker.unlock();
 		forwarder *new_forwarder_ptr = udp_forwarder.get();
-
 		new_forwarder_ptr->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target, ec);
 		if (ec)
 		{
@@ -649,6 +654,7 @@ void tcp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 		{
 			std::scoped_lock locker{ mutex_udp_target };
 			udp_target = std::make_unique<udp::endpoint>(*udp_endpoints.begin());
+			previous_udp_target = std::make_unique<udp::endpoint>(*udp_endpoints.begin());
 			break;
 		}
 	}
