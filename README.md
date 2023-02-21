@@ -127,27 +127,28 @@ encryption_algorithm=AES-GCM
 | dport_refresh  | 20 - 65535 |否|单位“秒”。预设值 60 秒，小于20秒按20秒算，大于65535时按65536秒算|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20 |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305 |
 | encryption_password  | 任意字符 |视情况|设置了 encryption_algorithm 时必填|
+| keep_alive  | 0 - 65535 |否 | 预设值为 0，等于停用 Keep Alive|
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|
 | timeout  | 正整数 |否|单位“秒”，预设值 1800 秒|
 | kcp_mtu  | 正整数 |否|预设值1440|
 | kcp  | manual<br>largo<br>andante<br>moderato<br>allegro<br>presto<br>prestissimo |是|手动设置<br>慢速<br>较慢<br>中速<br>快速<br>急速<br>极速|
-| kcp_sndwnd  | 正整数 |否|预设值256，指定模式见下表|
-| kcp_rcvwnd  | 正整数 |否|预设值1024，指定模式见下表|
-| kcp_nodelay  | 0<br>1 |视情况|kcp=manual时必填，预设值见下表|
-| kcp_interval  | 正整数 |视情况|kcp=manual时必填，预设值见下表|
-| kcp_resend  | 正整数 |视情况|kcp=manual时必填，预设值见下表|
-| kcp_nc  | yes<br>true<br>no<br>false |视情况|kcp=manual时必填，预设值见下表|
+| kcp_sndwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
+| kcp_rcvwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
+| kcp_nodelay  | 0<br>1 |视情况|kcp=manual 时必填，预设值见下表|
+| kcp_interval  | 正整数 |视情况|kcp=manual 时必填，预设值见下表|
+| kcp_resend  | 正整数 |视情况|kcp=manual 时必填，预设值见下表|
+| kcp_nc  | yes<br>true<br>1<br>no<br>false<br>0 |视情况|kcp=manual 时必填，预设值见下表|
 
 #### KCP 模式预设值
 |  模式        | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
 |  ----       | ----        | ----      | ----      | ----       | ----     | ---- 
-| largo       | 256         |   1024    |      0    |   40       |   0      |No|
-| andante     | 256         |   1024    |      0    |   30       |   0      |No|
-| moderato    | 256         |   1024    |      1    |   20       |   0      |No|
-| allegro     | 512         |   2048    |      1    |   20       |   3      |No|
-| presto      | 512         |   2048    |      1    |   15       |   4      |Yes|
-| prestissimo | 512         |   2048    |      1    |   10       |   2      |Yes|
+| largo       | 256         |   1024    |      0    |   40       |   8      |Yes|
+| andante     | 256         |   1024    |      0    |   30       |   6      |Yes|
+| moderato    | 256         |   1024    |      1    |   20       |   4      |Yes|
+| allegro     | 512         |   2048    |      1    |   15       |   3      |Yes|
+| presto      | 512         |   2048    |      1    |   10       |   2      |Yes|
+| prestissimo | 512         |   2048    |      1    |   4        |   2      |Yes|
 
 ### Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就追加），将 IP 地址与端口写进去。
@@ -190,6 +191,20 @@ encryption_algorithm=AES-GCM
 - Linux
 
 预编译的二进制文件全部都是静态编译。Linux 版本基本上都是静态编译，但 libc 除外，因此准备了两个版本，一个用于 glibc，另一个用于 musl。
+
+### Docker 镜像
+
+对于 Linux 环境，另有提供 Docker 镜像（目前仅限 x64），下载 kcptube_docker_image.zip 并解压，再使用 `docker load -i kcptube_docker.tar` 导入。
+
+导入后，使用方式为：
+```
+docker run -v /path/to/config_file.conf:/config_file.conf kcptube config_file.conf
+```
+
+例如：
+```
+docker run -v /home/someone/config1.conf:/config1.conf kcptube config1.conf
+```
 
 ---
 

@@ -22,11 +22,11 @@
 constexpr uint8_t TIME_GAP = std::numeric_limits<uint8_t>::max();	//seconds
 constexpr size_t BUFFER_SIZE = 4096u;
 constexpr size_t BUFFER_EXPAND_SIZE = 128u;
-constexpr size_t RETRY_TIMES = 5u;
+constexpr size_t RETRY_TIMES = 30u;
 constexpr size_t RETRY_WAITS = 3u;
 constexpr size_t CLEANUP_WAITS = 30;	// second
 constexpr size_t KCP_WINDOW_SIZE = 4096;
-constexpr auto KCP_UPDATE_INTERVAL = std::chrono::milliseconds(2);
+constexpr auto KCP_UPDATE_INTERVAL = std::chrono::milliseconds(20);
 constexpr auto STUN_RESEND = std::chrono::seconds(30);
 constexpr auto CHANGEPORT_UPDATE_INTERVAL = std::chrono::seconds(1);
 constexpr auto FINDER_EXPIRES_INTERVAL = std::chrono::seconds(1);
@@ -38,12 +38,15 @@ enum class feature : uint8_t
 	initialise,
 	failure,
 	disconnect,
+	keep_alive,
 	data
 };
 
 enum class protocol_type : uint8_t { tcp = 0, udp };
 
 uint32_t time_now_for_kcp();
+void update_kcp_in_timer(asio::io_context &ioc_ref, std::weak_ptr<KCP::KCP> kcp_ptr);
+void update_kcp_in_timer(const asio::error_code &e, std::weak_ptr<KCP::KCP> kcp_ptr, asio::steady_timer &kcp_timer);
 std::string_view feature_to_string(feature ftr);
 std::string protocol_type_to_string(protocol_type prtcl);
 std::string debug_data_to_string(const uint8_t *data, size_t len);
@@ -75,6 +78,8 @@ namespace packet
 	std::vector<uint8_t> create_data_packet(protocol_type prtcl, const std::vector<uint8_t> &custom_data);
 	size_t create_data_packet(protocol_type prtcl, uint8_t *custom_data, size_t length);
 
+	std::vector<uint8_t> create_keep_alive_packet(protocol_type prtcl);
+
 	std::string get_error_message_from_unpacked_data(const std::vector<uint8_t> &data);
 	std::string get_error_message_from_unpacked_data(uint8_t *data, size_t length);
 
@@ -88,15 +93,15 @@ using asio::ip::udp;
 
 class tcp_session;
 
-using tcp_callback_t = std::function<void(std::shared_ptr<uint8_t[]>, size_t, tcp_session*)>;
+using tcp_callback_t = std::function<void(std::shared_ptr<uint8_t[]>, size_t, std::shared_ptr<tcp_session>)>;
 using udp_callback_t = std::function<void(std::shared_ptr<uint8_t[]>, size_t, udp::endpoint&&, asio::ip::port_type)>;
 
-void empty_tcp_callback(std::shared_ptr<uint8_t[]> tmp1, size_t tmps, tcp_session *tmp2);
+void empty_tcp_callback(std::shared_ptr<uint8_t[]> tmp1, size_t tmps, std::shared_ptr<tcp_session> tmp2);
 void empty_udp_callback(std::shared_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint &&tmp2, asio::ip::port_type tmp3);
-void empty_tcp_disconnect(tcp_session *tmp);
+void empty_tcp_disconnect(std::shared_ptr<tcp_session> tmp);
 int empty_kcp_output(const char *, int, void *);
 
-class tcp_session
+class tcp_session : public std::enable_shared_from_this<tcp_session>
 {
 public:
 
@@ -131,7 +136,7 @@ public:
 	void async_send_data(std::shared_ptr<uint8_t[]> buffer_data, uint8_t *start_pos, size_t size_in_bytes);
 	void async_send_data(const uint8_t *buffer_data, size_t size_in_bytes);
 
-	void when_disconnect(std::function<void(tcp_session*)> callback_before_disconnect);
+	void when_disconnect(std::function<void(std::shared_ptr<tcp_session>)> callback_before_disconnect);
 
 	void replace_callback(tcp_callback_t callback_func);
 
@@ -150,7 +155,7 @@ private:
 	asio::strand<asio::io_context::executor_type> &task_assigner;
 	tcp::socket connection_socket;
 	tcp_callback_t callback;
-	std::function<void(tcp_session*)> callback_for_disconnect;
+	std::function<void(std::shared_ptr<tcp_session>)> callback_for_disconnect;
 	std::atomic<int64_t> last_receive_time;
 	std::atomic<int64_t> last_send_time;
 	std::atomic<bool> paused;
@@ -161,7 +166,7 @@ private:
 class tcp_server
 {
 public:
-	using acceptor_callback_t = std::function<void(std::unique_ptr<tcp_session>&&)>;
+	using acceptor_callback_t = std::function<void(std::shared_ptr<tcp_session>)>;
 	tcp_server() = delete;
 	tcp_server(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand,
 		const tcp::endpoint &ep, acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func)
@@ -175,7 +180,7 @@ public:
 private:
 	void acceptor_initialise(const tcp::endpoint &ep);
 	void start_accept();
-	void handle_accept(std::unique_ptr<tcp_session> &&new_connection, const asio::error_code &error_code);
+	void handle_accept(std::shared_ptr<tcp_session> new_connection, const asio::error_code &error_code);
 
 	asio::io_context &internal_io_context;
 	asio::strand<asio::io_context::executor_type> &task_assigner;
@@ -192,7 +197,7 @@ public:
 	tcp_client(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand)
 		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(asio_strand){}
 
-	std::unique_ptr<tcp_session> connect(tcp_callback_t callback_func, asio::error_code &ec);
+	std::shared_ptr<tcp_session> connect(tcp_callback_t callback_func, asio::error_code &ec);
 
 	bool set_remote_hostname(const std::string &remote_address, asio::ip::port_type port_num, asio::error_code &ec);
 	bool set_remote_hostname(const std::string &remote_address, const std::string &port_num, asio::error_code &ec);

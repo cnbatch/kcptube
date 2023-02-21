@@ -33,7 +33,7 @@ bool handshake::send_handshake(protocol_type ptype, const std::string &destinati
 
 	asio::error_code ec;
 	udp::resolver resolver(ioc);
-	for (int i = 0; i < RETRY_TIMES; ++i)
+	for (int i = 0; i <= RETRY_TIMES; ++i)
 	{
 		udp::resolver::results_type udp_endpoints = resolver.resolve(udp::v6(), destination_address, std::to_string(destination_port),
 			udp::resolver::numeric_service | udp::resolver::v4_mapped | udp::resolver::all_matching, ec);
@@ -44,9 +44,10 @@ bool handshake::send_handshake(protocol_type ptype, const std::string &destinati
 		}
 		else if (udp_endpoints.size() == 0)
 		{
-			std::cerr << "destination address not found\n";
+			std::string error_message = time_to_string_with_square_brackets() + "destination address not found\n";
+			std::cerr << error_message;
 			if (!current_settings.log_messages.empty())
-				print_message_to_file("destination address not found\n", current_settings.log_messages);
+				print_message_to_file(error_message, current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else

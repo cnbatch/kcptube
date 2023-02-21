@@ -1,8 +1,9 @@
-#include <limits>
+#include <climits>
 #include <stdexcept>
 #include <cstdlib>
 #include <map>
 #include <fstream>
+#include <sstream>
 #include <mutex>
 #include "share_defines.hpp"
 #include "string_utils.hpp"
@@ -127,213 +128,229 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 		if (value.empty())
 			continue;
 
-		switch (strhash(name.c_str()))
+		try
 		{
-		case strhash("mode"):
-			switch (strhash(value.c_str()))
+			switch (strhash(name.c_str()))
 			{
-			case strhash("server"):
-				current_user_settings.mode = running_mode::server;
-				break;
-			case strhash("client"):
-				current_user_settings.mode = running_mode::client;
-				break;
-			default:
-				current_user_settings.mode = running_mode::unknow;
-				error_msg.emplace_back("invalid mode: " + value);
-				break;
-			}
-			break;
-
-		case strhash("listen_on"):
-			current_user_settings.listen_on = original_value;
-			break;
-
-		case strhash("listen_port"):
-			if (auto pos = value.find("-"); pos == std::string::npos)
-			{
-				if (auto port_number = std::stoi(value); port_number > 0 && port_number < 65536)
-					current_user_settings.listen_port = static_cast<uint16_t>(port_number);
-				else
-					error_msg.emplace_back("invalid listen_port number: " + value);
-			}
-			else
-			{
-				std::string start_port = value.substr(0, pos);
-				std::string end_port = value.substr(pos + 1);
-				trim(start_port);
-				trim(end_port);
-
-				if (start_port.empty() || end_port.empty())
+			case strhash("mode"):
+				switch (strhash(value.c_str()))
 				{
-					error_msg.emplace_back("invalid listen_port range: " + value);
+				case strhash("server"):
+					current_user_settings.mode = running_mode::server;
+					break;
+				case strhash("client"):
+					current_user_settings.mode = running_mode::client;
+					break;
+				default:
+					current_user_settings.mode = running_mode::unknow;
+					error_msg.emplace_back("invalid mode: " + value);
 					break;
 				}
+				break;
 
-				if (auto port_number = std::stoi(start_port); port_number > 0 && port_number < 65536)
-					current_user_settings.listen_port_start = static_cast<uint16_t>(port_number);
-				else
-					error_msg.emplace_back("invalid listen_port_start number: " + start_port);
+			case strhash("listen_on"):
+				current_user_settings.listen_on = original_value;
+				break;
 
-				if (auto port_number = std::stoi(end_port); port_number > 0 && port_number < 65536)
-					current_user_settings.listen_port_end = static_cast<uint16_t>(port_number);
-				else
-					error_msg.emplace_back("invalid listen_port_end number: " + end_port);
-			}
-			break;
-
-		case strhash("dport_refresh"):	// client only
-			if (auto time_interval = std::stoi(value); time_interval < dport_refresh_minimal)
-				current_user_settings.dynamic_port_refresh = dport_refresh_minimal;
-			else if (time_interval >= dport_refresh_minimal && time_interval < 65536)
-				current_user_settings.dynamic_port_refresh = static_cast<uint16_t>(time_interval);
-			else if (time_interval >= 65536)
-				current_user_settings.dynamic_port_refresh = std::numeric_limits<uint16_t>::max();
-			break;
-
-		case strhash("destination_port"):
-			if (auto pos = value.find("-"); pos == std::string::npos)
-			{
-				if (auto port_number = std::stoi(value); port_number > 0 && port_number < 65536)
-					current_user_settings.destination_port = static_cast<uint16_t>(port_number);
-				else
-					error_msg.emplace_back("invalid listen_port number: " + value);
-			}
-			else
-			{
-				std::string start_port = value.substr(0, pos);
-				std::string end_port = value.substr(pos + 1);
-				trim(start_port);
-				trim(end_port);
-
-				if (start_port.empty() || end_port.empty())
+			case strhash("listen_port"):
+				if (auto pos = value.find("-"); pos == std::string::npos)
 				{
-					error_msg.emplace_back("invalid destination_port range: " + value);
+					if (auto port_number = std::stoi(value); port_number > 0 && port_number < USHRT_MAX)
+						current_user_settings.listen_port = static_cast<uint16_t>(port_number);
+					else
+						error_msg.emplace_back("invalid listen_port number: " + value);
+				}
+				else
+				{
+					std::string start_port = value.substr(0, pos);
+					std::string end_port = value.substr(pos + 1);
+					trim(start_port);
+					trim(end_port);
+
+					if (start_port.empty() || end_port.empty())
+					{
+						error_msg.emplace_back("invalid listen_port range: " + value);
+						break;
+					}
+
+					if (auto port_number = std::stoi(start_port); port_number > 0 && port_number < USHRT_MAX)
+						current_user_settings.listen_port_start = static_cast<uint16_t>(port_number);
+					else
+						error_msg.emplace_back("invalid listen_port_start number: " + start_port);
+
+					if (auto port_number = std::stoi(end_port); port_number > 0 && port_number < USHRT_MAX)
+						current_user_settings.listen_port_end = static_cast<uint16_t>(port_number);
+					else
+						error_msg.emplace_back("invalid listen_port_end number: " + end_port);
+				}
+				break;
+
+			case strhash("dport_refresh"):	// client only
+				if (auto time_interval = std::stoi(value); time_interval < dport_refresh_minimal)
+					current_user_settings.dynamic_port_refresh = dport_refresh_minimal;
+				else if (time_interval >= dport_refresh_minimal && time_interval < USHRT_MAX)
+					current_user_settings.dynamic_port_refresh = static_cast<uint16_t>(time_interval);
+				else
+					current_user_settings.dynamic_port_refresh = USHRT_MAX;
+				break;
+
+			case strhash("destination_port"):
+				if (auto pos = value.find("-"); pos == std::string::npos)
+				{
+					if (auto port_number = std::stoi(value); port_number > 0 && port_number < USHRT_MAX)
+						current_user_settings.destination_port = static_cast<uint16_t>(port_number);
+					else
+						error_msg.emplace_back("invalid listen_port number: " + value);
+				}
+				else
+				{
+					std::string start_port = value.substr(0, pos);
+					std::string end_port = value.substr(pos + 1);
+					trim(start_port);
+					trim(end_port);
+
+					if (start_port.empty() || end_port.empty())
+					{
+						error_msg.emplace_back("invalid destination_port range: " + value);
+						break;
+					}
+
+					if (auto port_number = std::stoi(start_port); port_number > 0 && port_number < USHRT_MAX)
+						current_user_settings.destination_port_start = static_cast<uint16_t>(port_number);
+					else
+						error_msg.emplace_back("invalid destination_port_start number: " + start_port);
+
+					if (auto port_number = std::stoi(end_port); port_number > 0 && port_number < USHRT_MAX)
+						current_user_settings.destination_port_end = static_cast<uint16_t>(port_number);
+					else
+						error_msg.emplace_back("invalid destination_port_end number: " + end_port);
+				}
+				break;
+
+
+			case strhash("destination_address"):
+				current_user_settings.destination_address = value;
+				break;
+
+			case strhash("encryption_password"):
+				current_user_settings.encryption_password = original_value;
+				break;
+
+			case strhash("encryption_algorithm"):
+				switch (strhash(value.c_str()))
+				{
+				case strhash("none"):
+					current_user_settings.encryption = encryption_mode::none;
+					break;
+				case strhash("aes-gcm"):
+					current_user_settings.encryption = encryption_mode::aes_gcm;
+					break;
+				case strhash("aes-ocb"):
+					current_user_settings.encryption = encryption_mode::aes_ocb;
+					break;
+				case strhash("chacha20"):
+					current_user_settings.encryption = encryption_mode::chacha20;
+					break;
+				case strhash("xchacha20"):
+					current_user_settings.encryption = encryption_mode::xchacha20;
+					break;
+				default:
+					current_user_settings.encryption = encryption_mode::unknow;
+					error_msg.emplace_back("encryption_algorithm is incorrect: " + value);
 					break;
 				}
+				break;
 
-				if (auto port_number = std::stoi(start_port); port_number > 0 && port_number < 65536)
-					current_user_settings.destination_port_start = static_cast<uint16_t>(port_number);
-				else
-					error_msg.emplace_back("invalid destination_port_start number: " + start_port);
+			case strhash("kcp"):
+				switch (strhash(value.c_str()))
+				{
+				case strhash("manual"):
+					current_user_settings.kcp_setting = kcp_mode::manual;
+					break;
+				case strhash("largo"):
+					current_user_settings.kcp_setting = kcp_mode::largo;
+					break;
+				case strhash("andante"):
+					current_user_settings.kcp_setting = kcp_mode::andante;
+					break;
+				case strhash("moderato"):
+					current_user_settings.kcp_setting = kcp_mode::moderato;
+					break;
+				case strhash("allegro"):
+					current_user_settings.kcp_setting = kcp_mode::allegro;
+					break;
+				case strhash("presto"):
+					current_user_settings.kcp_setting = kcp_mode::presto;
+					break;
+				case strhash("prestissimo"):
+					current_user_settings.kcp_setting = kcp_mode::prestissimo;
+					break;
+				default:
+					current_user_settings.kcp_setting = kcp_mode::unknow;
+					error_msg.emplace_back("invalid kcp setting: " + value);
+					break;
+				}
+				break;
 
-				if (auto port_number = std::stoi(end_port); port_number > 0 && port_number < 65536)
-					current_user_settings.destination_port_end = static_cast<uint16_t>(port_number);
-				else
-					error_msg.emplace_back("invalid destination_port_end number: " + end_port);
-			}
-			break;
+			case strhash("timeout"):
+				current_user_settings.timeout = std::stoi(value);
+				break;
 
+			case strhash("kcp_mtu"):
+				current_user_settings.kcp_mtu = std::stoi(value);
+				break;
 
-		case strhash("destination_address"):
-			current_user_settings.destination_address = value;
-			break;
+			case strhash("kcp_sndwnd"):
+				current_user_settings.kcp_sndwnd = std::stoi(value);
+				break;
 
-		case strhash("encryption_password"):
-			current_user_settings.encryption_password = original_value;
-			break;
+			case strhash("kcp_rcvwnd"):
+				current_user_settings.kcp_rcvwnd = std::stoi(value);
+				break;
 
-		case strhash("encryption_algorithm"):
-			switch (strhash(value.c_str()))
+			case strhash("kcp_nodelay"):
+				current_user_settings.kcp_nodelay = std::stoi(value);
+				break;
+
+			case strhash("kcp_interval"):
+				current_user_settings.kcp_interval = std::stoi(value);
+				break;
+
+			case strhash("kcp_resend"):
+				current_user_settings.kcp_resend = std::stoi(value);
+				break;
+
+			case strhash("kcp_nc"):
 			{
-			case strhash("none"):
-				current_user_settings.encryption = encryption_mode::none;
-				break;
-			case strhash("aes-gcm"):
-				current_user_settings.encryption = encryption_mode::aes_gcm;
-				break;
-			case strhash("aes-ocb"):
-				current_user_settings.encryption = encryption_mode::aes_ocb;
-				break;
-			case strhash("chacha20"):
-				current_user_settings.encryption = encryption_mode::chacha20;
-				break;
-			case strhash("xchacha20"):
-				current_user_settings.encryption = encryption_mode::xchacha20;
-				break;
-			default:
-				current_user_settings.encryption = encryption_mode::unknow;
-				error_msg.emplace_back("encryption_algorithm is incorrect: " + value);
+				bool yes = value == "yes" || value == "true" || value == "1";
+				current_user_settings.kcp_nc = yes;
 				break;
 			}
-			break;
 
-		case strhash("kcp"):
-			switch (strhash(value.c_str()))
-			{
-			case strhash("manual"):
-				current_user_settings.kcp_setting = kcp_mode::manual;
+			case strhash("keep_alive"):
+				if (auto time_interval = std::stoi(value); time_interval < 0)
+					current_user_settings.keep_alive = 0;
+				else if (time_interval >= dport_refresh_minimal && time_interval < USHRT_MAX)
+					current_user_settings.keep_alive = static_cast<uint16_t>(time_interval);
+				else
+					current_user_settings.keep_alive = USHRT_MAX;
 				break;
-			case strhash("largo"):
-				current_user_settings.kcp_setting = kcp_mode::largo;
+
+			case strhash("stun_server"):
+				current_user_settings.stun_server = original_value;
 				break;
-			case strhash("andante"):
-				current_user_settings.kcp_setting = kcp_mode::andante;
+
+			case strhash("log_path"):
+				current_user_settings.log_directory = original_value;
 				break;
-			case strhash("moderato"):
-				current_user_settings.kcp_setting = kcp_mode::moderato;
-				break;
-			case strhash("allegro"):
-				current_user_settings.kcp_setting = kcp_mode::allegro;
-				break;
-			case strhash("presto"):
-				current_user_settings.kcp_setting = kcp_mode::presto;
-				break;
-			case strhash("prestissimo"):
-				current_user_settings.kcp_setting = kcp_mode::prestissimo;
-				break;
+
 			default:
-				current_user_settings.kcp_setting = kcp_mode::unknow;
-				error_msg.emplace_back("invalid kcp setting: " + value);
-				break;
+				error_msg.emplace_back("unknow option: " + arg);
 			}
-			break;
-
-		case strhash("timeout"):
-			current_user_settings.timeout = std::stoi(value);
-			break;
-
-		case strhash("kcp_mtu"):
-			current_user_settings.kcp_mtu = std::stoi(value);
-			break;
-
-		case strhash("kcp_sndwnd"):
-			current_user_settings.kcp_sndwnd = std::stoi(value);
-			break;
-
-		case strhash("kcp_rcvwnd"):
-			current_user_settings.kcp_rcvwnd = std::stoi(value);
-			break;
-
-		case strhash("kcp_nodelay"):
-			current_user_settings.kcp_nodelay = std::stoi(value);
-			break;
-
-		case strhash("kcp_interval"):
-			current_user_settings.kcp_interval = std::stoi(value);
-			break;
-
-		case strhash("kcp_resend"):
-			current_user_settings.kcp_resend = std::stoi(value);
-			break;
-
-		case strhash("kcp_nc"):
-		{
-			bool yes = value == "yes" || value == "true";
-			current_user_settings.kcp_nc = yes;
-			break;
 		}
-
-		case strhash("stun_server"):
-			current_user_settings.stun_server = original_value;
-			break;
-
-		case strhash("log_path"):
-			current_user_settings.log_directory = original_value;
-			break;
-
-		default:
-			error_msg.emplace_back("unknow option: " + arg);
+		catch (const std::exception &ex)
+		{
+			error_msg.emplace_back("invalid input: '" + arg + "'" + ", " + ex.what());
 		}
 	}
 
@@ -389,7 +406,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 	{
 		current_user_settings.kcp_nodelay = 1;
 		current_user_settings.kcp_interval = 10;
-		current_user_settings.kcp_resend = 4;
+		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW * 2;
@@ -403,7 +420,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_nodelay = 1;
 		current_user_settings.kcp_interval = 15;
 		current_user_settings.kcp_resend = 3;
-		current_user_settings.kcp_nc = 0;
+		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW * 2;
 		if (current_user_settings.kcp_rcvwnd < 0)
@@ -413,10 +430,10 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 	case kcp_mode::moderato:
 	{
-		current_user_settings.kcp_nodelay = 1;
+		current_user_settings.kcp_nodelay = 0;
 		current_user_settings.kcp_interval = 20;
-		current_user_settings.kcp_resend = 0;
-		current_user_settings.kcp_nc = 0;
+		current_user_settings.kcp_resend = 4;
+		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW;
 		if (current_user_settings.kcp_rcvwnd < 0)
@@ -428,8 +445,8 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 	{
 		current_user_settings.kcp_nodelay = 0;
 		current_user_settings.kcp_interval = 30;
-		current_user_settings.kcp_resend = 0;
-		current_user_settings.kcp_nc = 0;
+		current_user_settings.kcp_resend = 6;
+		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW;
 		if (current_user_settings.kcp_rcvwnd < 0)
@@ -445,8 +462,8 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 	{
 		current_user_settings.kcp_nodelay = 0;
 		current_user_settings.kcp_interval = 40;
-		current_user_settings.kcp_resend = 0;
-		current_user_settings.kcp_nc = 0;
+		current_user_settings.kcp_resend = 8;
+		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW;
 		if (current_user_settings.kcp_rcvwnd < 0)
@@ -890,20 +907,42 @@ void bitwise_not(uint8_t *input_data, size_t length)
 	}
 }
 
-void print_ip_to_file(const std::string& message, const std::filesystem::path& log_file)
+std::string time_to_string()
 {
-	static std::ofstream output_file{};
-	static std::mutex mtx;
-	std::unique_lock locker{ mtx };
-	output_file.open(log_file, std::ios::out | std::ios::app);
-	output_file << message;
+	std::time_t t = std::time(nullptr);
+	std::tm tm = *std::localtime(&t);
+	std::ostringstream oss;
+	oss << std::put_time(&tm, "%F %T %z");
+	return oss.str();
 }
 
-void print_message_to_file(const std::string& message, const std::filesystem::path& log_file)
+std::string time_to_string_with_square_brackets()
 {
+	return "[" + time_to_string() + "] ";
+}
+
+void print_ip_to_file(const std::string &message, const std::filesystem::path &log_file)
+{
+	if (log_file.empty())
+		return;
+
 	static std::ofstream output_file{};
 	static std::mutex mtx;
 	std::unique_lock locker{ mtx };
 	output_file.open(log_file, std::ios::out | std::ios::app);
 	output_file << message;
+	output_file.close();
+}
+
+void print_message_to_file(const std::string &message, const std::filesystem::path &log_file)
+{
+	if (log_file.empty())
+		return;
+
+	static std::ofstream output_file{};
+	static std::mutex mtx;
+	std::unique_lock locker{ mtx };
+	output_file.open(log_file, std::ios::out | std::ios::app);
+	output_file << message;
+	output_file.close();
 }

@@ -33,6 +33,7 @@ struct user_settings
 	uint16_t destination_port_start = 0;
 	uint16_t destination_port_end = 0;
 	uint16_t dynamic_port_refresh = dport_refresh_default;	// seconds
+	uint16_t keep_alive = 0;	// seconds
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::empty;
 	kcp_mode kcp_setting = kcp_mode::unknow;
@@ -70,6 +71,8 @@ void xor_backward(uint8_t *data, size_t data_size);
 void xor_backward(std::vector<uint8_t> &data);
 void bitwise_not(uint8_t *input_data, size_t length);
 
+std::string time_to_string();
+std::string time_to_string_with_square_brackets();
 void print_ip_to_file(const std::string &message, const std::filesystem::path &log_file);
 void print_message_to_file(const std::string &message, const std::filesystem::path &log_file);
 

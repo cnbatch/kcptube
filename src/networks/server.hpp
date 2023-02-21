@@ -21,14 +21,14 @@ class server_mode
 	std::map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
 
 	std::mutex mutex_tcp_session_map_to_kcp;
-	std::map<std::shared_ptr<tcp_session>, std::shared_ptr<KCP::KCP>> tcp_session_map_to_kcp;
+	std::map<std::shared_ptr<tcp_session>, std::shared_ptr<KCP::KCP>, std::owner_less<>> tcp_session_map_to_kcp;
 	std::shared_mutex mutex_kcp_session_map_to_tcp;
-	std::map<std::shared_ptr<KCP::KCP>, std::shared_ptr<tcp_session>> kcp_session_map_to_tcp;
+	std::map<std::shared_ptr<KCP::KCP>, std::shared_ptr<tcp_session>, std::owner_less<>> kcp_session_map_to_tcp;
 
 	std::shared_mutex mutex_kcp_session_map_to_target_udp;
-	std::map<std::shared_ptr<KCP::KCP>, std::shared_ptr<udp_client>> kcp_session_map_to_target_udp;
+	std::map<std::shared_ptr<KCP::KCP>, std::shared_ptr<udp_client>, std::owner_less<>> kcp_session_map_to_target_udp;
 	std::shared_mutex mutex_kcp_session_map_to_source_udp;
-	std::map<std::shared_ptr<KCP::KCP>, udp::endpoint> kcp_session_map_to_source_udp;
+	std::map<std::shared_ptr<KCP::KCP>, udp::endpoint, std::owner_less<>> kcp_session_map_to_source_udp;
 
 	std::shared_mutex mutex_handshake_channels;
 	std::map<udp::endpoint, std::shared_ptr<KCP::KCP>> handshake_channels;
@@ -38,23 +38,24 @@ class server_mode
 	std::map<uint32_t, protocol_type> uid_to_protocal_type;
 
 	std::mutex mutex_expiring_kcp;
-	std::map<std::shared_ptr<KCP::KCP>, int64_t> expiring_kcp;
+	std::map<std::shared_ptr<KCP::KCP>, int64_t, std::owner_less<>> expiring_kcp;
 	std::mutex mutex_expiring_handshakes;
-	std::map<std::shared_ptr<KCP::KCP>, int64_t> expiring_handshakes;
+	std::map<std::shared_ptr<KCP::KCP>, int64_t, std::owner_less<>> expiring_handshakes;
 
 	std::shared_mutex mutex_kcp_looping;
-	std::set<std::shared_ptr<KCP::KCP>> kcp_looping;
+	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_looping;
 
 	asio::steady_timer timer_send_data;
 	asio::steady_timer timer_find_expires;
 	asio::steady_timer timer_expiring_kcp;
 	asio::steady_timer timer_stun;
+	asio::steady_timer timer_keep_alive;
 	asio::strand<asio::io_context::executor_type> asio_strand;
 
 	std::unique_ptr<udp::endpoint> udp_target;
 
 	void udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number);
-	void tcp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, tcp_session *incoming_session, KCP::KCP *kcp_session);
+	void tcp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::shared_ptr<KCP::KCP> kcp_session);
 	void udp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number, std::shared_ptr<KCP::KCP> kcp_session);
 
 	void udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number);
@@ -72,11 +73,13 @@ class server_mode
 	void cleanup_expiring_data_connections();
 	void loop_update_connections();
 	void loop_find_expires();
+	void loop_keep_alive();
 	void send_stun_request(const asio::error_code &e);
 	void kcp_loop_updates(const asio::error_code &e);
 	void find_expires(const asio::error_code &e);
 	void expiring_kcp_loops(const asio::error_code &e);
-	void time_counting(const asio::error_code & e);
+	void time_counting(const asio::error_code &e);
+	void keep_alive(const asio::error_code &e);
 
 	asio::steady_timer timer_speed_count;
 	std::atomic<int64_t> input_count;
@@ -94,7 +97,7 @@ public:
 	server_mode(asio::io_context &io_context_ref, asio::io_context &net_io, const user_settings &settings)
 		: io_context(io_context_ref), network_io(net_io), timer_send_data(io_context),
 		timer_find_expires(io_context), timer_expiring_kcp(io_context),
-		timer_stun(io_context),
+		timer_stun(io_context), timer_keep_alive(io_context),
 		asio_strand(asio::make_strand(io_context.get_executor())),
 		external_ipv4_port(0),
 		external_ipv4_address(0),
@@ -110,6 +113,7 @@ public:
 		timer_find_expires(std::move(existing_server.timer_find_expires)),
 		timer_expiring_kcp(std::move(existing_server.timer_expiring_kcp)),
 		timer_stun(std::move(existing_server.timer_stun)),
+		timer_keep_alive(std::move(existing_server.timer_keep_alive)),
 		asio_strand(std::move(existing_server.asio_strand)),
 		external_ipv4_port(existing_server.external_ipv4_port.load()),
 		external_ipv4_address(existing_server.external_ipv4_address.load()),

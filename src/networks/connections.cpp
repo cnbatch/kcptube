@@ -9,7 +9,7 @@
 using namespace std::chrono;
 using namespace std::literals;
 
-void empty_tcp_callback(std::shared_ptr<uint8_t[]> tmp1, size_t tmps, tcp_session *tmp2)
+void empty_tcp_callback(std::shared_ptr<uint8_t[]> tmp1, size_t tmps, std::shared_ptr<tcp_session> tmp2)
 {
 }
 
@@ -17,7 +17,7 @@ void empty_udp_callback(std::shared_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpo
 {
 }
 
-void empty_tcp_disconnect(tcp_session *tmp)
+void empty_tcp_disconnect(std::shared_ptr<tcp_session> tmp)
 {
 }
 
@@ -98,6 +98,52 @@ void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, 
 uint32_t time_now_for_kcp()
 {
 	return static_cast<uint32_t>((duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()) & 0xFFFF'FFFFul);
+}
+
+void update_kcp_in_timer(asio::io_context &ioc_ref, std::weak_ptr<KCP::KCP> kcp_ptr)
+{
+	thread_local std::map<std::weak_ptr<KCP::KCP>, asio::steady_timer, std::owner_less<>> kcp_to_timer;
+
+	std::shared_ptr kcp_sptr = kcp_ptr.lock();
+	auto iter = kcp_to_timer.find(kcp_ptr);
+	if (iter == kcp_to_timer.end())
+	{
+		if (kcp_sptr == nullptr)
+			return;
+
+		kcp_to_timer.insert({ kcp_ptr, asio::steady_timer{ioc_ref} });
+		iter = kcp_to_timer.find(kcp_ptr);
+	}
+
+	if (kcp_sptr == nullptr)
+	{
+		iter->second.cancel();
+		kcp_to_timer.erase(iter);
+		return;
+	}
+
+	uint32_t next_time_ms = kcp_sptr->Check(time_now_for_kcp());
+	asio::steady_timer &kcp_timer = iter->second;
+	auto diff = duration_cast<milliseconds>(kcp_timer.expiry() - steady_clock::now()).count();
+	if (diff > 0 && next_time_ms > diff)
+		return;
+
+	kcp_timer.expires_after(milliseconds{ next_time_ms });
+	kcp_timer.async_wait([kcp_ptr, &kcp_timer](const asio::error_code &e) { update_kcp_in_timer(e, kcp_ptr, kcp_timer); });
+}
+
+void update_kcp_in_timer(const asio::error_code &e, std::weak_ptr<KCP::KCP> kcp_ptr, asio::steady_timer &kcp_timer)
+{
+	if (e == asio::error::operation_aborted)
+		return;
+
+	std::shared_ptr kcp_sptr = kcp_ptr.lock();
+	if (kcp_sptr == nullptr)
+		return;
+	kcp_sptr->Update(time_now_for_kcp());
+	uint32_t next_time_ms = kcp_sptr->Check(time_now_for_kcp());
+	kcp_timer.expires_after(milliseconds{ next_time_ms });
+	kcp_timer.async_wait([kcp_ptr, &kcp_timer](const asio::error_code &e) { update_kcp_in_timer(e, kcp_ptr, kcp_timer); });
 }
 
 std::string_view feature_to_string(feature ftr)
@@ -322,6 +368,11 @@ namespace packet
 		return create_packet(feature::data, prtcl, custom_data, length);
 	}
 
+	std::vector<uint8_t> create_keep_alive_packet(protocol_type prtcl)
+	{
+		return create_packet(feature::keep_alive, prtcl, std::vector<uint8_t>(empty_data_size));
+	}
+
 	std::string get_error_message_from_unpacked_data(const std::vector<uint8_t> &data)
 	{
 		return std::string((const char *)data.data(), data.size());
@@ -421,7 +472,7 @@ void tcp_session::async_read_data()
 
 	std::shared_ptr<uint8_t[]> buffer_cache(new uint8_t[BUFFER_SIZE]());
 	asio::async_read(connection_socket, asio::buffer(buffer_cache.get(), BUFFER_SIZE), asio::transfer_at_least(1),
-		[buffer_cache, this](const asio::error_code &error, std::size_t bytes_transferred)
+		[buffer_cache, this, sptr = shared_from_this()](const asio::error_code& error, std::size_t bytes_transferred)
 		{
 			after_read_completed(buffer_cache, error, bytes_transferred);
 		});
@@ -463,7 +514,7 @@ void tcp_session::async_send_data(std::shared_ptr<std::vector<uint8_t>> data)
 		return;
 
 	asio::async_write(connection_socket, asio::buffer(*data),
-		[this, data](const asio::error_code &error, size_t bytes_transferred)
+		[this, data, sptr = shared_from_this()](const asio::error_code& error, size_t bytes_transferred)
 		{
 			after_write_completed(error, bytes_transferred);
 		});
@@ -476,7 +527,7 @@ void tcp_session::async_send_data(std::vector<uint8_t> &&data)
 
 	auto asio_buffer = asio::buffer(data);
 	asio::async_write(connection_socket, asio_buffer,
-		[this, data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred)
+		[this, data_ = std::move(data), sptr = shared_from_this()](const asio::error_code &error, size_t bytes_transferred)
 	{ after_write_completed(error, bytes_transferred); });
 }
 
@@ -486,7 +537,7 @@ void tcp_session::async_send_data(std::shared_ptr<uint8_t[]> buffer_data, size_t
 		return;
 
 	asio::async_write(connection_socket, asio::buffer(buffer_data.get(), size_in_bytes),
-		[this, data_ = std::move(buffer_data)](const asio::error_code &error, size_t bytes_transferred)
+		[this, buffer_data, sptr = shared_from_this()](const asio::error_code &error, size_t bytes_transferred)
 	{ after_write_completed(error, bytes_transferred); });
 }
 
@@ -496,7 +547,7 @@ void tcp_session::async_send_data(std::shared_ptr<uint8_t[]> buffer_data, uint8_
 		return;
 
 	asio::async_write(connection_socket, asio::buffer(start_pos, size_in_bytes),
-		[this, data_ = std::move(buffer_data)](const asio::error_code &error, size_t bytes_transferred)
+		[this, buffer_data, sptr = shared_from_this()](const asio::error_code &error, size_t bytes_transferred)
 	{ after_write_completed(error, bytes_transferred); });
 }
 
@@ -510,7 +561,7 @@ void tcp_session::async_send_data(const uint8_t *buffer_data, size_t size_in_byt
 			std::placeholders::_1, std::placeholders::_2));
 }
 
-void tcp_session::when_disconnect(std::function<void(tcp_session*)> callback_before_disconnect)
+void tcp_session::when_disconnect(std::function<void(std::shared_ptr<tcp_session>)> callback_before_disconnect)
 {
 	callback_for_disconnect = callback_before_disconnect;
 }
@@ -542,7 +593,7 @@ void tcp_session::after_write_completed(const asio::error_code &error, size_t by
 
 	if (error)
 	{
-		callback_for_disconnect(this);
+		callback_for_disconnect(shared_from_this());
 		if (connection_socket.is_open())
 			this->disconnect();
 		return;
@@ -557,7 +608,7 @@ void tcp_session::after_read_completed(std::shared_ptr<uint8_t[]> buffer_cache, 
 
 	if (error)
 	{
-		callback_for_disconnect(this);
+		callback_for_disconnect(shared_from_this());
 		if (connection_socket.is_open())
 			this->disconnect();
 		return;
@@ -572,9 +623,9 @@ void tcp_session::after_read_completed(std::shared_ptr<uint8_t[]> buffer_cache, 
 		buffer_cache.swap(new_buffer);
 	}
 	//callback(buffer_cache, bytes_transferred, this);
-	tcp_session *current_session = this;
-	asio::post(task_assigner, [this, buffer_cache, bytes_transferred, current_session]()
-		{ callback(buffer_cache, bytes_transferred, current_session); });
+
+	asio::post(task_assigner, [this, buffer_cache, bytes_transferred, this_ptr = shared_from_this()]()
+		{ callback(buffer_cache, bytes_transferred, this_ptr); });
 }
 
 
@@ -591,17 +642,16 @@ void tcp_server::acceptor_initialise(const tcp::endpoint &ep)
 
 void tcp_server::start_accept()
 {
-	std::unique_ptr new_connection = std::make_unique<tcp_session>(internal_io_context, task_assigner, session_callback);
-	tcp_session *connection_ptr = new_connection.get();
+	std::shared_ptr new_connection = std::make_shared<tcp_session>(internal_io_context, task_assigner, session_callback);
 
-	tcp_acceptor.async_accept(connection_ptr->socket(),
-		[this, tcp_connection = std::move(new_connection)](const asio::error_code &error_code) mutable
+	tcp_acceptor.async_accept(new_connection->socket(),
+		[this, new_connection](const asio::error_code &error_code)
 	{
-		handle_accept(std::move(tcp_connection), error_code);
+		handle_accept(new_connection, error_code);
 	});
 }
 
-void tcp_server::handle_accept(std::unique_ptr<tcp_session> &&new_connection, const asio::error_code &error_code)
+void tcp_server::handle_accept(std::shared_ptr<tcp_session> new_connection, const asio::error_code &error_code)
 {
 	if (error_code)
 	{
@@ -610,14 +660,14 @@ void tcp_server::handle_accept(std::unique_ptr<tcp_session> &&new_connection, co
 	}
 
 	start_accept();
-	acceptor_callback(std::move(new_connection));
+	acceptor_callback(new_connection);
 }
 
 
 
-std::unique_ptr<tcp_session> tcp_client::connect(tcp_callback_t callback_func, asio::error_code &ec)
+std::shared_ptr<tcp_session> tcp_client::connect(tcp_callback_t callback_func, asio::error_code &ec)
 {
-	std::unique_ptr new_connection = std::make_unique<tcp_session>(internal_io_context, task_assigner, callback_func);
+	std::shared_ptr new_connection = std::make_shared<tcp_session>(internal_io_context, task_assigner, callback_func);
 	tcp::socket &current_socket = new_connection->socket();
 	for (auto &endpoint_entry : remote_endpoints)
 	{

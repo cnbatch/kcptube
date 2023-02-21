@@ -22,6 +22,7 @@ server_mode::~server_mode()
 	timer_find_expires.cancel();
 	timer_expiring_kcp.cancel();
 	timer_stun.cancel();
+	timer_keep_alive.cancel();
 }
 
 bool server_mode::start()
@@ -46,7 +47,9 @@ bool server_mode::start()
 		asio::ip::address local_address = asio::ip::make_address(current_settings.listen_on, ec);
 		if (ec)
 		{
-			std::cerr << "Listen Address incorrect - " << current_settings.listen_on << "\n";
+			std::string error_message = time_to_string_with_square_brackets() + "Listen Address incorrect - " + current_settings.listen_on + "\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
 			return false;
 		}
 
@@ -66,7 +69,9 @@ bool server_mode::start()
 		}
 		catch (std::exception &ex)
 		{
-			std::cerr << ex.what() << "\tPort Number: " << port_number << std::endl;
+			std::string error_message = time_to_string_with_square_brackets() + ex.what() + "\tPort Number: " + std::to_string(port_number) + "\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
 			running_well = false;
 		}
 	}
@@ -91,12 +96,21 @@ bool server_mode::start()
 			timer_stun.expires_after(std::chrono::seconds(1));
 			timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });
 		}
+
+		if (current_settings.keep_alive > 0)
+		{
+			timer_keep_alive.expires_after(seconds{ current_settings.keep_alive });
+			timer_keep_alive.async_wait([this](const asio::error_code &e) { keep_alive(e); });
+		}
+
 		//timer_speed_count.expires_after(CHANGEPORT_UPDATE_INTERVAL);
 		//timer_speed_count.async_wait([this](const asio::error_code &e) { time_counting(e); });
 	}
 	catch (std::exception &ex)
 	{
-		std::cerr << ex.what() << std::endl;
+		std::string error_message = time_to_string_with_square_brackets() + ex.what() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message, current_settings.log_messages);
 		running_well = false;
 	}
 
@@ -126,6 +140,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	if (!error_message.empty())
 	{
 		std::cerr << error_message << "\n";
+		print_message_to_file(error_message + "\n", current_settings.log_messages);
 		return;
 	}
 
@@ -218,6 +233,8 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 			}
 			break;
 		}
+		case feature::keep_alive:
+			break;
 		case feature::disconnect:
 		{
 			if (prtcl == protocol_type::tcp)
@@ -265,7 +282,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	input_count2 += data_size;
 }
 
-void server_mode::tcp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, tcp_session *incoming_session, KCP::KCP *kcp_session)
+void server_mode::tcp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::shared_ptr<KCP::KCP> kcp_session)
 {
 	uint8_t *data_ptr = data.get();
 	size_t new_data_size = packet::create_data_packet(protocol_type::tcp, data_ptr, data_size);
@@ -295,10 +312,11 @@ void server_mode::udp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 {
 	uint8_t *data_ptr = data.get();
 	size_t new_data_size = packet::create_data_packet(protocol_type::udp, data_ptr, data_size);
-	asio::post(asio_strand, [kcp_session, data, new_data_size]()
+	asio::post(asio_strand, [this, kcp_session, data, new_data_size]()
 		{
 			kcp_session->Send((const char *)data.get(), new_data_size);
 			kcp_session->Update(time_now_for_kcp());
+			update_kcp_in_timer(io_context, kcp_session);
 		});
 	//kcp_session->Send((const char *)data_ptr, new_data_size);
 	//kcp_session->Update(time_now_for_kcp());
@@ -378,7 +396,7 @@ void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> 
 				std::shared_ptr<KCP::KCP> data_kcp = std::make_shared<KCP::KCP>(new_id, nullptr);
 				std::unique_lock locker_kcp_session_map_to_source_udp{ mutex_kcp_session_map_to_source_udp, std::defer_lock };
 				std::lock(locker_kcp_session_map_to_source_udp, locker_uid_to_protocal_type);
-				kcp_session_map_to_source_udp[data_kcp] = std::move(peer);
+				kcp_session_map_to_source_udp[data_kcp] = peer;
 				uid_to_protocal_type[new_id] = prtcl;
 				locker_kcp_session_map_to_source_udp.unlock();
 				locker_uid_to_protocal_type.unlock();
@@ -475,19 +493,21 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 	asio::error_code ec;
 	if (target_connector.set_remote_hostname(destination_address, destination_port, ec) && ec)
 	{
-		std::cout << ec.message() << "\n";
+		std::string error_message = time_to_string_with_square_brackets() + ec.message() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message + "\n", current_settings.log_messages);
 		return false;
 	}
 
-	auto callback_function = [kcp_ptr = data_kcp.get(), this](std::shared_ptr<uint8_t[]> data, size_t data_size, tcp_session *target_session)
+	auto callback_function = [data_kcp, this](std::shared_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> target_session)
 	{
-		tcp_client_incoming(data, data_size, target_session, kcp_ptr);
+		tcp_client_incoming(data, data_size, target_session, data_kcp);
 	};
 	std::shared_ptr<tcp_session> local_session = target_connector.connect(callback_function, ec);
 	if (!ec)
 	{
 		connect_success = true;
-		local_session->when_disconnect([data_kcp, this](tcp_session *session) { process_tcp_disconnect(session, data_kcp); });
+		local_session->when_disconnect([data_kcp, this](std::shared_ptr<tcp_session> session) { process_tcp_disconnect(session.get(), data_kcp); });
 		data_kcp->SetOutput([this, data_kcp, session = local_session.get()](const char *buf, int len, void *user) -> int
 		{
 			std::shared_ptr<uint8_t[]> new_buffer(new uint8_t[len + BUFFER_EXPAND_SIZE]());
@@ -576,6 +596,9 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 
 void server_mode::process_tcp_disconnect(tcp_session *session, std::shared_ptr<KCP::KCP> kcp_ptr)
 {
+	if (session == nullptr)
+		return;
+
 	std::scoped_lock lockers{ mutex_expiring_kcp, mutex_kcp_looping };
 	if (expiring_kcp.find(kcp_ptr) == expiring_kcp.end())
 	{
@@ -607,19 +630,23 @@ bool server_mode::update_local_udp_target(std::shared_ptr<udp_client> target_con
 {
 	bool connect_success = false;
 	asio::error_code ec;
-	for (int i = 0; i < RETRY_TIMES; ++i)
+	for (int i = 0; i <= RETRY_TIMES; ++i)
 	{
 		const std::string &destination_address = current_settings.destination_address;
 		uint16_t destination_port = current_settings.destination_port;
 		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(destination_address, destination_port, ec);
 		if (ec)
 		{
-			std::cerr << ec.message() << "\n";
+			std::string error_message = time_to_string_with_square_brackets() + ec.message() + "\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else if (udp_endpoints.size() == 0)
 		{
-			std::cerr << "destination address not found\n";
+			std::string error_message = time_to_string_with_square_brackets() + "destination address not found\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else
@@ -770,10 +797,11 @@ void server_mode::loop_update_connections()
 	std::shared_lock locker_kcp_looping{ mutex_kcp_looping };
 	for (auto iter = kcp_looping.begin(); iter != kcp_looping.end(); ++iter)
 	{
-		KCP::KCP *kcp_ptr = iter->get();
+		std::shared_ptr<KCP::KCP> kcp_ptr = *iter;
 		uint32_t conv = kcp_ptr->GetConv();
 
 		kcp_ptr->Update(time_now_for_kcp());
+		update_kcp_in_timer(io_context, kcp_ptr);
 		//asio::post(asio_strand, [data_kcp = kcp_ptr.get()]() { data_kcp->Update(time_now_for_kcp()); });
 
 		//std::shared_lock locker_uid_to_protocal_type{ mutex_uid_to_protocal_type };
@@ -874,6 +902,19 @@ void server_mode::loop_find_expires()
 	}
 }
 
+void server_mode::loop_keep_alive()
+{
+	std::shared_lock locker_kcp_looping{ mutex_kcp_looping };
+	std::shared_lock locker_uid_to_protocal_type{ mutex_uid_to_protocal_type };
+	for (const std::shared_ptr<KCP::KCP> &kcp_ptr : kcp_looping)
+	{
+		uint32_t conv = kcp_ptr->GetConv();
+		protocol_type ptype = uid_to_protocal_type[conv];
+		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(ptype);
+		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
+	}
+}
+
 void server_mode::send_stun_request(const asio::error_code &e)
 {
 	if (e == asio::error::operation_aborted)
@@ -955,4 +996,17 @@ void server_mode::time_counting(const asio::error_code &e)
 
 	timer_speed_count.expires_after(CHANGEPORT_UPDATE_INTERVAL);
 	timer_speed_count.async_wait([this](const asio::error_code &e) { time_counting(e); });
+}
+
+void server_mode::keep_alive(const asio::error_code &e)
+{
+	if (e == asio::error::operation_aborted)
+	{
+		return;
+	}
+
+	loop_keep_alive();
+
+	timer_keep_alive.expires_after(seconds{ current_settings.keep_alive });
+	timer_keep_alive.async_wait([this](const asio::error_code& e) { keep_alive(e); });
 }

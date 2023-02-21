@@ -10,9 +10,9 @@ uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num
 class forwarder : public udp_client
 {
 public:
-	using process_data_t = std::function<void(KCP::KCP *, std::shared_ptr<uint8_t[]>, size_t, udp::endpoint&&, asio::ip::port_type)>;
+	using process_data_t = std::function<void(std::shared_ptr<KCP::KCP>, std::shared_ptr<uint8_t[]>, size_t, udp::endpoint&&, asio::ip::port_type)>;
 	forwarder() = delete;
-	forwarder(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand, KCP::KCP *input_kcp, process_data_t callback_func) :
+	forwarder(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func) :
 		udp_client(io_context, asio_strand, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)),
 		kcp(input_kcp), callback(callback_func), task_assigner(asio_strand)
 	{
@@ -25,8 +25,8 @@ public:
 
 	void remove_callback()
 	{
-		kcp.store(nullptr);
-		callback = [](KCP::KCP *kcp, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&ep, asio::ip::port_type num) {};
+		kcp.reset();
+		callback = [](std::shared_ptr<KCP::KCP> kcp, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&ep, asio::ip::port_type num) {};
 	}
 
 private:
@@ -35,14 +35,17 @@ private:
 		if (paused.load() || stopped.load())
 			return;
 
+		std::shared_ptr<KCP::KCP> kcp_ptr = kcp.lock();
+		if (kcp_ptr == nullptr)
+			return;
 		//callback(kcp.load(), data, data_size, std::move(peer), local_port_number);
-		asio::post(task_assigner, [this, kcp_ptr = kcp.load(), data, data_size, peer_ep = std::move(peer), local_port_number]() mutable
+		asio::post(task_assigner, [this, kcp_ptr, data, data_size, peer_ep = std::move(peer), local_port_number]() mutable
 		{
 			callback(kcp_ptr, data, data_size, std::move(peer_ep), local_port_number);
 		});
 	}
 
-	std::atomic<KCP::KCP *> kcp;
+	std::weak_ptr<KCP::KCP> kcp;
 	process_data_t callback;
 	asio::strand<asio::io_context::executor_type> &task_assigner;
 };
@@ -92,40 +95,41 @@ class tcp_to_forwarder
 	std::unique_ptr<tcp_server> tcp_access_point;
 
 	std::mutex mutex_id_map_to_forwarder;
-	std::map<uint32_t, std::unique_ptr<forwarder>> id_map_to_forwarder;
+	std::map<uint32_t, std::shared_ptr<forwarder>> id_map_to_forwarder;
 
 	std::shared_mutex mutex_id_map_to_session;
-	std::map<uint32_t, std::unique_ptr<tcp_session>> id_map_to_session;
+	std::map<uint32_t, std::shared_ptr<tcp_session>> id_map_to_session;
 
-	std::map<std::shared_ptr<handshake>, std::unique_ptr<tcp_session>> handshake_map_to_tcp_session;
+	std::map<std::shared_ptr<handshake>, std::shared_ptr<tcp_session>, std::owner_less<>> handshake_map_to_tcp_session;
 
 	std::shared_mutex mutex_kcp_channels;
-	std::map<uint32_t, std::unique_ptr<KCP::KCP>> kcp_channels;
+	std::map<uint32_t, std::shared_ptr<KCP::KCP>> kcp_channels;
 
 	std::mutex mutex_expiring_kcp;
-	std::map<uint32_t, std::pair<std::unique_ptr<KCP::KCP>, int64_t>> expiring_kcpid;
+	std::map<uint32_t, std::pair<std::shared_ptr<KCP::KCP>, int64_t>> expiring_kcpid;
 	std::mutex mutex_expiring_forwarders;
-	std::map<forwarder *, std::pair<std::unique_ptr<forwarder>, int64_t>> expiring_forwarders;
+	std::map<std::shared_ptr<forwarder>, int64_t, std::owner_less<>> expiring_forwarders;
 
 	std::shared_mutex mutex_udp_target;
 	std::unique_ptr<udp::endpoint> udp_target;
 	std::unique_ptr<udp::endpoint> previous_udp_target;
 
 	std::shared_mutex mutex_kcp_changeport_timestamp;
-	std::map<KCP::KCP *, std::atomic<int64_t>> kcp_changeport_timestamp;
+	std::map<std::shared_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_changeport_timestamp;
 
 	asio::steady_timer timer_send_data;
 	asio::steady_timer timer_find_expires;
 	asio::steady_timer timer_expiring_kcp;
 	asio::steady_timer timer_change_ports;
+	asio::steady_timer timer_keep_alive;
 	asio::strand<asio::io_context::executor_type> asio_strand;
 
-	void tcp_server_accept_incoming(std::unique_ptr<tcp_session> &&incoming_session);
-	void tcp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, tcp_session *incoming_session, KCP::KCP *kcp_ptr);
-	void udp_client_incoming_to_tcp(KCP::KCP *kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
-	void udp_client_to_disconnecting_tcp(KCP::KCP *kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
+	void tcp_server_accept_incoming(std::shared_ptr<tcp_session> incoming_session);
+	void tcp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::shared_ptr<KCP::KCP> kcp_ptr);
+	void udp_client_incoming_to_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
+	void udp_client_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
 	udp::endpoint get_remote_address();
-	void local_disconnect(KCP::KCP *kcp_ptr, tcp_session *session);
+	void local_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<tcp_session> session);
 	void process_disconnect(uint32_t conv, tcp_session *session);
 
 
@@ -134,11 +138,13 @@ class tcp_to_forwarder
 	void loop_update_connections();
 	void loop_find_expires();
 	void loop_change_new_port();
+	void loop_keep_alive();
 	void kcp_loop_updates(const asio::error_code &e);
 	void expiring_connection_loops(const asio::error_code &e);
 	void find_expires(const asio::error_code &e);
 	void change_new_port(const asio::error_code & e);
-	void time_counting(const asio::error_code & e);
+	void time_counting(const asio::error_code &e);
+	void keep_alive(const asio::error_code &e);
 
 	void on_handshake_success(std::shared_ptr<handshake> handshake_ptr, uint32_t conv, uint16_t start_port, uint16_t end_port);
 	void on_handshake_failure(std::shared_ptr<handshake> handshake_ptr, const std::string &error_message);
@@ -160,6 +166,7 @@ public:
 		timer_find_expires(io_context),
 		timer_expiring_kcp(io_context),
 		timer_change_ports(io_context),
+		timer_keep_alive(io_context),
 		asio_strand(asio::make_strand(io_context.get_executor())),
 		current_settings(settings), timer_speed_count(io_context), input_count(0), output_count(0)
 	{
@@ -172,6 +179,7 @@ public:
 		timer_find_expires(std::move(existing_client.timer_find_expires)),
 		timer_expiring_kcp(std::move(existing_client.timer_expiring_kcp)),
 		timer_change_ports(std::move(existing_client.timer_change_ports)),
+		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
 		asio_strand(std::move(existing_client.asio_strand)),
 		current_settings(std::move(existing_client.current_settings)), timer_speed_count(io_context), input_count(0), output_count(0)
 	{
@@ -190,43 +198,44 @@ class udp_to_forwarder
 	std::unique_ptr<udp_server> udp_access_point;
 
 	std::mutex mutex_id_map_to_forwarder;
-	std::map<uint32_t, std::unique_ptr<forwarder>> id_map_to_forwarder;
+	std::map<uint32_t, std::shared_ptr<forwarder>> id_map_to_forwarder;
 
 
 	std::shared_mutex mutex_udp_session_map_to_kcp;
-	std::map<udp::endpoint, KCP::KCP *> udp_session_map_to_kcp;
+	std::map<udp::endpoint, std::shared_ptr<KCP::KCP>> udp_session_map_to_kcp;
 	std::shared_mutex mutex_kcp_session_map_to_udp;
 	std::map<uint32_t, udp::endpoint> kcp_session_map_to_udp;
 
 	std::mutex mutex_udp_address_map_to_handshake;
 	std::map<udp::endpoint, std::shared_ptr<handshake>> udp_address_map_to_handshake;
-	std::map<std::shared_ptr<handshake>, udp::endpoint> udp_handshake_map_to_address;
+	std::map<std::shared_ptr<handshake>, udp::endpoint, std::owner_less<>> udp_handshake_map_to_address;
 	std::mutex mutex_udp_seesion_caches;
-	std::map<std::shared_ptr<handshake>, std::vector<std::vector<uint8_t>>> udp_seesion_caches;
+	std::map<std::shared_ptr<handshake>, std::vector<std::vector<uint8_t>>, std::owner_less<>> udp_seesion_caches;
 
 	std::shared_mutex mutex_kcp_channels;
-	std::map<uint32_t, std::unique_ptr<KCP::KCP>> kcp_channels;
+	std::map<uint32_t, std::shared_ptr<KCP::KCP>> kcp_channels;
 
 	std::mutex mutex_expiring_kcp;
-	std::map<uint32_t, std::pair<std::unique_ptr<KCP::KCP>, int64_t>> expiring_kcpid;
+	std::map<uint32_t, std::pair<std::shared_ptr<KCP::KCP>, int64_t>> expiring_kcpid;
 	std::mutex mutex_expiring_forwarders;
-	std::map<forwarder *, std::pair<std::unique_ptr<forwarder>, int64_t>> expiring_forwarders;
+	std::map<std::shared_ptr<forwarder>, int64_t, std::owner_less<>> expiring_forwarders;
 
 	std::shared_mutex mutex_udp_target;
 	std::unique_ptr<udp::endpoint> udp_target;
 	std::unique_ptr<udp::endpoint> previous_udp_target;
 
 	std::shared_mutex mutex_kcp_changeport_timestamp;
-	std::map<KCP::KCP *, std::atomic<int64_t>> kcp_changeport_timestamp;
+	std::map<std::shared_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_changeport_timestamp;
 
 	asio::steady_timer timer_send_data;
 	asio::steady_timer timer_find_expires;
 	asio::steady_timer timer_expiring_kcp;
 	asio::steady_timer timer_change_ports;
+	asio::steady_timer timer_keep_alive;
 	asio::strand<asio::io_context::executor_type> asio_strand;
 
 	void udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number);
-	void udp_client_incoming_to_udp(KCP::KCP *kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
+	void udp_client_incoming_to_udp(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
 	udp::endpoint get_remote_address();
 	void process_disconnect(uint32_t conv);
 
@@ -235,10 +244,12 @@ class udp_to_forwarder
 	void loop_update_connections();
 	void loop_find_expires();
 	void loop_change_new_port();
+	void loop_keep_alive();
 	void kcp_loop_updates(const asio::error_code &e);
 	void expiring_kcp_loops(const asio::error_code &e);
 	void find_expires(const asio::error_code &e);
 	void change_new_port(const asio::error_code &e);
+	void keep_alive(const asio::error_code &e);
 
 	void on_handshake_success(std::shared_ptr<handshake> handshake_ptr, uint32_t conv, uint16_t start_port, uint16_t end_port);
 	void on_handshake_failure(std::shared_ptr<handshake> handshake_ptr, const std::string &error_message);
@@ -250,8 +261,8 @@ public:
 
 	udp_to_forwarder(asio::io_context &io_context_ref, asio::io_context &net_io, const user_settings &settings)
 		: io_context(io_context_ref), network_io(net_io), timer_send_data(io_context),
-		timer_find_expires(io_context),
-		timer_expiring_kcp(io_context), timer_change_ports(io_context),
+		timer_find_expires(io_context), timer_expiring_kcp(io_context),
+		timer_change_ports(io_context), timer_keep_alive(io_context),
 		asio_strand(asio::make_strand(io_context.get_executor())),
 		current_settings(settings)
 	{
@@ -264,6 +275,7 @@ public:
 		timer_find_expires(std::move(existing_client.timer_find_expires)),
 		timer_expiring_kcp(std::move(existing_client.timer_expiring_kcp)),
 		timer_change_ports(std::move(existing_client.timer_change_ports)),
+		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
 		asio_strand(std::move(existing_client.asio_strand)),
 		current_settings(std::move(existing_client.current_settings))
 	{
