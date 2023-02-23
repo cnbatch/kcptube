@@ -152,16 +152,13 @@ void udp_to_forwarder::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size
 
 	size_t new_data_size = packet::create_data_packet(protocol_type::udp, data_ptr, data_size);
 
-	//asio::post(asio_strand, [kcp_session, data, new_data_size]()
-	//	{
-	//		kcp_session->Send((const char *)data.get(), new_data_size);
-	//		kcp_session->Update(time_now_for_kcp());
-	//	});
-
 	kcp_session->Send((const char *)data_ptr, new_data_size);
-	kcp_session->Update(time_now_for_kcp());
-	kcp_session->Flush();
-	//update_kcp_in_timer(io_context, kcp_session);
+	uint32_t next_refresh_time = kcp_session->Check(time_now_for_kcp());
+	uint32_t conv = kcp_session->GetConv();
+
+	std::shared_lock lockers{ mutex_kcp_channels };
+	if (kcp_channels.find(conv) != kcp_channels.end())
+		kcp_channels[conv].second.store(next_refresh_time);
 }
 
 
@@ -377,7 +374,6 @@ void udp_to_forwarder::loop_update_connections()
 			uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
 			kcp_update_time.store(next_refresh_time);
 		}
-		//update_kcp_in_timer(io_context, kcp_ptr);
 	}
 }
 
@@ -413,7 +409,6 @@ void udp_to_forwarder::loop_find_expires()
 				uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
 				kcp_update_time.store(next_refresh_time);
 			}
-			//update_kcp_in_timer(io_context, kcp_ptr);
 		}
 	}
 }
@@ -603,7 +598,6 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	kcp_ptr->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
 	kcp_ptr->RxMinRTO() = 10;
 	kcp_ptr->Update(time_now_for_kcp());
-	//update_kcp_in_timer(io_context, kcp_ptr);
 	kcp_ptr->SetOutput([this, kcp_raw_ptr = kcp_ptr.get()](const char *buf, int len, void *user) -> int
 	{
 		std::shared_ptr<uint8_t[]> new_buffer(new uint8_t[len + BUFFER_EXPAND_SIZE]());
@@ -624,7 +618,6 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 		std::vector<uint8_t> new_data = packet::create_data_packet(protocol_type::udp, data);
 		kcp_ptr->Send((const char *)new_data.data(), new_data.size());
 		kcp_ptr->Update(time_now_for_kcp());
-		//update_kcp_in_timer(io_context, kcp_ptr);
 	}
 
 	udp_address_map_to_handshake.erase(peer);

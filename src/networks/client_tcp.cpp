@@ -122,7 +122,13 @@ void tcp_to_forwarder::tcp_server_incoming(std::shared_ptr<uint8_t[]> data, size
 
 	size_t new_data_size = packet::create_data_packet(protocol_type::tcp, data_ptr, data_size);
 	kcp_ptr->Send((const char *)data_ptr, new_data_size);
-	kcp_ptr->Update(time_now_for_kcp());
+	uint32_t next_refresh_time = kcp_ptr->Check(time_now_for_kcp());
+	uint32_t conv = kcp_ptr->GetConv();
+
+	std::shared_lock lockers{ mutex_kcp_channels };
+	if (kcp_channels.find(conv) != kcp_channels.end())
+		kcp_channels[conv].second.store(next_refresh_time);
+	lockers.unlock();
 
 	if (!incoming_session->session_is_ending() && !incoming_session->is_pause() &&
 		kcp_ptr->WaitingForSend() > kcp_ptr->GetSendWindowSize())
@@ -130,19 +136,6 @@ void tcp_to_forwarder::tcp_server_incoming(std::shared_ptr<uint8_t[]> data, size
 		incoming_session->pause(true);
 	}
 
-	//update_kcp_in_timer(io_context, kcp_ptr);
-
-	//asio::post(asio_strand, [data, new_data_size, incoming_session, kcp_ptr]()
-	//{
-	//	kcp_ptr->Send((const char *)data.get(), new_data_size);
-	//	kcp_ptr->Update(time_now_for_kcp());
-
-	//	if (!incoming_session->session_is_ending() && !incoming_session->is_pause() &&
-	//		kcp_ptr->WaitingForSend() > kcp_ptr->GetSendWindowSize())
-	//	{
-	//		incoming_session->pause(true);
-	//	}
-	//});
 	input_count += data_size;
 }
 
@@ -341,7 +334,6 @@ void tcp_to_forwarder::udp_client_to_disconnecting_tcp(std::shared_ptr<KCP::KCP>
 		}
 	}
 	input_count2 += data_size;
-	//update_kcp_in_timer(io_context, kcp_ptr);
 }
 
 udp::endpoint tcp_to_forwarder::get_remote_address()
@@ -471,7 +463,7 @@ void tcp_to_forwarder::cleanup_expiring_data_connections()
 
 void tcp_to_forwarder::loop_update_connections()
 {
-	std::shared_lock lockers{ mutex_kcp_channels };
+	std::shared_lock locker{ mutex_kcp_channels };
 	for (auto &[conv, kcp_ptr_pair] : kcp_channels)
 	{
 		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
@@ -486,21 +478,13 @@ void tcp_to_forwarder::loop_update_connections()
 			uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
 			kcp_update_time.store(next_refresh_time);
 		}
-		//update_kcp_in_timer(io_context, kcp_ptr);
-		//asio::post(asio_strand, [data_kcp = kcp_ptr.get()]() { data_kcp->Update(time_now_for_kcp()); });
-		//asio::post(asio_strand, [tcp_channel, data_kcp = kcp_ptr.get()]()
-		//	{
-		//		if (tcp_channel->is_pause() && data_kcp->WaitingForSend() < data_kcp->GetSendWindowSize()/* * 2*/)
-		//		{
-		//			tcp_channel->pause(false);
-		//		}
-		//	});
 	}
 }
 
 void tcp_to_forwarder::loop_find_expires()
 {
-	std::scoped_lock lockers{ mutex_kcp_channels };
+	std::lock_guard locker{ mutex_kcp_channels };
+	if (kcp_channels.size() == 0) return;
 	for (auto iter = kcp_channels.begin(), next_iter = iter; iter != kcp_channels.end(); iter = next_iter)
 	{
 		++next_iter;
@@ -536,15 +520,6 @@ void tcp_to_forwarder::loop_find_expires()
 				uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
 				kcp_update_time.store(next_refresh_time);
 			}
-			//update_kcp_in_timer(io_context, kcp_ptr);
-			//asio::post(asio_strand, [data_kcp = kcp_ptr]() { data_kcp->Update(time_now_for_kcp()); });
-			//asio::post(asio_strand, [tcp_channel, data_kcp = kcp_ptr]()
-			//	{
-			//		if (tcp_channel->is_pause() && data_kcp->WaitingForSend() < data_kcp->GetSendWindowSize()/* * 2*/)
-			//		{
-			//			tcp_channel->pause(false);
-			//		}
-			//	});
 		}
 	}
 }

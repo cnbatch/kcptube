@@ -45,8 +45,6 @@ enum class feature : uint8_t
 enum class protocol_type : uint8_t { tcp = 0, udp };
 
 uint32_t time_now_for_kcp();
-//void update_kcp_in_timer(asio::io_context &ioc_ref, std::weak_ptr<KCP::KCP> kcp_ptr);
-//void update_kcp_in_timer(const asio::error_code &e, std::weak_ptr<KCP::KCP> kcp_ptr, asio::steady_timer &kcp_timer);
 std::string_view feature_to_string(feature ftr);
 std::string protocol_type_to_string(protocol_type prtcl);
 std::string debug_data_to_string(const uint8_t *data, size_t len);

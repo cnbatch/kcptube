@@ -100,54 +100,6 @@ uint32_t time_now_for_kcp()
 	return static_cast<uint32_t>((duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()) & 0xFFFF'FFFFul);
 }
 
-/*void update_kcp_in_timer(asio::io_context& ioc_ref, std::weak_ptr<KCP::KCP> kcp_ptr)
-{
-	thread_local std::map<std::weak_ptr<KCP::KCP>, asio::steady_timer, std::owner_less<>> kcp_to_timer;
-
-	std::shared_ptr kcp_sptr = kcp_ptr.lock();
-	auto iter = kcp_to_timer.find(kcp_ptr);
-	if (iter == kcp_to_timer.end())
-	{
-		if (kcp_sptr == nullptr)
-			return;
-
-		kcp_to_timer.insert({ kcp_ptr, asio::steady_timer{ioc_ref} });
-		iter = kcp_to_timer.find(kcp_ptr);
-	}
-
-	if (kcp_sptr == nullptr)
-	{
-		iter->second.cancel();
-		kcp_to_timer.erase(iter);
-		return;
-	}
-
-	uint32_t kcp_refresh_time = time_now_for_kcp();
-	uint32_t next_time_ms = kcp_sptr->Check(kcp_refresh_time) - kcp_refresh_time;
-	asio::steady_timer &kcp_timer = iter->second;
-	auto diff = duration_cast<milliseconds>(kcp_timer.expiry() - steady_clock::now()).count();
-	if (diff > 0 && next_time_ms > diff)
-		return;
-
-	kcp_timer.expires_after(milliseconds{ next_time_ms });
-	kcp_timer.async_wait([kcp_ptr, &kcp_timer](const asio::error_code &e) { update_kcp_in_timer(e, kcp_ptr, kcp_timer); });
-}
-
-void update_kcp_in_timer(const asio::error_code &e, std::weak_ptr<KCP::KCP> kcp_ptr, asio::steady_timer &kcp_timer)
-{
-	if (e == asio::error::operation_aborted)
-		return;
-
-	std::shared_ptr kcp_sptr = kcp_ptr.lock();
-	if (kcp_sptr == nullptr)
-		return;
-	kcp_sptr->Update(time_now_for_kcp());
-	uint32_t kcp_refresh_time = time_now_for_kcp();
-	uint32_t next_time_ms = kcp_sptr->Check(kcp_refresh_time) - kcp_refresh_time;
-	kcp_timer.expires_after(milliseconds{ next_time_ms });
-	kcp_timer.async_wait([kcp_ptr, &kcp_timer](const asio::error_code &e) { update_kcp_in_timer(e, kcp_ptr, kcp_timer); });
-}*/
-
 std::string_view feature_to_string(feature ftr)
 {
 	std::string_view str;
