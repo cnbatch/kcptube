@@ -130,7 +130,7 @@ void tcp_to_forwarder::tcp_server_incoming(std::shared_ptr<uint8_t[]> data, size
 		incoming_session->pause(true);
 	}
 
-	update_kcp_in_timer(io_context, kcp_ptr);
+	//update_kcp_in_timer(io_context, kcp_ptr);
 
 	//asio::post(asio_strand, [data, new_data_size, incoming_session, kcp_ptr]()
 	//{
@@ -341,7 +341,7 @@ void tcp_to_forwarder::udp_client_to_disconnecting_tcp(std::shared_ptr<KCP::KCP>
 		}
 	}
 	input_count2 += data_size;
-	update_kcp_in_timer(io_context, kcp_ptr);
+	//update_kcp_in_timer(io_context, kcp_ptr);
 }
 
 udp::endpoint tcp_to_forwarder::get_remote_address()
@@ -384,7 +384,9 @@ void tcp_to_forwarder::process_disconnect(uint32_t conv, tcp_session *session)
 	auto kcp_channel_iter = kcp_channels.find(conv);
 	if (kcp_channel_iter == kcp_channels.end())
 		return;
-	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_channel_iter->second;
+
+	auto &[kcp_conv, kcp_ptr_pair] = *kcp_channel_iter;
+	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
 	kcp_channels.erase(kcp_channel_iter);
 	if (expiring_kcpid.find(conv) != expiring_kcpid.end())
 		return;
@@ -419,7 +421,7 @@ void tcp_to_forwarder::cleanup_expiring_forwarders()
 			continue;
 		}
 
-
+		udp_forwrder->disconnect();
 		expiring_forwarders.erase(iter);
 	}
 }
@@ -470,14 +472,21 @@ void tcp_to_forwarder::cleanup_expiring_data_connections()
 void tcp_to_forwarder::loop_update_connections()
 {
 	std::shared_lock lockers{ mutex_kcp_channels };
-	for (auto &[conv, kcp_ptr] : kcp_channels)
+	for (auto &[conv, kcp_ptr_pair] : kcp_channels)
 	{
+		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
+		std::atomic<uint32_t> &kcp_update_time = kcp_ptr_pair.second;
 		//std::shared_lock locker_id_map_to_session{ mutex_id_map_to_session };
 		//tcp_session *tcp_channel = id_map_to_session.find(conv)->second.get();
 		//locker_id_map_to_session.unlock();
 
-		kcp_ptr->Update(time_now_for_kcp());
-		update_kcp_in_timer(io_context, kcp_ptr);
+		if (uint32_t kcp_refresh_time = time_now_for_kcp(); kcp_refresh_time >= kcp_update_time.load())
+		{
+			kcp_ptr->Update(kcp_refresh_time);
+			uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
+			kcp_update_time.store(next_refresh_time);
+		}
+		//update_kcp_in_timer(io_context, kcp_ptr);
 		//asio::post(asio_strand, [data_kcp = kcp_ptr.get()]() { data_kcp->Update(time_now_for_kcp()); });
 		//asio::post(asio_strand, [tcp_channel, data_kcp = kcp_ptr.get()]()
 		//	{
@@ -495,8 +504,9 @@ void tcp_to_forwarder::loop_find_expires()
 	for (auto iter = kcp_channels.begin(), next_iter = iter; iter != kcp_channels.end(); iter = next_iter)
 	{
 		++next_iter;
-		uint32_t conv = iter->first;
-		std::shared_ptr<KCP::KCP> kcp_ptr = iter->second;
+		auto &[conv, kcp_ptr_pair] = *iter;
+		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
+		std::atomic<uint32_t> &kcp_update_time = kcp_ptr_pair.second;
 		std::unique_lock locker_id_map_to_session{ mutex_id_map_to_session };
 		tcp_session *tcp_channel = id_map_to_session.find(conv)->second.get();
 		locker_id_map_to_session.unlock();
@@ -520,8 +530,13 @@ void tcp_to_forwarder::loop_find_expires()
 		}
 		else
 		{
-			kcp_ptr->Update(time_now_for_kcp());
-			update_kcp_in_timer(io_context, kcp_ptr);
+			if (uint32_t kcp_refresh_time = time_now_for_kcp(); kcp_refresh_time >= kcp_update_time.load())
+			{
+				kcp_ptr->Update(kcp_refresh_time);
+				uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
+				kcp_update_time.store(next_refresh_time);
+			}
+			//update_kcp_in_timer(io_context, kcp_ptr);
 			//asio::post(asio_strand, [data_kcp = kcp_ptr]() { data_kcp->Update(time_now_for_kcp()); });
 			//asio::post(asio_strand, [tcp_channel, data_kcp = kcp_ptr]()
 			//	{
@@ -587,10 +602,16 @@ void tcp_to_forwarder::loop_change_new_port()
 void tcp_to_forwarder::loop_keep_alive()
 {
 	std::shared_lock locker_kcp_looping{ mutex_kcp_channels };
-	for (auto& [conv, kcp_ptr] : kcp_channels)
+	for (auto& [conv, kcp_ptr_pair] : kcp_channels)
 	{
+		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
+		std::atomic<uint32_t> &kcp_update_time = kcp_ptr_pair.second;
+
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(protocol_type::tcp);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
+
+		uint32_t next_refresh_time = kcp_ptr->Check(time_now_for_kcp());
+		kcp_update_time.store(next_refresh_time);
 	}
 }
 
@@ -769,7 +790,7 @@ void tcp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	std::scoped_lock lockers{ mutex_id_map_to_forwarder, mutex_kcp_channels, mutex_id_map_to_session };
 	if (id_map_to_forwarder.find(conv) == id_map_to_forwarder.end())
 		id_map_to_forwarder.insert({ conv, udp_forwarder });
-	kcp_channels.insert({ conv, kcp_ptr });
+	kcp_channels[conv].first = kcp_ptr;
 	id_map_to_session.insert({ conv, incoming_session });
 }
 

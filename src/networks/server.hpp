@@ -43,7 +43,7 @@ class server_mode
 	std::map<std::shared_ptr<KCP::KCP>, int64_t, std::owner_less<>> expiring_handshakes;
 
 	std::shared_mutex mutex_kcp_looping;
-	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_looping;
+	std::map<std::shared_ptr<KCP::KCP>, std::atomic<uint32_t>, std::owner_less<>> kcp_looping;
 
 	asio::steady_timer timer_send_data;
 	asio::steady_timer timer_find_expires;

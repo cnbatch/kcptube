@@ -26,7 +26,7 @@ constexpr size_t RETRY_TIMES = 30u;
 constexpr size_t RETRY_WAITS = 3u;
 constexpr size_t CLEANUP_WAITS = 30;	// second
 constexpr size_t KCP_WINDOW_SIZE = 4096;
-constexpr auto KCP_UPDATE_INTERVAL = std::chrono::milliseconds(20);
+constexpr auto KCP_UPDATE_INTERVAL = std::chrono::milliseconds(1);
 constexpr auto STUN_RESEND = std::chrono::seconds(30);
 constexpr auto CHANGEPORT_UPDATE_INTERVAL = std::chrono::seconds(1);
 constexpr auto FINDER_EXPIRES_INTERVAL = std::chrono::seconds(1);
@@ -45,8 +45,8 @@ enum class feature : uint8_t
 enum class protocol_type : uint8_t { tcp = 0, udp };
 
 uint32_t time_now_for_kcp();
-void update_kcp_in_timer(asio::io_context &ioc_ref, std::weak_ptr<KCP::KCP> kcp_ptr);
-void update_kcp_in_timer(const asio::error_code &e, std::weak_ptr<KCP::KCP> kcp_ptr, asio::steady_timer &kcp_timer);
+//void update_kcp_in_timer(asio::io_context &ioc_ref, std::weak_ptr<KCP::KCP> kcp_ptr);
+//void update_kcp_in_timer(const asio::error_code &e, std::weak_ptr<KCP::KCP> kcp_ptr, asio::steady_timer &kcp_timer);
 std::string_view feature_to_string(feature ftr);
 std::string protocol_type_to_string(protocol_type prtcl);
 std::string debug_data_to_string(const uint8_t *data, size_t len);

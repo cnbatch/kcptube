@@ -288,7 +288,10 @@ void server_mode::tcp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	size_t new_data_size = packet::create_data_packet(protocol_type::tcp, data_ptr, data_size);
 	kcp_session->Send((const char *)data_ptr, new_data_size);
 	kcp_session->Update(time_now_for_kcp());
-	kcp_session->Flush();
+	//kcp_session->Flush();
+	std::shared_lock locker_kcp_looping{ mutex_kcp_looping };
+	kcp_looping[kcp_session].store(kcp_session->Check(time_now_for_kcp()));
+	locker_kcp_looping.unlock();
 	if (!incoming_session->session_is_ending() && !incoming_session->is_pause() &&
 		kcp_session->WaitingForSend() > kcp_session->GetSendWindowSize()/* * 16*/)
 	{
@@ -312,15 +315,18 @@ void server_mode::udp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 {
 	uint8_t *data_ptr = data.get();
 	size_t new_data_size = packet::create_data_packet(protocol_type::udp, data_ptr, data_size);
-	asio::post(asio_strand, [this, kcp_session, data, new_data_size]()
-		{
-			kcp_session->Send((const char *)data.get(), new_data_size);
-			kcp_session->Update(time_now_for_kcp());
-			update_kcp_in_timer(io_context, kcp_session);
-		});
-	//kcp_session->Send((const char *)data_ptr, new_data_size);
-	//kcp_session->Update(time_now_for_kcp());
+	//asio::post(asio_strand, [this, kcp_session, data, new_data_size]()
+	//	{
+	//		kcp_session->Send((const char *)data.get(), new_data_size);
+	//		kcp_session->Update(time_now_for_kcp());
+	//		//update_kcp_in_timer(io_context, kcp_session);
+	//	});
+	kcp_session->Send((const char *)data_ptr, new_data_size);
+	kcp_session->Update(time_now_for_kcp());
 	//kcp_session->Flush();
+	std::shared_lock locker_kcp_looping{ mutex_kcp_looping };
+	kcp_looping[kcp_session].store(kcp_session->Check(time_now_for_kcp()));
+	locker_kcp_looping.unlock();
 	input_count += data_size;
 }
 
@@ -437,7 +443,7 @@ void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> 
 					kcp_channels.insert({ new_id, data_kcp });
 					kcp_session_map_to_source_udp[data_kcp] = std::move(peer);
 					uid_to_protocal_type[new_id] = prtcl;
-					kcp_looping.insert(data_kcp);
+					kcp_looping[data_kcp].store(0);
 				}
 				else
 				{
@@ -608,6 +614,7 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::shared_ptr<K
 		std::vector<uint8_t> data = packet::inform_disconnect_packet(protocol_type::tcp);
 		kcp_ptr->Send((const char *)data.data(), data.size());
 		kcp_ptr->Update(time_now_for_kcp());
+		kcp_ptr->Flush();
 		expiring_kcp.insert({ kcp_ptr, packet::right_now() });
 	}
 	if (auto iter = kcp_looping.find(kcp_ptr); iter != kcp_looping.end())
@@ -797,11 +804,17 @@ void server_mode::loop_update_connections()
 	std::shared_lock locker_kcp_looping{ mutex_kcp_looping };
 	for (auto iter = kcp_looping.begin(); iter != kcp_looping.end(); ++iter)
 	{
-		std::shared_ptr<KCP::KCP> kcp_ptr = *iter;
+		std::shared_ptr<KCP::KCP> kcp_ptr = iter->first;
 		uint32_t conv = kcp_ptr->GetConv();
+		std::atomic<uint32_t> &kcp_update_time = iter->second;
 
-		kcp_ptr->Update(time_now_for_kcp());
-		update_kcp_in_timer(io_context, kcp_ptr);
+		if (uint32_t kcp_refresh_time = time_now_for_kcp(); kcp_refresh_time >= kcp_update_time.load())
+		{
+			kcp_ptr->Update(kcp_refresh_time);
+			uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
+			kcp_update_time.store(next_refresh_time);
+		}
+		//update_kcp_in_timer(io_context, kcp_ptr);
 		//asio::post(asio_strand, [data_kcp = kcp_ptr.get()]() { data_kcp->Update(time_now_for_kcp()); });
 
 		//std::shared_lock locker_uid_to_protocal_type{ mutex_uid_to_protocal_type };
@@ -831,8 +844,9 @@ void server_mode::loop_find_expires()
 	for (auto iter = kcp_looping.begin(), next_iter = iter; iter != kcp_looping.end(); iter = next_iter)
 	{
 		++next_iter;
-		std::shared_ptr<KCP::KCP> kcp_ptr = *iter;
+		std::shared_ptr<KCP::KCP> kcp_ptr = iter->first;
 		uint32_t conv = kcp_ptr->GetConv();
+		std::atomic<uint32_t> &kcp_update_time = iter->second;
 
 		bool do_erase = false;
 		bool normal_delete = false;
@@ -857,6 +871,9 @@ void server_mode::loop_find_expires()
 				auto error_packet = packet::inform_error_packet(protocol_type::tcp, "TCP Session Closed");
 				kcp_ptr->Send((char *)error_packet.data(), error_packet.size());
 				kcp_ptr->Update(time_now_for_kcp());
+				kcp_ptr->Flush();
+				uint32_t next_refresh_time = kcp_ptr->Check(time_now_for_kcp());
+				kcp_update_time.store(next_refresh_time);
 				do_erase = true;
 				normal_delete = true;
 			}
@@ -886,7 +903,12 @@ void server_mode::loop_find_expires()
 		}
 		else
 		{
-			kcp_ptr->Update(time_now_for_kcp());
+			if (uint32_t kcp_refresh_time = time_now_for_kcp(); kcp_refresh_time >= kcp_update_time.load())
+			{
+				kcp_ptr->Update(kcp_refresh_time);
+				uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
+				kcp_update_time.store(next_refresh_time);
+			}
 			//asio::post(asio_strand, [data_kcp = kcp_ptr]() { data_kcp->Update(time_now_for_kcp()); });
 			//if (ptype == protocol_type::tcp)
 			//{
@@ -906,12 +928,14 @@ void server_mode::loop_keep_alive()
 {
 	std::shared_lock locker_kcp_looping{ mutex_kcp_looping };
 	std::shared_lock locker_uid_to_protocal_type{ mutex_uid_to_protocal_type };
-	for (const std::shared_ptr<KCP::KCP> &kcp_ptr : kcp_looping)
+	for (auto &[kcp_ptr, kcp_update_time] : kcp_looping)
 	{
 		uint32_t conv = kcp_ptr->GetConv();
 		protocol_type ptype = uid_to_protocal_type[conv];
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(ptype);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
+		uint32_t next_refresh_time = kcp_ptr->Check(time_now_for_kcp());
+		kcp_update_time.store(next_refresh_time);
 	}
 }
 

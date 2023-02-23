@@ -161,7 +161,7 @@ void udp_to_forwarder::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size
 	kcp_session->Send((const char *)data_ptr, new_data_size);
 	kcp_session->Update(time_now_for_kcp());
 	kcp_session->Flush();
-	update_kcp_in_timer(io_context, kcp_session);
+	//update_kcp_in_timer(io_context, kcp_session);
 }
 
 
@@ -283,7 +283,9 @@ void udp_to_forwarder::process_disconnect(uint32_t conv)
 	auto kcp_channel_iter = kcp_channels.find(conv);
 	if (kcp_channel_iter == kcp_channels.end())
 		return;
-	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_channel_iter->second;
+
+	auto &[kcp_conv, kcp_ptr_pair] = *kcp_channel_iter;
+	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
 	kcp_channels.erase(kcp_channel_iter);
 	if (expiring_kcpid.find(conv) != expiring_kcpid.end())
 		return;
@@ -314,6 +316,7 @@ void udp_to_forwarder::cleanup_expiring_forwarders()
 			continue;
 		}
 
+		udp_forwrder->disconnect();
 		expiring_forwarders.erase(iter);
 	}
 }
@@ -360,14 +363,21 @@ void udp_to_forwarder::cleanup_expiring_data_connections()
 void udp_to_forwarder::loop_update_connections()
 {
 	std::shared_lock lockers{ mutex_kcp_channels };
-	for (auto &[conv, kcp_ptr] : kcp_channels)
+	for (auto &[conv, kcp_ptr_pair] : kcp_channels)
 	{
+		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
+		std::atomic<uint32_t> &kcp_update_time = kcp_ptr_pair.second;
 		//std::unique_lock locker_id_map_to_forwarder{ mutex_id_map_to_forwarder };
 		//forwarder *udp_forwarder = id_map_to_forwarder.find(conv)->second.get();
 		//locker_id_map_to_forwarder.unlock();
 
-		kcp_ptr->Update(time_now_for_kcp());
-		update_kcp_in_timer(io_context, kcp_ptr);
+		if (uint32_t kcp_refresh_time = time_now_for_kcp(); kcp_refresh_time >= kcp_update_time.load())
+		{
+			kcp_ptr->Update(kcp_refresh_time);
+			uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
+			kcp_update_time.store(next_refresh_time);
+		}
+		//update_kcp_in_timer(io_context, kcp_ptr);
 	}
 }
 
@@ -377,8 +387,9 @@ void udp_to_forwarder::loop_find_expires()
 	for (auto iter = kcp_channels.begin(), next_iter = iter; iter != kcp_channels.end(); iter = next_iter)
 	{
 		++next_iter;
-		uint32_t conv = iter->first;
-		std::shared_ptr<KCP::KCP> kcp_ptr = iter->second;
+		auto& [conv, kcp_ptr_pair] = *iter;
+		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
+		std::atomic<uint32_t> &kcp_update_time = kcp_ptr_pair.second;
 
 		std::unique_lock locker_id_map_to_forwarder{ mutex_id_map_to_forwarder };
 		forwarder *udp_forwarder = id_map_to_forwarder.find(conv)->second.get();
@@ -396,8 +407,13 @@ void udp_to_forwarder::loop_find_expires()
 		}
 		else
 		{
-			kcp_ptr->Update(time_now_for_kcp());
-			update_kcp_in_timer(io_context, kcp_ptr);
+			if (uint32_t kcp_refresh_time = time_now_for_kcp(); kcp_refresh_time >= kcp_update_time.load())
+			{
+				kcp_ptr->Update(kcp_refresh_time);
+				uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
+				kcp_update_time.store(next_refresh_time);
+			}
+			//update_kcp_in_timer(io_context, kcp_ptr);
 		}
 	}
 }
@@ -454,10 +470,16 @@ void udp_to_forwarder::loop_change_new_port()
 void udp_to_forwarder::loop_keep_alive()
 {
 	std::shared_lock locker_kcp_looping{ mutex_kcp_channels };
-	for (auto &[conv, kcp_ptr]: kcp_channels)
+	for (auto &[conv, kcp_ptr_pair]: kcp_channels)
 	{
+		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
+		std::atomic<uint32_t> &kcp_update_time = kcp_ptr_pair.second;
+
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(protocol_type::udp);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
+
+		uint32_t next_refresh_time = kcp_ptr->Check(time_now_for_kcp());
+		kcp_update_time.store(next_refresh_time);
 	}
 }
 
@@ -581,7 +603,7 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	kcp_ptr->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
 	kcp_ptr->RxMinRTO() = 10;
 	kcp_ptr->Update(time_now_for_kcp());
-	update_kcp_in_timer(io_context, kcp_ptr);
+	//update_kcp_in_timer(io_context, kcp_ptr);
 	kcp_ptr->SetOutput([this, kcp_raw_ptr = kcp_ptr.get()](const char *buf, int len, void *user) -> int
 	{
 		std::shared_ptr<uint8_t[]> new_buffer(new uint8_t[len + BUFFER_EXPAND_SIZE]());
@@ -602,7 +624,7 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 		std::vector<uint8_t> new_data = packet::create_data_packet(protocol_type::udp, data);
 		kcp_ptr->Send((const char *)new_data.data(), new_data.size());
 		kcp_ptr->Update(time_now_for_kcp());
-		update_kcp_in_timer(io_context, kcp_ptr);
+		//update_kcp_in_timer(io_context, kcp_ptr);
 	}
 
 	udp_address_map_to_handshake.erase(peer);
@@ -617,7 +639,7 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	udp_session_map_to_kcp.insert({ peer, kcp_ptr });
 	kcp_session_map_to_udp[conv] = peer;
 	id_map_to_forwarder.insert({ conv, udp_forwarder });
-	kcp_channels.insert({ conv, kcp_ptr });
+	kcp_channels[conv].first = kcp_ptr;
 }
 
 void udp_to_forwarder::on_handshake_failure(std::shared_ptr<handshake> handshake_ptr, const std::string &error_message)

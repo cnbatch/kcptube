@@ -103,7 +103,7 @@ class tcp_to_forwarder
 	std::map<std::shared_ptr<handshake>, std::shared_ptr<tcp_session>, std::owner_less<>> handshake_map_to_tcp_session;
 
 	std::shared_mutex mutex_kcp_channels;
-	std::map<uint32_t, std::shared_ptr<KCP::KCP>> kcp_channels;
+	std::map<uint32_t, std::pair<std::shared_ptr<KCP::KCP>, std::atomic<uint32_t>>> kcp_channels;
 
 	std::mutex mutex_expiring_kcp;
 	std::map<uint32_t, std::pair<std::shared_ptr<KCP::KCP>, int64_t>> expiring_kcpid;
@@ -213,7 +213,7 @@ class udp_to_forwarder
 	std::map<std::shared_ptr<handshake>, std::vector<std::vector<uint8_t>>, std::owner_less<>> udp_seesion_caches;
 
 	std::shared_mutex mutex_kcp_channels;
-	std::map<uint32_t, std::shared_ptr<KCP::KCP>> kcp_channels;
+	std::map<uint32_t, std::pair<std::shared_ptr<KCP::KCP>, std::atomic<uint32_t>>> kcp_channels;
 
 	std::mutex mutex_expiring_kcp;
 	std::map<uint32_t, std::pair<std::shared_ptr<KCP::KCP>, int64_t>> expiring_kcpid;
