@@ -121,9 +121,11 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 	default:
 	{
 		cipher_length = length;
-		data_ptr[cipher_length] = simple_hashing::xor_u8(data_ptr, length);
+		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, length);
+		uint8_t second_hash = simple_hashing::checksum8(data_ptr, length);
+		data_ptr[cipher_length] = first_hash;
 		cipher_length++;
-		data_ptr[cipher_length] = simple_hashing::pearson_hash(data_ptr, length);
+		data_ptr[cipher_length] = second_hash;
 		cipher_length++;
 		bitwise_not(data_ptr, cipher_length);
 		break;
@@ -177,9 +179,11 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	default:
 	{
 		cipher_length = length;
-		cipher_cache[cipher_length] = ~simple_hashing::xor_u8(data_ptr, length);
+		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, length);
+		uint8_t second_hash = simple_hashing::checksum8(data_ptr, length);
+		cipher_cache[cipher_length] = ~first_hash;
 		cipher_length++;
-		cipher_cache[cipher_length] = ~simple_hashing::pearson_hash(data_ptr, length);
+		cipher_cache[cipher_length] = ~second_hash;
 		cipher_length++;
 		cipher_cache.resize(cipher_length);
 		std::transform((const uint8_t *)data_ptr, (const uint8_t *)data_ptr + length, cipher_cache.begin(), [](auto ch) { return ~ch; });
@@ -231,11 +235,14 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	default:
 	{
 		const size_t cipher_length = input_data.size();
+		uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), input_data.size());
+		uint8_t second_hash = simple_hashing::checksum8(input_data.data(), input_data.size());
+
 		size_t pos = input_data.size();
 		input_data.resize(cipher_length + CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE);
-		input_data[pos] = simple_hashing::xor_u8(input_data.data(), cipher_length);
+		input_data[pos] = first_hash;
 		pos++;
-		input_data[pos] = simple_hashing::pearson_hash(input_data.data(), cipher_length);
+		input_data[pos] = second_hash;
 		pos++;
 		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
 		break;
@@ -283,7 +290,8 @@ std::pair<std::string, size_t> decrypt_data(const std::string &password, encrypt
 		bitwise_not(data_ptr, length);
 		data_length = length - CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE;
 		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
-		uint8_t second_hash = simple_hashing::pearson_hash(data_ptr, data_length);
+		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
+
 		if (first_hash != data_ptr[data_length] || second_hash != data_ptr[data_length + 1])
 			error_message = "checksum incorrect";
 		break;
@@ -328,8 +336,8 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	{
 		std::transform(data_cache.begin(), data_cache.end(), data_cache.begin(), [](auto ch) { return ~ch; });
 		int data_length = length - CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE;
-		uint8_t first_hash = simple_hashing::xor_u8(data_cache.data(), data_length);
-		uint8_t second_hash = simple_hashing::pearson_hash(data_cache.data(), data_length);
+		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
+		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
 		if (first_hash != data_cache[data_length] || second_hash != data_cache[data_length + 1])
 			error_message = "Checksum incorrect";
 		data_cache.resize(data_length);
@@ -383,7 +391,7 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
 		size_t data_length = input_data.size() - CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE;
 		uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), data_length);
-		uint8_t second_hash = simple_hashing::pearson_hash(input_data.data(), data_length);
+		uint8_t second_hash = simple_hashing::checksum8(input_data.data(), data_length);
 		if (first_hash != input_data[data_length] || second_hash != input_data[data_length + 1])
 			error_message = "Checksum Incorrect";
 		input_data.resize(data_length);
