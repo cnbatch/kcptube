@@ -3,6 +3,7 @@
 #include <random>
 #include <thread>
 #include "client.hpp"
+#include "../shares/data_operations.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono;
@@ -125,10 +126,10 @@ void tcp_to_forwarder::tcp_server_incoming(std::shared_ptr<uint8_t[]> data, size
 	uint32_t next_refresh_time = kcp_ptr->Check(time_now_for_kcp());
 	uint32_t conv = kcp_ptr->GetConv();
 
-	std::shared_lock lockers{ mutex_kcp_channels };
-	if (kcp_channels.find(conv) != kcp_channels.end())
-		kcp_channels[conv].second.store(next_refresh_time);
-	lockers.unlock();
+	std::shared_lock locker_kcp_channels{ mutex_kcp_channels };
+	if (auto iter = kcp_channels.find(conv); iter != kcp_channels.end())
+		iter->second.second.store(next_refresh_time);
+	locker_kcp_channels.unlock();
 
 	if (!incoming_session->session_is_ending() && !incoming_session->is_pause() &&
 		kcp_ptr->WaitingForSend() > kcp_ptr->GetSendWindowSize())
@@ -468,9 +469,6 @@ void tcp_to_forwarder::loop_update_connections()
 	{
 		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_pair.first;
 		std::atomic<uint32_t> &kcp_update_time = kcp_ptr_pair.second;
-		//std::shared_lock locker_id_map_to_session{ mutex_id_map_to_session };
-		//tcp_session *tcp_channel = id_map_to_session.find(conv)->second.get();
-		//locker_id_map_to_session.unlock();
 
 		if (uint32_t kcp_refresh_time = time_now_for_kcp(); kcp_refresh_time >= kcp_update_time.load())
 		{
@@ -689,34 +687,29 @@ void tcp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 		return;
 
 	asio::error_code ec;
-	if (std::shared_lock locker{ mutex_udp_target }; udp_target == nullptr)
+	for (int i = 0; i <= RETRY_TIMES; ++i)
 	{
-		locker.unlock();
-
-		for (int i = 0; i <= RETRY_TIMES; ++i)
+		udp::resolver::results_type udp_endpoints = udp_forwarder->get_remote_hostname(destination_address, destination_port, ec);
+		if (ec)
 		{
-			udp::resolver::results_type udp_endpoints = udp_forwarder->get_remote_hostname(destination_address, destination_port, ec);
-			if (ec)
-			{
-				std::string error_message = time_to_string_with_square_brackets() + ec.message() + "\n";
-				std::cerr << error_message;
-				print_message_to_file(error_message, current_settings.log_messages);
-				std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
-			}
-			else if (udp_endpoints.size() == 0)
-			{
-				std::string error_message = time_to_string_with_square_brackets() + "destination address not found\n";
-				std::cerr << error_message;
-				print_message_to_file(error_message, current_settings.log_messages);
-				std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
-			}
-			else
-			{
-				std::scoped_lock locker{ mutex_udp_target };
-				udp_target = std::make_unique<udp::endpoint>(*udp_endpoints.begin());
-				previous_udp_target = std::make_unique<udp::endpoint>(*udp_endpoints.begin());
-				break;
-			}
+			std::string error_message = time_to_string_with_square_brackets() + ec.message() + "\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
+			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
+		}
+		else if (udp_endpoints.size() == 0)
+		{
+			std::string error_message = time_to_string_with_square_brackets() + "destination address not found\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
+			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
+		}
+		else
+		{
+			std::scoped_lock locker{ mutex_udp_target };
+			udp_target = std::make_unique<udp::endpoint>(*udp_endpoints.begin());
+			previous_udp_target = std::make_unique<udp::endpoint>(*udp_endpoints.begin());
+			break;
 		}
 	}
 

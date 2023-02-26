@@ -13,7 +13,7 @@
 class encryption_base
 {
 protected:
-	const std::string associated_data = "UDP PortHopping";
+	const std::string associated_data = "KCP PortHopping";
 	const std::string empty_error_message = "Empty Input Data";
 	const size_t CACHE_SIZE = 4096;
 
@@ -99,6 +99,9 @@ public:
 		catch (std::exception &e)
 		{
 			error_message = e.what();
+			decoder->clear();
+			decoder->set_key(key.data(), key.size());
+			decoder->set_associated_data((const uint8_t*)associated_data.c_str(), associated_data.size());
 		}
 
 		return T();
@@ -157,16 +160,19 @@ public:
 		catch (std::exception &e)
 		{
 			error_message = e.what();
+			decoder->clear();
+			decoder->set_key(key.data(), key.size());
+			decoder->set_associated_data((const uint8_t*)associated_data.c_str(), associated_data.size());
 		}
 
 		return T();
 	}
 
-	std::string encrypt(const uint8_t *input_plain_data, size_t length, uint8_t *output_cipher, size_t &output_legnth)
+	std::string encrypt(const uint8_t *input_plain_data, size_t length, uint8_t *output_cipher, size_t &output_length)
 	{
 		if (length == 0)
 		{
-			output_legnth = 0;
+			output_length = 0;
 			return empty_error_message;
 		}
 		
@@ -181,18 +187,18 @@ public:
 			encoder->finish(secure_data);
 
 			std::copy(secure_data.begin(), secure_data.end(), output_cipher);
-			output_legnth = secure_data.size();
+			output_length = secure_data.size();
 		}
 		catch (std::exception &e)
 		{
-			output_legnth = 0;
+			output_length = 0;
 			error_message = e.what();
 		}
 
 		return error_message;
 	}
 
-	std::string decrypt(const uint8_t *input_cipher_data, size_t length, uint8_t *output_plain_data, size_t &output_legnth)
+	std::string decrypt(const uint8_t *input_cipher_data, size_t length, uint8_t *output_plain_data, size_t &output_length)
 	{
 		if (length == 0)
 		{
@@ -210,12 +216,15 @@ public:
 			decoder->finish(secure_data);
 
 			std::copy(secure_data.begin(), secure_data.end(), output_plain_data);
-			output_legnth = secure_data.size();
+			output_length = secure_data.size();
 		}
 		catch (std::exception &e)
 		{
-			output_legnth = 0;
+			output_length = 0;
 			error_message = e.what();
+			decoder->clear();
+			decoder->set_key(key.data(), key.size());
+			decoder->set_associated_data((const uint8_t*)associated_data.c_str(), associated_data.size());
 		}
 
 		return error_message;
@@ -464,4 +473,4 @@ public:
 	}
 };
 
-#endif
+#endif	// !__AEAD_HPP__

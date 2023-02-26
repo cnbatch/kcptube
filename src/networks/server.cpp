@@ -3,6 +3,7 @@
 #include <iostream>
 #include <thread>
 #include "server.hpp"
+#include "../shares/data_operations.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono;
@@ -290,25 +291,14 @@ void server_mode::tcp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	kcp_session->Update(time_now_for_kcp());
 	//kcp_session->Flush();
 	std::shared_lock locker_kcp_looping{ mutex_kcp_looping };
-	if (kcp_looping.find(kcp_session) != kcp_looping.end())
-		kcp_looping[kcp_session].store(kcp_session->Check(time_now_for_kcp()));
+	if (auto iter = kcp_looping.find(kcp_session); iter != kcp_looping.end())
+		iter->second.store(kcp_session->Check(time_now_for_kcp()));
 	locker_kcp_looping.unlock();
 	if (!incoming_session->session_is_ending() && !incoming_session->is_pause() &&
 		kcp_session->WaitingForSend() > kcp_session->GetSendWindowSize()/* * 16*/)
 	{
 		incoming_session->pause(true);
 	}
-	//asio::post(asio_strand, [data, new_data_size, incoming_session, kcp_session]()
-	//	{
-	//		kcp_session->Send((const char *)data.get(), new_data_size);
-	//		kcp_session->Update(time_now_for_kcp());
-	//		kcp_session->Flush();
-	//		if (!incoming_session->session_is_ending() && !incoming_session->is_pause() &&
-	//			kcp_session->WaitingForSend() > kcp_session->GetSendWindowSize()/* * 16*/)
-	//		{
-	//			incoming_session->pause(true);
-	//		}
-	//	});
 	input_count += data_size;
 }
 
@@ -405,7 +395,7 @@ void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> 
 				locker_uid_to_protocal_type.unlock();
 				data_kcp->ReplaceUserPtr(udp_servers[port_number].get());
 				data_kcp->SetMTU(current_settings.kcp_mtu);
-				data_kcp->SetWindowSize(KCP_WINDOW_SIZE, KCP_WINDOW_SIZE);
+				data_kcp->SetWindowSize(current_settings.kcp_sndwnd, current_settings.kcp_rcvwnd);
 				data_kcp->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
 				data_kcp->Update(time_now_for_kcp());
 				data_kcp->RxMinRTO() = 10;
@@ -719,7 +709,7 @@ void server_mode::cleanup_expiring_data_connections()
 {
 	auto time_right_now = packet::right_now();
 
-	std::scoped_lock locker_expiring_kcp{ mutex_expiring_kcp };
+	std::scoped_lock lockers{ mutex_expiring_kcp, mutex_kcp_looping };
 	for (auto iter = expiring_kcp.begin(), next_iter = iter; iter != expiring_kcp.end(); iter = next_iter)
 	{
 		++next_iter;
@@ -736,12 +726,12 @@ void server_mode::cleanup_expiring_data_connections()
 		kcp_channels.erase(conv);
 		locker_kcp_channels.unlock();
 
-		std::scoped_lock locker_uid_to_protocal_type{ mutex_uid_to_protocal_type };
+		std::unique_lock locker_protocal_type_of_kcp{ mutex_uid_to_protocal_type };
 		switch (uid_to_protocal_type[conv])
 		{
 		case protocol_type::tcp:
 		{
-			std::scoped_lock switch_lockers{ mutex_kcp_session_map_to_tcp, mutex_tcp_session_map_to_kcp, mutex_kcp_looping };
+			std::scoped_lock switch_lockers{ mutex_kcp_session_map_to_tcp, mutex_tcp_session_map_to_kcp };
 			std::shared_ptr<tcp_session> current_session = kcp_session_map_to_tcp[kcp_ptr];
 
 			if (auto loop_iter = kcp_looping.find(kcp_ptr); loop_iter != kcp_looping.end())
@@ -771,7 +761,7 @@ void server_mode::cleanup_expiring_data_connections()
 		}
 		case protocol_type::udp:
 		{
-			std::scoped_lock switch_lockers{ mutex_kcp_session_map_to_target_udp, mutex_kcp_looping };
+			std::scoped_lock switch_lockers{ mutex_kcp_session_map_to_target_udp };
 			if (auto loop_iter = kcp_looping.find(kcp_ptr); loop_iter != kcp_looping.end())
 				kcp_looping.erase(loop_iter);
 			if (auto session_iter = kcp_session_map_to_target_udp.find(kcp_ptr); session_iter != kcp_session_map_to_target_udp.end())
@@ -787,6 +777,7 @@ void server_mode::cleanup_expiring_data_connections()
 
 		kcp_ptr->SetOutput(empty_kcp_output);
 		uid_to_protocal_type.erase(conv);
+		locker_protocal_type_of_kcp.unlock();
 
 		std::unique_lock locker_kcp_session_map_to_source_udp{ mutex_kcp_session_map_to_source_udp };
 		kcp_session_map_to_source_udp.erase(kcp_ptr);
@@ -811,31 +802,12 @@ void server_mode::loop_update_connections()
 			uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
 			kcp_update_time.store(next_refresh_time);
 		}
-
-		//std::shared_lock locker_uid_to_protocal_type{ mutex_uid_to_protocal_type };
-		//protocol_type ptype = uid_to_protocal_type[conv];
-		//locker_uid_to_protocal_type.unlock();
-
-		//if (ptype == protocol_type::tcp)
-		//{
-		//	std::shared_lock locker_kcp_session_map_to_tcp{ mutex_kcp_session_map_to_tcp };
-		//	std::shared_ptr<tcp_session> local_session = kcp_session_map_to_tcp[kcp_ptr];
-		//	tcp_session *session_ptr = local_session.get();
-		//	locker_kcp_session_map_to_tcp.unlock();
-		//	asio::post(asio_strand, [tcp_channel = session_ptr, data_kcp = kcp_ptr.get()]()
-		//	{
-		//		if (tcp_channel->is_pause() && data_kcp->WaitingForSend() < data_kcp->GetSendWindowSize())
-		//		{
-		//			tcp_channel->pause(false);
-		//		}
-		//	});
-		//}
 	}
 }
 
 void server_mode::loop_find_expires()
 {
-	std::scoped_lock locker_kcp_looping{ mutex_kcp_looping };
+	std::scoped_lock lockers{ mutex_kcp_looping, mutex_expiring_kcp };
 	for (auto iter = kcp_looping.begin(), next_iter = iter; iter != kcp_looping.end(); iter = next_iter)
 	{
 		++next_iter;
@@ -887,7 +859,6 @@ void server_mode::loop_find_expires()
 			kcp_ptr->SetOutput(empty_kcp_output);
 			kcp_looping.erase(iter);
 
-			std::scoped_lock locker_expiring_kcp{ mutex_expiring_kcp };
 			if (expiring_kcp.find(kcp_ptr) != expiring_kcp.end())
 				continue;
 
@@ -904,17 +875,6 @@ void server_mode::loop_find_expires()
 				uint32_t next_refresh_time = kcp_ptr->Check(kcp_refresh_time);
 				kcp_update_time.store(next_refresh_time);
 			}
-			//asio::post(asio_strand, [data_kcp = kcp_ptr]() { data_kcp->Update(time_now_for_kcp()); });
-			//if (ptype == protocol_type::tcp)
-			//{
-			//	asio::post(asio_strand, [tcp_channel = session_ptr, data_kcp = kcp_ptr.get()]()
-			//	{
-			//		if (tcp_channel->is_pause() && data_kcp->WaitingForSend() < data_kcp->GetSendWindowSize())
-			//		{
-			//			tcp_channel->pause(false);
-			//		}
-			//	});
-			//}
 		}
 	}
 }

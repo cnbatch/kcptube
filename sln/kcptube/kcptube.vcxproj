@@ -35,6 +35,7 @@
     <ClCompile Include="..\..\src\networks\kcp.cpp" />
     <ClCompile Include="..\..\src\networks\server.cpp" />
     <ClCompile Include="..\..\src\networks\stun.cpp" />
+    <ClCompile Include="..\..\src\shares\data_operations.cpp" />
     <ClCompile Include="..\..\src\shares\share_defines.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -44,7 +45,9 @@
     <ClInclude Include="..\..\src\networks\server.hpp" />
     <ClInclude Include="..\..\src\networks\stun.hpp" />
     <ClInclude Include="..\..\src\shares\aead.hpp" />
+    <ClInclude Include="..\..\src\shares\data_operations.hpp" />
     <ClInclude Include="..\..\src\shares\share_defines.hpp" />
+    <ClInclude Include="..\..\src\shares\simple_hashing.hpp" />
     <ClInclude Include="..\..\src\shares\string_utils.hpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

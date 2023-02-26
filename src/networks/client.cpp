@@ -3,6 +3,7 @@
 #include <random>
 #include <thread>
 #include "client.hpp"
+#include "../shares/data_operations.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono;

@@ -54,6 +54,9 @@
     <ClCompile Include="..\..\src\networks\stun.cpp">
       <Filter>Source Files\networks</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\shares\data_operations.cpp">
+      <Filter>Source Files\shares</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\shares\share_defines.hpp">
@@ -79,6 +82,12 @@
     </ClInclude>
     <ClInclude Include="..\..\src\shares\aead.hpp">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\shares\data_operations.hpp">
+      <Filter>Header Files\shares</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\shares\simple_hashing.hpp">
+      <Filter>Header Files\shares</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -1,106 +1,12 @@
 #include <climits>
 #include <stdexcept>
 #include <cstdlib>
-#include <map>
 #include <fstream>
 #include <sstream>
 #include <mutex>
 #include "share_defines.hpp"
 #include "string_utils.hpp"
-#include "aead.hpp"
 
-
-struct default_values
-{
-	static const int TIMEOUT = 1800;	// second
-	static const int KCP_SEND_WINDOW = 256;
-	static const int KCP_RECEIVE_WINDOW = 1024;
-	static const int KCP_MTU = 1420;
-};
-
-template<typename T>
-class encrypt_decrypt
-{
-private:
-	std::map<std::string, T> core;
-
-public:
-	std::string encrypt(const std::string &password, const uint8_t *input_plain_data, size_t length, uint8_t *output_cipher, size_t &output_legnth)
-	{
-		auto iter = core.find(password);
-		if (iter == core.end())
-		{
-			core.insert({ password, T(password) });
-			iter = core.find(password);
-		}
-
-		return iter->second.encrypt(input_plain_data, length, output_cipher, output_legnth);
-	}
-
-	template<typename Container>
-	Container encrypt(const std::string &password, const Container &cipher_data, std::string &error_message)
-	{
-		auto iter = core.find(password);
-		if (iter == core.end())
-		{
-			core.insert({ password, T(password) });
-			iter = core.find(password);
-		}
-
-		return iter->second.encrypt(cipher_data, error_message);
-	}
-
-	template<typename Container>
-	Container encrypt(const std::string &password, Container &&cipher_data, std::string &error_message)
-	{
-		auto iter = core.find(password);
-		if (iter == core.end())
-		{
-			core.insert({ password, T(password) });
-			iter = core.find(password);
-		}
-
-		return iter->second.encrypt(std::move(cipher_data), error_message);
-	}
-
-	std::string decrypt(const std::string &password, const uint8_t *input_plain_data, size_t length, uint8_t *output_cipher, size_t &output_legnth)
-	{
-		auto iter = core.find(password);
-		if (iter == core.end())
-		{
-			core.insert({ password, T(password) });
-			iter = core.find(password);
-		}
-
-		return iter->second.decrypt(input_plain_data, length, output_cipher, output_legnth);
-	}
-
-	template<typename Container>
-	Container decrypt(const std::string &password, const Container &cipher_data, std::string &error_message)
-	{
-		auto iter = core.find(password);
-		if (iter == core.end())
-		{
-			core.insert({ password, T(password) });
-			iter = core.find(password);
-		}
-
-		return iter->second.decrypt(cipher_data, error_message);
-	}
-
-	template<typename Container>
-	Container decrypt(const std::string &password, Container &&cipher_data, std::string &error_message)
-	{
-		auto iter = core.find(password);
-		if (iter == core.end())
-		{
-			core.insert({ password, T(password) });
-			iter = core.find(password);
-		}
-
-		return iter->second.decrypt(std::move(cipher_data), error_message);
-	}
-};
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg)
 {
@@ -186,9 +92,9 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 				break;
 
 			case strhash("dport_refresh"):	// client only
-				if (auto time_interval = std::stoi(value); time_interval < dport_refresh_minimal)
-					current_user_settings.dynamic_port_refresh = dport_refresh_minimal;
-				else if (time_interval >= dport_refresh_minimal && time_interval < USHRT_MAX)
+				if (auto time_interval = std::stoi(value); time_interval < CONSTANT_VALUES::DPORT_REFRESH_MINIMAL)
+					current_user_settings.dynamic_port_refresh = CONSTANT_VALUES::DPORT_REFRESH_MINIMAL;
+				else if (time_interval >= CONSTANT_VALUES::DPORT_REFRESH_MINIMAL && time_interval < USHRT_MAX)
 					current_user_settings.dynamic_port_refresh = static_cast<uint16_t>(time_interval);
 				else
 					current_user_settings.dynamic_port_refresh = USHRT_MAX;
@@ -330,7 +236,7 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 			case strhash("keep_alive"):
 				if (auto time_interval = std::stoi(value); time_interval < 0)
 					current_user_settings.keep_alive = 0;
-				else if (time_interval >= dport_refresh_minimal && time_interval < USHRT_MAX)
+				else if (time_interval >= CONSTANT_VALUES::DPORT_REFRESH_MINIMAL && time_interval < USHRT_MAX)
 					current_user_settings.keep_alive = static_cast<uint16_t>(time_interval);
 				else
 					current_user_settings.keep_alive = USHRT_MAX;
@@ -381,10 +287,10 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 			error_msg.emplace_back("kcp_nc not set");
 
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW;
+			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW;
 
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = default_values::KCP_RECEIVE_WINDOW;
+			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW;
 
 		break;
 	}
@@ -396,9 +302,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW * 2;
+			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW * 2;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = default_values::KCP_RECEIVE_WINDOW * 2;
+			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW * 2;
 		break;
 	}
 
@@ -409,9 +315,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW * 2;
+			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW * 2;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = default_values::KCP_RECEIVE_WINDOW * 2;
+			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW * 2;
 		break;
 	}
 
@@ -422,9 +328,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW * 2;
+			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW * 2;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = default_values::KCP_RECEIVE_WINDOW * 2;
+			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW * 2;
 		break;
 	}
 
@@ -435,9 +341,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 4;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW;
+			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = default_values::KCP_RECEIVE_WINDOW;
+			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW;
 		break;
 	}
 
@@ -448,9 +354,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 6;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW;
+			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = default_values::KCP_RECEIVE_WINDOW;
+			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW;
 		break;
 	}
 
@@ -465,27 +371,32 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 8;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = default_values::KCP_SEND_WINDOW;
+			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = default_values::KCP_RECEIVE_WINDOW;
+			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW;
 		break;
 	}
 	}
 
 	if (current_user_settings.kcp_mtu < 0)
-		current_user_settings.kcp_mtu = default_values::KCP_MTU;
+		current_user_settings.kcp_mtu = CONSTANT_VALUES::KCP_MTU;
 
 	if (current_user_settings.timeout < 0)
-		current_user_settings.timeout = default_values::TIMEOUT;
+		current_user_settings.timeout = CONSTANT_VALUES::TIMEOUT;
 
 	if (current_user_settings.destination_address.empty())
 		error_msg.emplace_back("invalid destination_address setting");
 
-	if (encryption_mode::empty != current_user_settings.encryption &&
-		encryption_mode::unknow != current_user_settings.encryption &&
-		encryption_mode::none != current_user_settings.encryption &&
-		current_user_settings.encryption_password.empty())
+	if (current_user_settings.encryption == encryption_mode::empty ||
+		current_user_settings.encryption == encryption_mode::unknow ||
+		current_user_settings.encryption == encryption_mode::none)
+	{
+		current_user_settings.kcp_mtu -= CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE;
+	}
+	else if (current_user_settings.encryption_password.empty())
+	{
 		error_msg.emplace_back("encryption_password is not set");
+	}
 
 	if (running_mode::empty == current_user_settings.mode)
 		error_msg.emplace_back("running mode is not set");
@@ -503,7 +414,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 		if (current_user_settings.destination_port == 0 &&
 			(current_user_settings.destination_port_start == 0 ||
-			current_user_settings.destination_port_end == 0))
+				current_user_settings.destination_port_end == 0))
 		{
 			error_msg.emplace_back("destination port setting incorrect");
 		}
@@ -579,332 +490,9 @@ std::vector<uint8_t> create_raw_random_data(size_t mtu_size)
 {
 	std::vector<uint8_t> temp_array(mtu_size, 0);
 	uint8_t *ptr = temp_array.data() + (mtu_size / 2);
-	uint64_t *ptr_force_uint64_t = reinterpret_cast<uint64_t*>(ptr);
+	uint64_t *ptr_force_uint64_t = reinterpret_cast<uint64_t *>(ptr);
 	*ptr_force_uint64_t = generate_random_number<uint64_t>();
 	return temp_array;
-}
-
-std::pair<std::string, size_t> encrypt_data(const std::string& password, encryption_mode mode, uint8_t* data_ptr, int length)
-{
-	size_t cipher_legnth = 0;
-	std::string error_message;
-	switch (mode)
-	{
-	case encryption_mode::aes_gcm:
-	{
-		thread_local encrypt_decrypt<aes_256_gcm> gcm;
-		error_message = gcm.encrypt(password, data_ptr, length, data_ptr, cipher_legnth);
-		break;
-	}
-	case encryption_mode::aes_ocb:
-	{
-		thread_local encrypt_decrypt<aes_256_ocb> ocb;
-		error_message = ocb.encrypt(password, data_ptr, length, data_ptr, cipher_legnth);
-		break;
-	}
-	case encryption_mode::chacha20:
-	{
-		thread_local encrypt_decrypt<chacha20> cc20;
-		error_message = cc20.encrypt(password, data_ptr, length, data_ptr, cipher_legnth);
-		break;
-	}
-	case encryption_mode::xchacha20:
-	{
-		thread_local encrypt_decrypt<xchacha20> xcc20;
-		error_message = xcc20.encrypt(password, data_ptr, length, data_ptr, cipher_legnth);
-		break;
-	}
-	default:
-		cipher_legnth = length;
-		bitwise_not(data_ptr, length);
-		break;
-	};
-
-	xor_backward(data_ptr, cipher_legnth);
-
-	return { std::move(error_message), cipher_legnth };
-}
-
-std::vector<uint8_t> encrypt_data(const std::string& password, encryption_mode mode, const void* data_ptr, int length, std::string& error_message)
-{
-	size_t cipher_legnth = length;
-	std::vector<uint8_t> cipher_cache(length + 48);
-
-	switch (mode)
-	{
-	case encryption_mode::aes_gcm:
-	{
-		thread_local encrypt_decrypt<aes_256_gcm> gcm;
-		error_message = gcm.encrypt(password, (const uint8_t*)data_ptr, length, cipher_cache.data(), cipher_legnth);
-		if (error_message.empty() && cipher_legnth > 0)
-			cipher_cache.resize(cipher_legnth);
-		break;
-	}
-	case encryption_mode::aes_ocb:
-	{
-		thread_local encrypt_decrypt<aes_256_ocb> ocb;
-		error_message = ocb.encrypt(password, (const uint8_t*)data_ptr, length, cipher_cache.data(), cipher_legnth);
-		if (error_message.empty() && cipher_legnth > 0)
-			cipher_cache.resize(cipher_legnth);
-		break;
-	}
-	case encryption_mode::chacha20:
-	{
-		thread_local encrypt_decrypt<chacha20> cc20;
-		error_message = cc20.encrypt(password, (const uint8_t*)data_ptr, length, cipher_cache.data(), cipher_legnth);
-		if (error_message.empty() && cipher_legnth > 0)
-			cipher_cache.resize(cipher_legnth);
-		break;
-	}
-	case encryption_mode::xchacha20:
-	{
-		thread_local encrypt_decrypt<xchacha20> xcc20;
-		error_message = xcc20.encrypt(password, (const uint8_t*)data_ptr, length, cipher_cache.data(), cipher_legnth);
-		if (error_message.empty() && cipher_legnth > 0)
-			cipher_cache.resize(cipher_legnth);
-		break;
-	}
-	default:
-		cipher_cache.resize(length);
-		std::transform((const uint8_t*)data_ptr, (const uint8_t*)data_ptr + length, cipher_cache.begin(), [](auto ch) { return ~ch; });
-		break;
-	};
-
-	xor_backward(cipher_cache);
-
-	return cipher_cache;
-}
-
-std::vector<uint8_t> encrypt_data(const std::string& password, encryption_mode mode, std::vector<uint8_t>&& input_data, std::string& error_message)
-{
-	switch (mode)
-	{
-	case encryption_mode::aes_gcm:
-	{
-		thread_local encrypt_decrypt<aes_256_gcm> gcm;
-		input_data = gcm.encrypt(password, std::move(input_data), error_message);
-		if (!error_message.empty() || input_data.size() == 0)
-			return input_data;
-		break;
-	}
-	case encryption_mode::aes_ocb:
-	{
-		thread_local encrypt_decrypt<aes_256_ocb> ocb;
-		input_data = ocb.encrypt(password, std::move(input_data), error_message);
-		if (!error_message.empty() || input_data.size() == 0)
-			return input_data;
-		break;
-	}
-	case encryption_mode::chacha20:
-	{
-		thread_local encrypt_decrypt<chacha20> cc20;
-		input_data = cc20.encrypt(password, std::move(input_data), error_message);
-		if (!error_message.empty() || input_data.size() == 0)
-			return input_data;
-		break;
-	}
-	case encryption_mode::xchacha20:
-	{
-		thread_local encrypt_decrypt<xchacha20> xcc20;
-		input_data = xcc20.encrypt(password, std::move(input_data), error_message);
-		if (!error_message.empty() || input_data.size() == 0)
-			return input_data;
-		break;
-	}
-	default:
-		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
-		break;
-	};
-
-	xor_backward(input_data);
-	return input_data;
-}
-
-std::pair<std::string, size_t> decrypt_data(const std::string& password, encryption_mode mode, uint8_t* data_ptr, int length)
-{
-	xor_forward(data_ptr, length);
-
-	size_t data_legnth = 0;
-	std::string error_message;
-	switch (mode)
-	{
-	case encryption_mode::aes_gcm:
-	{
-		thread_local encrypt_decrypt<aes_256_gcm> gcm;
-		error_message = gcm.decrypt(password, data_ptr, length, data_ptr, data_legnth);
-		break;
-	}
-	case encryption_mode::aes_ocb:
-	{
-		thread_local encrypt_decrypt<aes_256_ocb> ocb;
-		error_message = ocb.decrypt(password, data_ptr, length, data_ptr, data_legnth);
-		break;
-	}
-	case encryption_mode::chacha20:
-	{
-		thread_local encrypt_decrypt<chacha20> cc20;
-		error_message = cc20.decrypt(password, data_ptr, length, data_ptr, data_legnth);
-		break;
-	}
-	case encryption_mode::xchacha20:
-	{
-		thread_local encrypt_decrypt<xchacha20> xcc20;
-		error_message = xcc20.decrypt(password, data_ptr, length, data_ptr, data_legnth);
-		break;
-	}
-	default:
-		data_legnth = length;
-		bitwise_not(data_ptr, length);
-		break;
-	};
-
-	return { std::move(error_message), data_legnth };
-}
-
-std::vector<uint8_t> decrypt_data(const std::string& password, encryption_mode mode, const void* data_ptr, int length, std::string& error_message)
-{
-	std::vector<uint8_t> data_cache((const uint8_t*)data_ptr, (const uint8_t*)data_ptr + length);
-	xor_forward(data_cache);
-
-	switch (mode)
-	{
-	case encryption_mode::aes_gcm:
-	{
-		thread_local encrypt_decrypt<aes_256_gcm> gcm;
-		data_cache = gcm.decrypt(password, std::move(data_cache), error_message);
-		break;
-	}
-	case encryption_mode::aes_ocb:
-	{
-		thread_local encrypt_decrypt<aes_256_ocb> ocb;
-		data_cache = ocb.decrypt(password, std::move(data_cache), error_message);
-		break;
-	}
-	case encryption_mode::chacha20:
-	{
-		thread_local encrypt_decrypt<chacha20> cc20;
-		data_cache = cc20.decrypt(password, std::move(data_cache), error_message);
-		break;
-	}
-	case encryption_mode::xchacha20:
-	{
-		thread_local encrypt_decrypt<xchacha20> xcc20;
-		data_cache = xcc20.decrypt(password, std::move(data_cache), error_message);
-		break;
-	}
-	default:
-		std::transform(data_cache.begin(), data_cache.end(), data_cache.begin(), [](auto ch) { return ~ch; });
-		break;
-	};
-
-	return data_cache;
-}
-
-std::vector<uint8_t> decrypt_data(const std::string& password, encryption_mode mode, std::vector<uint8_t>&& input_data, std::string& error_message)
-{
-	xor_forward(input_data);
-
-	switch (mode)
-	{
-	case encryption_mode::aes_gcm:
-	{
-		thread_local encrypt_decrypt<aes_256_gcm> gcm;
-		input_data = gcm.decrypt(password, std::move(input_data), error_message);
-		if (!error_message.empty() || input_data.size() == 0)
-			return input_data;
-		break;
-	}
-	case encryption_mode::aes_ocb:
-	{
-		thread_local encrypt_decrypt<aes_256_ocb> ocb;
-		input_data = ocb.decrypt(password, std::move(input_data), error_message);
-		if (!error_message.empty() || input_data.size() == 0)
-			return input_data;
-		break;
-	}
-	case encryption_mode::chacha20:
-	{
-		thread_local encrypt_decrypt<chacha20> cc20;
-		input_data = cc20.decrypt(password, std::move(input_data), error_message);
-		if (!error_message.empty() || input_data.size() == 0)
-			return input_data;
-		break;
-	}
-	case encryption_mode::xchacha20:
-	{
-		thread_local encrypt_decrypt<xchacha20> xcc20;
-		input_data = xcc20.decrypt(password, std::move(input_data), error_message);
-		if (!error_message.empty() || input_data.size() == 0)
-			return input_data;
-		break;
-	}
-	default:
-		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
-		break;
-	};
-
-	return input_data;
-}
-
-void xor_forward(uint8_t *data, size_t data_size)
-{
-	for (auto ptr = data, next = ptr + 1;
-		next < data + data_size;
-		++ptr, ++next)
-	{
-		*ptr ^= *next;
-	}
-}
-
-void xor_forward(std::vector<uint8_t> &data)
-{
-	for (auto iter = data.begin(), next = iter + 1;
-		next != data.end();
-		++iter, ++next)
-	{
-		*iter ^= *next;
-	}
-}
-
-void xor_backward(uint8_t *data, size_t data_size)
-{
-	for (auto ptr = data + data_size - 1, next = ptr - 1;
-		next >= data;
-		--ptr, --next)
-	{
-		*next ^= *ptr;
-	}
-}
-
-void xor_backward(std::vector<uint8_t> &data)
-{
-	for (auto iter = data.rbegin(), next = iter + 1;
-		next != data.rend();
-		++iter, ++next)
-	{
-		*next ^= *iter;
-	}
-}
-
-void bitwise_not(uint8_t *input_data, size_t length)
-{
-	if (length < sizeof(uint64_t) * 2)
-	{
-		std::transform(input_data, input_data + length, input_data, [](auto ch) { return ~ch; });
-	}
-	else
-	{
-		uint64_t *pos_ptr = (uint64_t *)input_data;
-		for (; pos_ptr + 1 < (uint64_t *)(input_data + length); pos_ptr++)
-		{
-			*pos_ptr = ~(*pos_ptr);
-		}
-
-		for (uint8_t *ending_ptr = (uint8_t *)pos_ptr; ending_ptr < input_data + length; ending_ptr++)
-		{
-			*ending_ptr = ~(*ending_ptr);
-		}
-	}
 }
 
 std::string time_to_string()
