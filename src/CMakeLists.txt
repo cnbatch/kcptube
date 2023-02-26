@@ -1,8 +1,8 @@
 add_subdirectory(shares)
 add_subdirectory(networks)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE SHAREDEFINES)
 target_link_libraries(${PROJECT_NAME} PRIVATE NETCONNECTIONS)
+target_link_libraries(${PROJECT_NAME} PRIVATE SHAREDEFINES)
 
 if (WIN32)
 	target_link_libraries(${PROJECT_NAME} PUBLIC wsock32 ws2_32)
