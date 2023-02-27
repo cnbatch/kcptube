@@ -15,13 +15,13 @@ enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xc
 
 namespace CONSTANT_VALUES
 {
-	constexpr int TIMEOUT = 1800;	// second
+	constexpr uint16_t TIMEOUT = 1800;	// second
+	constexpr uint16_t DPORT_REFRESH_DEFAULT = 60;
+	constexpr uint16_t DPORT_REFRESH_MINIMAL = 20;
 	constexpr int KCP_SEND_WINDOW = 256;
 	constexpr int KCP_RECEIVE_WINDOW = 1024;
 	constexpr int KCP_MTU = 1420;
 	constexpr int CHECKSUM_BLOCK_SIZE = 2;
-	constexpr uint16_t DPORT_REFRESH_DEFAULT = 60;
-	constexpr uint16_t DPORT_REFRESH_MINIMAL = 20;
 };
 
 
@@ -43,11 +43,11 @@ struct user_settings
 	uint16_t destination_port_start = 0;
 	uint16_t destination_port_end = 0;
 	uint16_t dynamic_port_refresh = CONSTANT_VALUES::DPORT_REFRESH_DEFAULT;	// seconds
+	uint16_t timeout = 0;	 // seconds
 	uint16_t keep_alive = 0;	// seconds
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::empty;
 	kcp_mode kcp_setting = kcp_mode::unknow;
-	int timeout = -1;	 // seconds
 	int kcp_mtu = -1;
 	int kcp_sndwnd = -1;
 	int kcp_rcvwnd = -1;

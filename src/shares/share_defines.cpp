@@ -198,10 +198,6 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 				}
 				break;
 
-			case strhash("timeout"):
-				current_user_settings.timeout = std::stoi(value);
-				break;
-
 			case strhash("kcp_mtu"):
 				current_user_settings.kcp_mtu = std::stoi(value);
 				break;
@@ -232,6 +228,13 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 				current_user_settings.kcp_nc = yes;
 				break;
 			}
+
+			case strhash("timeout"):
+				if (auto time_interval = std::stoi(value); time_interval <= 0 || time_interval > USHRT_MAX)
+					current_user_settings.timeout = 0;
+				else
+					current_user_settings.timeout = static_cast<uint16_t>(time_interval);
+				break;
 
 			case strhash("keep_alive"):
 				if (auto time_interval = std::stoi(value); time_interval < 0)
@@ -381,7 +384,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 	if (current_user_settings.kcp_mtu < 0)
 		current_user_settings.kcp_mtu = CONSTANT_VALUES::KCP_MTU;
 
-	if (current_user_settings.timeout < 0)
+	if (current_user_settings.timeout == 0)
 		current_user_settings.timeout = CONSTANT_VALUES::TIMEOUT;
 
 	if (current_user_settings.destination_address.empty())
