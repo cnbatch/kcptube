@@ -20,6 +20,7 @@
 #include <atomic>
 #include <functional>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <vector>
@@ -111,12 +112,15 @@ namespace KCP
 			uint32_t rto = 0;
 			uint32_t fastack = 0;
 			uint32_t xmit = 0;
-			std::vector<char> data;
+			size_t len = 0;
+			std::unique_ptr<char[]> data = nullptr;
 
 			Segment() = default;
 			Segment(size_t sizes)
 			{
-				data.resize(sizes);
+				if (sizes > 0)
+					data = std::make_unique<char[]>(sizes);
+				len = sizes;
 			}
 
 			Segment(Segment &&other) noexcept
@@ -144,6 +148,7 @@ namespace KCP
 				this->rto = other.rto;
 				this->fastack = other.fastack;
 				this->xmit = other.xmit;
+				this->len = other.len;
 				this->data = std::move(other.data);
 			}
 		};

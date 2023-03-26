@@ -134,7 +134,7 @@ namespace KCP
 		ptr = Encode32u(ptr, seg.ts);
 		ptr = Encode32u(ptr, seg.sn);
 		ptr = Encode32u(ptr, seg.una);
-		ptr = Encode32u(ptr, static_cast<int>(seg.data.size()));
+		ptr = Encode32u(ptr, static_cast<int>(seg.len));
 		return ptr;
 	}
 
@@ -364,12 +364,12 @@ namespace KCP
 			++next;
 			if (buffer)
 			{
-				std::copy(seg->data.begin(), seg->data.end(), buffer);
+				std::copy_n(seg->data.get(), seg->len, buffer);
 				//memcpy(buffer, seg->data.data(), seg->data.size());
-				buffer += seg->data.size();
+				buffer += seg->len;
 			}
 
-			len += static_cast<int>(seg->data.size());
+			len += static_cast<int>(seg->len);
 			fragment = seg->frg;
 
 			if (CanLog(IKCP_LOG_RECV))
@@ -443,13 +443,13 @@ namespace KCP
 		if (this->rcv_queue.empty()) return -1;
 
 		auto seg = this->rcv_queue.begin();
-		if (seg->frg == 0) return static_cast<int>(seg->data.size());
+		if (seg->frg == 0) return static_cast<int>(seg->len);
 
 		if (this->rcv_queue.size() < static_cast<size_t>(seg->frg) + 1) return -1;
 
 		for (seg = this->rcv_queue.begin(); seg != this->rcv_queue.end(); ++seg)
 		{
-			length += static_cast<int>(seg->data.size());
+			length += static_cast<int>(seg->len);
 			if (seg->frg == 0) break;
 		}
 
@@ -471,16 +471,20 @@ namespace KCP
 			if (!this->snd_queue.empty())
 			{
 				auto &seg = this->snd_queue.back();
-				if (seg.data.size() < this->mss)
+				if (seg.len < this->mss)
 				{
-					size_t capacity = static_cast<size_t>(this->mss) - seg.data.size();
+					size_t capacity = static_cast<size_t>(this->mss) - seg.len;
 					size_t extend = (len < capacity) ? len : capacity;
-					size_t old_size = seg.data.size();
-					seg.data.resize(seg.data.size() + extend);
+					size_t old_size = seg.len;
+					size_t new_size = old_size + extend;
+					std::unique_ptr<char[]> new_data = std::make_unique<char[]>(new_size);
+					std::copy_n(seg.data.get(), old_size, new_data.get());
+					seg.data = std::move(new_data);
+					seg.len = new_size;
 					//memcpy(seg->data.data(), old->data.data(), old->data.size());
 					if (buffer)
 					{
-						std::copy_n(buffer, extend, seg.data.begin() + old_size);
+						std::copy_n(buffer, extend, seg.data.get() + old_size);
 						//memcpy(seg.data.data() + old_size, buffer, extend);
 						buffer += extend;
 					}
@@ -511,7 +515,7 @@ namespace KCP
 			auto &seg = snd_queue.back();
 			if (buffer && len > 0)
 			{
-				std::copy_n(buffer, size, seg.data.begin());
+				std::copy_n(buffer, size, seg.data.get());
 				//memcpy(seg.data.data(), buffer, size);
 			}
 			seg.frg = this->stream ? 0 : (count - i - 1);
@@ -812,7 +816,7 @@ namespace KCP
 
 						if (len > 0)
 						{
-							std::copy_n(data, len, seg.data.begin());
+							std::copy_n(data, len, seg.data.get());
 							//memcpy(seg.data.data(), data, len);
 						}
 
@@ -1076,7 +1080,7 @@ namespace KCP
 				segment->una = this->rcv_nxt.load();
 
 				size = (int)(ptr - buffer);
-				need = IKCP_OVERHEAD + static_cast<int>(segment->data.size());
+				need = IKCP_OVERHEAD + static_cast<int>(segment->len);
 
 				if (size + need > (int)this->mtu)
 				{
@@ -1086,11 +1090,11 @@ namespace KCP
 
 				ptr = EncodeSegment(ptr, *segment);
 
-				if (segment->data.size() > 0)
+				if (segment->len > 0)
 				{
-					std::copy(segment->data.begin(), segment->data.end(), ptr);
+					std::copy_n(segment->data.get(), segment->len, ptr);
 					//memcpy(ptr, segment->data.data(), segment->data.size());
-					ptr += segment->data.size();
+					ptr += segment->len;
 				}
 
 				if (segment->xmit >= this->dead_link)

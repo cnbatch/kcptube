@@ -90,11 +90,11 @@ using asio::ip::udp;
 
 class tcp_session;
 
-using tcp_callback_t = std::function<void(std::shared_ptr<uint8_t[]>, size_t, std::shared_ptr<tcp_session>)>;
-using udp_callback_t = std::function<void(std::shared_ptr<uint8_t[]>, size_t, udp::endpoint&&, asio::ip::port_type)>;
+using tcp_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, std::shared_ptr<tcp_session>)>;
+using udp_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
 
-void empty_tcp_callback(std::shared_ptr<uint8_t[]> tmp1, size_t tmps, std::shared_ptr<tcp_session> tmp2);
-void empty_udp_callback(std::shared_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint &&tmp2, asio::ip::port_type tmp3);
+void empty_tcp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, std::shared_ptr<tcp_session> tmp2);
+void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
 void empty_tcp_disconnect(std::shared_ptr<tcp_session> tmp);
 int empty_kcp_output(const char *, int, void *);
 
@@ -127,10 +127,10 @@ public:
 	size_t send_data(const uint8_t *buffer_data, size_t size_in_bytes);
 	size_t send_data(const uint8_t *buffer_data, size_t size_in_bytes, asio::error_code &ec);
 
-	void async_send_data(std::shared_ptr<std::vector<uint8_t>> data);
+	void async_send_data(std::unique_ptr<std::vector<uint8_t>> data);
 	void async_send_data(std::vector<uint8_t> &&data);
-	void async_send_data(std::shared_ptr<uint8_t[]> buffer_data, size_t size_in_bytes);
-	void async_send_data(std::shared_ptr<uint8_t[]> buffer_data, uint8_t *start_pos, size_t size_in_bytes);
+	void async_send_data(std::unique_ptr<uint8_t[]> buffer_data, size_t size_in_bytes);
+	void async_send_data(std::unique_ptr<uint8_t[]> buffer_data, uint8_t *start_pos, size_t size_in_bytes);
 	void async_send_data(const uint8_t *buffer_data, size_t size_in_bytes);
 
 	void when_disconnect(std::function<void(std::shared_ptr<tcp_session>)> callback_before_disconnect);
@@ -146,7 +146,7 @@ public:
 private:
 	void after_write_completed(const asio::error_code &error, size_t bytes_transferred);
 
-	void after_read_completed(std::shared_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, size_t bytes_transferred);
+	void after_read_completed(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, size_t bytes_transferred);
 
 	asio::io_context &network_io;
 	asio::strand<asio::io_context::executor_type> &task_assigner;
@@ -222,16 +222,16 @@ public:
 
 	void continue_receive();
 
-	void async_send_out(std::shared_ptr<std::vector<uint8_t>> data, const udp::endpoint &client_endpoint);
-	void async_send_out(std::shared_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &client_endpoint);
-	void async_send_out(std::shared_ptr<uint8_t[]> data, uint8_t *start_pos , size_t data_size, const udp::endpoint &client_endpoint);
+	void async_send_out(std::unique_ptr<std::vector<uint8_t>> data, const udp::endpoint &client_endpoint);
+	void async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &client_endpoint);
+	void async_send_out(std::unique_ptr<uint8_t[]> data, uint8_t *start_pos , size_t data_size, const udp::endpoint &client_endpoint);
 	void async_send_out(std::vector<uint8_t> &&data, const udp::endpoint &client_endpoint);
 	udp::resolver& get_resolver() { return resolver; }
 
 private:
 	void initialise(const udp::endpoint &ep);
 	void start_receive();
-	void handle_receive(std::shared_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
+	void handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
 
 	asio::ip::port_type get_port_number();
 
@@ -270,9 +270,9 @@ public:
 	size_t send_out(const std::vector<uint8_t> &data, const udp::endpoint &peer_endpoint, asio::error_code &ec);
 	size_t send_out(const uint8_t *data, size_t size, const udp::endpoint &peer_endpoint, asio::error_code &ec);
 
-	void async_send_out(std::shared_ptr<std::vector<uint8_t>> data, const udp::endpoint &peer_endpoint);
-	void async_send_out(std::shared_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer_endpoint);
-	void async_send_out(std::shared_ptr<uint8_t[]> data, uint8_t *start_pos, size_t data_size, const udp::endpoint &peer_endpoint);
+	void async_send_out(std::unique_ptr<std::vector<uint8_t>> data, const udp::endpoint &peer_endpoint);
+	void async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer_endpoint);
+	void async_send_out(std::unique_ptr<uint8_t[]> data, uint8_t *start_pos, size_t data_size, const udp::endpoint &peer_endpoint);
 	void async_send_out(std::vector<uint8_t> &&data, const udp::endpoint &peer_endpoint);
 
 	int64_t time_gap_of_receive();
@@ -283,7 +283,7 @@ protected:
 
 	void start_receive();
 
-	void handle_receive(std::shared_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
+	void handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
 
 	asio::strand<asio::io_context::executor_type> &task_assigner;
 	udp::socket connection_socket;

@@ -125,16 +125,17 @@ void handshake::start_receive()
 	else
 	{
 		std::shared_ptr<udp::endpoint> udp_ep_ptr = std::make_shared<udp::endpoint>();
-		std::shared_ptr<uint8_t[]> recv_buffer(new uint8_t[BUFFER_SIZE]());
-		udp_socket.async_receive_from(asio::buffer(recv_buffer.get(), BUFFER_SIZE), *udp_ep_ptr,
-			[/*this*/this_handshake = shared_from_this(), udp_ep_ptr, recv_buffer](const asio::error_code &error, size_t bytes_transferred)
+		std::unique_ptr<uint8_t[]> recv_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+		auto asio_buffer = asio::buffer(recv_buffer.get(), BUFFER_SIZE);
+		udp_socket.async_receive_from(asio_buffer, *udp_ep_ptr,
+			[/*this*/this_handshake = shared_from_this(), udp_ep_ptr, buffer_ptr = std::move(recv_buffer)](const asio::error_code &error, size_t bytes_transferred) mutable
 			{
-			this_handshake->handle_receive(recv_buffer, error, bytes_transferred);
+			this_handshake->handle_receive(std::move(buffer_ptr), error, bytes_transferred);
 			});
 	}
 }
 
-void handshake::handle_receive(std::shared_ptr<uint8_t[]> recv_buffer, const asio::error_code &error, std::size_t bytes_transferred)
+void handshake::handle_receive(std::unique_ptr<uint8_t[]> recv_buffer, const asio::error_code &error, std::size_t bytes_transferred)
 {
 	if (stop)
 		return;
@@ -147,10 +148,14 @@ void handshake::handle_receive(std::shared_ptr<uint8_t[]> recv_buffer, const asi
 	}
 
 	start_receive();
-	asio::post(task_assigner, [/*this*/this_handshake = shared_from_this(), recv_buffer, bytes_transferred]() { this_handshake->process_handshake(recv_buffer, bytes_transferred); });
+	process_handshake(std::move(recv_buffer), bytes_transferred);
+	//asio::post(task_assigner, [/*this*/this_handshake = shared_from_this(), buffer_ = std::move(recv_buffer), bytes_transferred]() mutable
+	//	{
+	//		this_handshake->process_handshake(std::move(buffer_), bytes_transferred);
+	//	});
 }
 
-void handshake::process_handshake(std::shared_ptr<uint8_t[]> recv_buffer, std::size_t bytes_transferred)
+void handshake::process_handshake(std::unique_ptr<uint8_t[]> recv_buffer, std::size_t bytes_transferred)
 {
 	//size_t plain_data_size = 0;
 	uint8_t *data_ptr = recv_buffer.get();

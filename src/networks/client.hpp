@@ -10,7 +10,7 @@ uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num
 class forwarder : public udp_client
 {
 public:
-	using process_data_t = std::function<void(std::shared_ptr<KCP::KCP>, std::shared_ptr<uint8_t[]>, size_t, udp::endpoint&&, asio::ip::port_type)>;
+	using process_data_t = std::function<void(std::shared_ptr<KCP::KCP>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
 	forwarder() = delete;
 	forwarder(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func) :
 		udp_client(io_context, asio_strand, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)),
@@ -26,11 +26,11 @@ public:
 	void remove_callback()
 	{
 		kcp.reset();
-		callback = [](std::shared_ptr<KCP::KCP> kcp, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&ep, asio::ip::port_type num) {};
+		callback = [](std::shared_ptr<KCP::KCP> kcp, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint ep, asio::ip::port_type num) {};
 	}
 
 private:
-	void handle_receive(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number)
+	void handle_receive(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
 	{
 		if (paused.load() || stopped.load())
 			return;
@@ -38,11 +38,11 @@ private:
 		std::shared_ptr<KCP::KCP> kcp_ptr = kcp.lock();
 		if (kcp_ptr == nullptr)
 			return;
-		//callback(kcp.load(), data, data_size, std::move(peer), local_port_number);
-		asio::post(task_assigner, [this, kcp_ptr, data, data_size, peer_ep = std::move(peer), local_port_number]() mutable
-		{
-			callback(kcp_ptr, data, data_size, std::move(peer_ep), local_port_number);
-		});
+		callback(kcp_ptr, std::move(data), data_size, peer, local_port_number);
+		//asio::post(task_assigner, [this, kcp_ptr, data_ = std::move(data), data_size, peer, local_port_number]() mutable
+		//{
+		//		callback(kcp_ptr, std::move(data_), data_size, peer, local_port_number);
+		//});
 	}
 
 	std::weak_ptr<KCP::KCP> kcp;
@@ -68,7 +68,7 @@ private:
 	std::unique_ptr<KCP::KCP> kcp_ptr;
 
 	void start_receive();
-	void handle_receive(std::shared_ptr<uint8_t[]> recv_buffer, const asio::error_code &error, std::size_t bytes_transferred);
+	void handle_receive(std::unique_ptr<uint8_t[]> recv_buffer, const asio::error_code &error, std::size_t bytes_transferred);
 	void loop_kcp_update(const asio::error_code &e);
 	void cancel_all();
 
@@ -82,7 +82,7 @@ public:
 		handshake_timeout(30), start_time(0), current_settings(settings),  destination_address_cache{}, stop(false) {}
 	~handshake();
 	bool send_handshake(protocol_type ptype, const std::string &destination_address, uint16_t destination_port);
-	void process_handshake(std::shared_ptr<uint8_t[]> recv_buffer, std::size_t bytes_transferred);
+	void process_handshake(std::unique_ptr<uint8_t[]> recv_buffer, std::size_t bytes_transferred);
 	std::pair<std::string, uint16_t> get_cached_peer();
 };
 
@@ -125,9 +125,9 @@ class tcp_to_forwarder
 	asio::strand<asio::io_context::executor_type> asio_strand;
 
 	void tcp_server_accept_incoming(std::shared_ptr<tcp_session> incoming_session);
-	void tcp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::shared_ptr<KCP::KCP> kcp_ptr);
-	void udp_client_incoming_to_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
-	void udp_client_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
+	void tcp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::shared_ptr<KCP::KCP> kcp_ptr);
+	void udp_client_incoming_to_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
+	void udp_client_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	udp::endpoint get_remote_address();
 	void local_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<tcp_session> session);
 	void process_disconnect(uint32_t conv, tcp_session *session);
@@ -234,8 +234,8 @@ class udp_to_forwarder
 	asio::steady_timer timer_keep_alive;
 	asio::strand<asio::io_context::executor_type> asio_strand;
 
-	void udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number);
-	void udp_client_incoming_to_udp(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number);
+	void udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
+	void udp_client_incoming_to_udp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	udp::endpoint get_remote_address();
 	void process_disconnect(uint32_t conv);
 

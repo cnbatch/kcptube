@@ -80,7 +80,7 @@ bool udp_to_forwarder::start()
 	return true;
 }
 
-void udp_to_forwarder::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number)
+void udp_to_forwarder::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
 	if (data_size == 0)
 		return;
@@ -163,7 +163,7 @@ void udp_to_forwarder::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size
 }
 
 
-void udp_to_forwarder::udp_client_incoming_to_udp(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type local_port_number)
+void udp_to_forwarder::udp_client_incoming_to_udp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
 {
 	if (data_size == 0 || kcp_ptr == nullptr)
 		return;
@@ -194,7 +194,7 @@ void udp_to_forwarder::udp_client_incoming_to_udp(std::shared_ptr<KCP::KCP> kcp_
 		if (buffer_size <= 0)
 			break;
 
-		std::shared_ptr<uint8_t[]> buffer_cache(new uint8_t[buffer_size]());
+		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(buffer_size);
 		uint8_t *buffer_ptr = buffer_cache.get();
 		
 		int kcp_data_size = 0;
@@ -243,7 +243,7 @@ void udp_to_forwarder::udp_client_incoming_to_udp(std::shared_ptr<KCP::KCP> kcp_
 			break;
 		case feature::data:
 		{
-			udp_access_point->async_send_out(buffer_cache, unbacked_data_ptr, unbacked_data_size, udp_endpoint);
+			udp_access_point->async_send_out(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size, udp_endpoint);
 			std::shared_lock shared_lock_udp_target{ mutex_udp_target };
 			if (*udp_target != peer && *previous_udp_target != peer)
 			{
@@ -387,7 +387,8 @@ void udp_to_forwarder::loop_find_expires()
 		forwarder *udp_forwarder = id_map_to_forwarder.find(conv)->second.get();
 		locker_id_map_to_forwarder.unlock();
 
-		if (udp_forwarder->time_gap_of_receive() > current_settings.timeout && udp_forwarder->time_gap_of_send() > current_settings.timeout)
+		if (udp_forwarder->time_gap_of_receive() > current_settings.udp_timeout &&
+			udp_forwarder->time_gap_of_send() > current_settings.udp_timeout)
 		{
 			std::scoped_lock locker_expiring_kcp{ mutex_expiring_kcp };
 			if (expiring_kcpid.find(conv) == expiring_kcpid.end())
@@ -591,7 +592,7 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	kcp_ptr->Update(time_now_for_kcp());
 	kcp_ptr->SetOutput([this, kcp_raw_ptr = kcp_ptr.get()](const char *buf, int len, void *user) -> int
 	{
-		std::shared_ptr<uint8_t[]> new_buffer(new uint8_t[len + BUFFER_EXPAND_SIZE]());
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(len + BUFFER_EXPAND_SIZE);
 		uint8_t *new_buffer_ptr = new_buffer.get();
 		std::copy_n((uint8_t *)buf, len, new_buffer_ptr);
 		auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer_ptr, len);
@@ -600,7 +601,7 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 
 		forwarder *udp_forwarder = reinterpret_cast<forwarder*>(user);
 		udp::endpoint ep = get_remote_address();
-		udp_forwarder->async_send_out(new_buffer, cipher_size, ep);
+		udp_forwarder->async_send_out(std::move(new_buffer), cipher_size, ep);
 		return 0;
 	});
 

@@ -229,17 +229,17 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 				break;
 			}
 
-			case strhash("timeout"):
+			case strhash("udp_timeout"):
 				if (auto time_interval = std::stoi(value); time_interval <= 0 || time_interval > USHRT_MAX)
-					current_user_settings.timeout = 0;
+					current_user_settings.udp_timeout = 0;
 				else
-					current_user_settings.timeout = static_cast<uint16_t>(time_interval);
+					current_user_settings.udp_timeout = static_cast<uint16_t>(time_interval);
 				break;
 
 			case strhash("keep_alive"):
-				if (auto time_interval = std::stoi(value); time_interval < 0)
+				if (auto time_interval = std::stoi(value); time_interval <= 0)
 					current_user_settings.keep_alive = 0;
-				else if (time_interval >= CONSTANT_VALUES::DPORT_REFRESH_MINIMAL && time_interval < USHRT_MAX)
+				else if (time_interval > 0 && time_interval < USHRT_MAX)
 					current_user_settings.keep_alive = static_cast<uint16_t>(time_interval);
 				else
 					current_user_settings.keep_alive = USHRT_MAX;
@@ -384,8 +384,8 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 	if (current_user_settings.kcp_mtu < 0)
 		current_user_settings.kcp_mtu = CONSTANT_VALUES::KCP_MTU;
 
-	if (current_user_settings.timeout == 0)
-		current_user_settings.timeout = CONSTANT_VALUES::TIMEOUT;
+	if (current_user_settings.udp_timeout == 0)
+		current_user_settings.udp_timeout = CONSTANT_VALUES::TIMEOUT;
 
 	if (current_user_settings.destination_address.empty())
 		error_msg.emplace_back("invalid destination_address setting");

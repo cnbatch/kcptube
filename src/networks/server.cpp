@@ -118,7 +118,7 @@ bool server_mode::start()
 	return running_well;
 }
 
-void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number)
+void server_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
 	if (data_size == 0)
 		return;
@@ -148,7 +148,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
 	if (conv == 0)
 	{
-		udp_server_incoming_new_connection(data, plain_size, std::move(peer), port_number);
+		udp_server_incoming_new_connection(std::move(data), plain_size, peer, port_number);
 		return;
 	}
 
@@ -170,11 +170,11 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 		{
 			if (kcp_iter->second != peer)
 			{
-				std::cout << "peer address changed, old: " << kcp_iter->second << ", new: " << peer << "; KCP " << conv << "\n";
+				//std::cout << "peer address changed, old: " << kcp_iter->second << ", new: " << peer << "; KCP " << conv << "\n";
 				shared_locker_kcp_session_map_to_source_udp.unlock();
 				std::unique_lock unique_locker_kcp_session_map_to_source_udp{ mutex_kcp_session_map_to_source_udp };
 				if (kcp_iter->second != peer)
-					kcp_iter->second = std::move(peer);
+					kcp_iter->second = peer;
 			}
 		}
 		else
@@ -187,7 +187,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 		if (buffer_size <= 0)
 			break;
 
-		std::shared_ptr<uint8_t[]> buffer_cache(new uint8_t[buffer_size]());
+		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(buffer_size);
 		uint8_t *buffer_ptr = buffer_cache.get();
 
 		int kcp_data_size = 0;
@@ -214,7 +214,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 				else
 					break;
 				locker.unlock();
-				tcp_channel->async_send_data(buffer_cache, unbacked_data_ptr, unbacked_data_size);
+				tcp_channel->async_send_data(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
 				output_count += unbacked_data_size;
 			}
 			else if (prtcl == protocol_type::udp)
@@ -229,7 +229,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 				if (udp_channel == nullptr)
 					continue;
 
-				udp_channel->async_send_out(buffer_cache, unbacked_data_ptr, unbacked_data_size, *udp_target);
+				udp_channel->async_send_out(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size, *udp_target);
 				output_count += unbacked_data_size;
 			}
 			break;
@@ -271,7 +271,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 			}
 
 			std::scoped_lock lockers{ mutex_expiring_kcp, mutex_kcp_looping };
-			expiring_kcp[kcp_ptr] = packet::right_now() - current_settings.timeout;
+			expiring_kcp[kcp_ptr] = packet::right_now() - current_settings.udp_timeout;
 			kcp_looping.erase(kcp_ptr);
 			break;
 		}
@@ -283,7 +283,7 @@ void server_mode::udp_server_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	input_count2 += data_size;
 }
 
-void server_mode::tcp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::shared_ptr<KCP::KCP> kcp_session)
+void server_mode::tcp_client_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::shared_ptr<KCP::KCP> kcp_session)
 {
 	uint8_t *data_ptr = data.get();
 	size_t new_data_size = packet::create_data_packet(protocol_type::tcp, data_ptr, data_size);
@@ -302,7 +302,7 @@ void server_mode::tcp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	input_count += data_size;
 }
 
-void server_mode::udp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number, std::shared_ptr<KCP::KCP> kcp_session)
+void server_mode::udp_client_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, std::shared_ptr<KCP::KCP> kcp_session)
 {
 	uint8_t *data_ptr = data.get();
 	size_t new_data_size = packet::create_data_packet(protocol_type::udp, data_ptr, data_size);
@@ -317,7 +317,7 @@ void server_mode::udp_client_incoming(std::shared_ptr<uint8_t[]> data, size_t da
 	input_count += data_size;
 }
 
-void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number)
+void server_mode::udp_server_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
 	if (data_size == 0)
 		return;
@@ -339,16 +339,16 @@ void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> 
 			handshake_kcp->NoDelay(0, 10, 0, 1);
 			handshake_kcp->Update(time_now_for_kcp());
 			handshake_kcp->RxMinRTO() = 10;
-			handshake_kcp->SetOutput([this, port_number, send_peer = peer](const char *buf, int len, void *user) -> int
+			handshake_kcp->SetOutput([this, port_number, peer](const char *buf, int len, void *user) -> int
 				{
-					std::shared_ptr<uint8_t[]> new_buffer(new uint8_t[len + BUFFER_EXPAND_SIZE]());
+						std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(len + BUFFER_EXPAND_SIZE);
 					uint8_t *new_buffer_ptr = new_buffer.get();
 					std::copy_n((uint8_t *)buf, len, new_buffer_ptr);
 					auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer_ptr, len);
 					if (!error_message.empty() || cipher_size == 0)
 						return 0;
 
-					udp_servers[port_number]->async_send_out(new_buffer, cipher_size, send_peer);
+						udp_servers[port_number]->async_send_out(std::move(new_buffer), cipher_size, peer);
 					return 0;
 				});
 
@@ -428,7 +428,7 @@ void server_mode::udp_server_incoming_new_connection(std::shared_ptr<uint8_t[]> 
 					handshake_channels.insert({ peer, handshake_kcp });
 					expiring_handshakes.insert({ handshake_kcp, packet::right_now() });
 					kcp_channels.insert({ new_id, data_kcp });
-					kcp_session_map_to_source_udp[data_kcp] = std::move(peer);
+					kcp_session_map_to_source_udp[data_kcp] = peer;
 					uid_to_protocal_type[new_id] = prtcl;
 					kcp_looping[data_kcp].store(0);
 				}
@@ -492,9 +492,9 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 		return false;
 	}
 
-	auto callback_function = [data_kcp, this](std::shared_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> target_session)
+	auto callback_function = [data_kcp, this](std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> target_session)
 	{
-		tcp_client_incoming(data, data_size, target_session, data_kcp);
+		tcp_client_incoming(std::move(data), data_size, target_session, data_kcp);
 	};
 	std::shared_ptr<tcp_session> local_session = target_connector.connect(callback_function, ec);
 	if (!ec)
@@ -503,14 +503,14 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 		local_session->when_disconnect([data_kcp, this](std::shared_ptr<tcp_session> session) { process_tcp_disconnect(session.get(), data_kcp); });
 		data_kcp->SetOutput([this, data_kcp, session = local_session.get()](const char *buf, int len, void *user) -> int
 		{
-			std::shared_ptr<uint8_t[]> new_buffer(new uint8_t[len + BUFFER_EXPAND_SIZE]());
+			std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(len + BUFFER_EXPAND_SIZE);
 			uint8_t *new_buffer_ptr = new_buffer.get();
 			std::copy_n((uint8_t *)buf, len, new_buffer_ptr);
 			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer_ptr, len);
 			if (!error_message.empty() || cipher_size == 0)
 				return 0;
 
-			((udp_server *)user)->async_send_out(new_buffer, cipher_size, get_remote_address(data_kcp));
+			((udp_server *)user)->async_send_out(std::move(new_buffer), cipher_size, get_remote_address(data_kcp));
 			if (session->is_pause() && data_kcp->WaitingForSend() < data_kcp->GetSendWindowSize())
 				session->pause(false);
 			output_count2 += cipher_size;
@@ -541,9 +541,9 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	bool connect_success = false;
 
 	asio::error_code ec;
-	udp_callback_t udp_func_ap = [data_kcp, this](std::shared_ptr<uint8_t[]> data, size_t data_size, udp::endpoint &&peer, asio::ip::port_type port_number)
+	udp_callback_t udp_func_ap = [data_kcp, this](std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 	{
-		udp_client_incoming(data, data_size, std::move(peer), port_number, data_kcp);
+		udp_client_incoming(std::move(data), data_size, peer, port_number, data_kcp);
 	};
 	std::shared_ptr<udp_client> target_connector = std::make_shared<udp_client>(network_io, asio_strand, udp_func_ap);
 	target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target, ec);
@@ -552,14 +552,14 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 
 	data_kcp->SetOutput([this, data_kcp](const char *buf, int len, void *user) -> int
 		{
-			std::shared_ptr<uint8_t[]> new_buffer(new uint8_t[len + BUFFER_EXPAND_SIZE]());
+			std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(len + BUFFER_EXPAND_SIZE);
 			uint8_t *new_buffer_ptr = new_buffer.get();
 			std::copy_n((uint8_t *)buf, len, new_buffer_ptr);
 			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer_ptr, len);
 			if (!error_message.empty() || cipher_size == 0)
 				return 0;
 
-			((udp_server *)user)->async_send_out(new_buffer, cipher_size, get_remote_address(data_kcp));
+			((udp_server *)user)->async_send_out(std::move(new_buffer), cipher_size, get_remote_address(data_kcp));
 			output_count2 += cipher_size;
 			return 0;
 		});
@@ -598,11 +598,12 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::shared_ptr<K
 		session->when_disconnect(empty_tcp_disconnect);
 		session->session_is_ending(true);
 		session->pause(false);
+		session->disconnect();
 		std::vector<uint8_t> data = packet::inform_disconnect_packet(protocol_type::tcp);
 		kcp_ptr->Send((const char *)data.data(), data.size());
 		kcp_ptr->Update(time_now_for_kcp());
 		kcp_ptr->Flush();
-		expiring_kcp.insert({ kcp_ptr, packet::right_now() });
+		expiring_kcp.insert({ kcp_ptr, packet::right_now() - (CLEANUP_WAITS - 1) });
 	}
 	if (auto iter = kcp_looping.find(kcp_ptr); iter != kcp_looping.end())
 	{
@@ -817,7 +818,6 @@ void server_mode::loop_find_expires()
 
 		bool do_erase = false;
 		bool normal_delete = false;
-		tcp_session *session_ptr = nullptr;
 
 		std::shared_lock locker_uid_to_protocal_type{ mutex_uid_to_protocal_type };
 		protocol_type ptype = uid_to_protocal_type[conv];
@@ -827,13 +827,7 @@ void server_mode::loop_find_expires()
 		{
 			std::shared_lock locker_kcp_session_map_to_tcp{ mutex_kcp_session_map_to_tcp };
 			std::shared_ptr<tcp_session> local_session = kcp_session_map_to_tcp[kcp_ptr];
-			if (local_session != nullptr)
-			{
-				session_ptr = local_session.get();
-				locker_kcp_session_map_to_tcp.unlock();
-				do_erase = local_session->time_gap_of_receive() > current_settings.timeout && local_session->time_gap_of_send() > current_settings.timeout;
-			}
-			else
+			if (local_session == nullptr)
 			{
 				auto error_packet = packet::inform_error_packet(protocol_type::tcp, "TCP Session Closed");
 				kcp_ptr->Send((char *)error_packet.data(), error_packet.size());
@@ -851,7 +845,8 @@ void server_mode::loop_find_expires()
 			std::shared_lock locker_kcp_session_map_to_tcp{ mutex_kcp_session_map_to_target_udp };
 			std::shared_ptr<udp_client> local_session = kcp_session_map_to_target_udp[kcp_ptr];
 			locker_kcp_session_map_to_tcp.unlock();
-			do_erase = local_session->time_gap_of_receive() > current_settings.timeout && local_session->time_gap_of_send() > current_settings.timeout;
+			do_erase = local_session->time_gap_of_receive() > current_settings.udp_timeout &&
+			           local_session->time_gap_of_send() > current_settings.udp_timeout;
 		}
 
 		if (do_erase)
@@ -865,7 +860,7 @@ void server_mode::loop_find_expires()
 			if (normal_delete)
 				expiring_kcp.insert({ kcp_ptr, packet::right_now() });
 			else
-				expiring_kcp.insert({ kcp_ptr, packet::right_now() - current_settings.timeout });
+				expiring_kcp.insert({ kcp_ptr, packet::right_now() - current_settings.udp_timeout });
 		}
 		else
 		{

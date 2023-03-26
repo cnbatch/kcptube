@@ -43,7 +43,7 @@ struct user_settings
 	uint16_t destination_port_start = 0;
 	uint16_t destination_port_end = 0;
 	uint16_t dynamic_port_refresh = CONSTANT_VALUES::DPORT_REFRESH_DEFAULT;	// seconds
-	uint16_t timeout = 0;	 // seconds
+	uint16_t udp_timeout = 0;	 // seconds
 	uint16_t keep_alive = 0;	// seconds
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::empty;
