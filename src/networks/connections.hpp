@@ -16,6 +16,7 @@
 #include <asio.hpp>
 
 #include "../shares/share_defines.hpp"
+#include "../3rd_party/thread_pool.hpp"
 #include "stun.hpp"
 #include "kcp.hpp"
 
@@ -102,8 +103,8 @@ class tcp_session : public std::enable_shared_from_this<tcp_session>
 {
 public:
 
-	tcp_session(asio::io_context &net_io, asio::strand<asio::io_context::executor_type> &asio_strand, tcp_callback_t callback_func)
-		: network_io(net_io), task_assigner(asio_strand), connection_socket(network_io),
+	tcp_session(asio::io_context &net_io, ttp::task_group_pool &task_pool, bool use_thread_pool, tcp_callback_t callback_func)
+		: network_io(net_io), connection_socket(network_io), sequence_task_pool(task_pool), enable_thread_pool(use_thread_pool),
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false) {}
@@ -149,7 +150,8 @@ private:
 	void after_read_completed(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, size_t bytes_transferred);
 
 	asio::io_context &network_io;
-	asio::strand<asio::io_context::executor_type> &task_assigner;
+	//asio::strand<asio::io_context::executor_type> &task_assigner;
+	ttp::task_group_pool &sequence_task_pool;
 	tcp::socket connection_socket;
 	tcp_callback_t callback;
 	std::function<void(std::shared_ptr<tcp_session>)> callback_for_disconnect;
@@ -158,6 +160,7 @@ private:
 	std::atomic<bool> paused;
 	std::atomic<bool> stopped;
 	std::atomic<bool> session_ending;
+	const bool enable_thread_pool;
 };
 
 class tcp_server
@@ -165,9 +168,9 @@ class tcp_server
 public:
 	using acceptor_callback_t = std::function<void(std::shared_ptr<tcp_session>)>;
 	tcp_server() = delete;
-	tcp_server(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand,
+	tcp_server(asio::io_context &io_context, ttp::task_group_pool &task_pool, bool use_thread_pool,
 		const tcp::endpoint &ep, acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func)
-		: internal_io_context(io_context), task_assigner(asio_strand), tcp_acceptor(io_context),
+		: internal_io_context(io_context), sequence_task_pool(task_pool), enable_thread_pool(use_thread_pool), tcp_acceptor(io_context),
 		acceptor_callback(acceptor_callback_func), session_callback(callback_func)
 	{
 		acceptor_initialise(ep);
@@ -180,19 +183,21 @@ private:
 	void handle_accept(std::shared_ptr<tcp_session> new_connection, const asio::error_code &error_code);
 
 	asio::io_context &internal_io_context;
-	asio::strand<asio::io_context::executor_type> &task_assigner;
+	//asio::strand<asio::io_context::executor_type> &task_assigner;
+	ttp::task_group_pool &sequence_task_pool;
 	tcp::acceptor tcp_acceptor;
 	acceptor_callback_t acceptor_callback;
 	tcp_callback_t session_callback;
 	bool paused;
+	const bool enable_thread_pool;
 };
 
 class tcp_client
 {
 public:
 	tcp_client() = delete;
-	tcp_client(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(asio_strand){}
+	tcp_client(asio::io_context &io_context, ttp::task_group_pool &task_pool, bool use_thread_pool)
+		: internal_io_context(io_context), resolver(internal_io_context), sequence_task_pool(task_pool), enable_thread_pool(use_thread_pool){}
 
 	std::shared_ptr<tcp_session> connect(tcp_callback_t callback_func, asio::error_code &ec);
 
@@ -202,9 +207,11 @@ public:
 private:
 
 	asio::io_context &internal_io_context;
-	asio::strand<asio::io_context::executor_type> &task_assigner;
+	//asio::strand<asio::io_context::executor_type> &task_assigner;
+	ttp::task_group_pool &sequence_task_pool;
 	tcp::resolver resolver;
 	asio::ip::basic_resolver_results<asio::ip::tcp> remote_endpoints;
+	const bool enable_thread_pool;
 };
 
 
@@ -213,8 +220,8 @@ class udp_server
 {
 public:
 	udp_server() = delete;
-	udp_server(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand, const udp::endpoint &ep, udp_callback_t callback_func)
-		: task_assigner(asio_strand), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func)
+	udp_server(asio::io_context &io_context, ttp::task_group_pool &task_pool, size_t task_count_limit, bool use_thread_pool, const udp::endpoint &ep, udp_callback_t callback_func)
+		: sequence_task_pool(task_pool), task_limit(task_count_limit), enable_thread_pool(use_thread_pool), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func)
 	{
 		initialise(ep);
 		start_receive();
@@ -235,20 +242,23 @@ private:
 
 	asio::ip::port_type get_port_number();
 
-	asio::strand<asio::io_context::executor_type> &task_assigner;
+	//asio::strand<asio::io_context::executor_type> &task_assigner;
+	ttp::task_group_pool &sequence_task_pool;
 	asio::ip::port_type port_number;
 	udp::resolver resolver;
 	udp::socket connection_socket;
 	udp::endpoint incoming_endpoint;
 	udp_callback_t callback;
+	const size_t task_limit;
+	const bool enable_thread_pool;
 };
 
 class udp_client
 {
 public:
 	udp_client() = delete;
-	udp_client(asio::io_context &io_context, asio::strand<asio::io_context::executor_type> &asio_strand, udp_callback_t callback_func)
-		: task_assigner(asio_strand), connection_socket(io_context), resolver(io_context), callback(callback_func),
+	udp_client(asio::io_context &io_context, ttp::task_group_pool &task_pool, size_t task_count_limit, bool use_thread_pool, udp_callback_t callback_func)
+		: sequence_task_pool(task_pool), task_limit(task_count_limit), enable_thread_pool(use_thread_pool), connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false)
 	{
@@ -285,7 +295,8 @@ protected:
 
 	void handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
 
-	asio::strand<asio::io_context::executor_type> &task_assigner;
+	//asio::strand<asio::io_context::executor_type> &task_assigner;
+	ttp::task_group_pool &sequence_task_pool;
 	udp::socket connection_socket;
 	udp::resolver resolver;
 	udp::endpoint incoming_endpoint;
@@ -294,6 +305,8 @@ protected:
 	std::atomic<int64_t> last_send_time;
 	std::atomic<bool> paused;
 	std::atomic<bool> stopped;
+	const size_t task_limit;
+	const bool enable_thread_pool;
 };
 
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host);

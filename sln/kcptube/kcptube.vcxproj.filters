@@ -25,6 +25,9 @@
     <Filter Include="Source Files\networks">
       <UniqueIdentifier>{96b73df5-637c-4aee-a558-ef3d9b6a2a2e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\3rd_party">
+      <UniqueIdentifier>{f6b55cad-aa37-4682-ba27-5e636883f7e6}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\main.cpp">
@@ -57,6 +60,9 @@
     <ClCompile Include="..\..\src\shares\data_operations.cpp">
       <Filter>Source Files\shares</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\networks\ikcp.c">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\shares\share_defines.hpp">
@@ -88,6 +94,12 @@
     </ClInclude>
     <ClInclude Include="..\..\src\shares\simple_hashing.hpp">
       <Filter>Header Files\shares</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\ikcp.h">
+      <Filter>Header Files\networks</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp">
+      <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
