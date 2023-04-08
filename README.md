@@ -1,13 +1,13 @@
 # KCP Tube
 
 ## 简单介绍
-UDP Hop 只支持转发 UDP 流量，为了能够转发 TCP 流量，因此就有了KCP Tube。
+[UDP Hop](https://github.com/cnbatch/udphop) 只支持转发 UDP 流量，为了能够利用 UDP 转发 TCP 流量，因此就有了KCP Tube。利用 KCP 的可靠重传保证转发的 TCP 不会丢包。
 
-利用 KCP 的可靠重传保证转手的 TCP 不会丢包。
+制作 KCP Tube 的另一个原因是，kcptun 只能转发 TCP 流量，但我又需要用 KCP 转发 UDP 流量。主要是为了方便玩游戏。
 
-当然了，其实这两个工具都是同时构想出来的。所以为了方便起见，先做好了KCP Tube，接着再在KCP Tube的基础上裁剪成UDP Hop。
+当然了，其实 udphup 以及 kcptube 都是同时构想出来的。所以为了方便起见，先做好了 KCP Tube，接着再在 KCP Tube 的基础上裁剪成 UDP Hop。
 
-为了方便家宽 Full Cone NAT 用户使用，KCP Tube以服务端基本模式运行的时候可以利用 STUN 打洞，同时支持 IPv4 与 IPv6。
+为了方便家宽 Full Cone NAT 用户使用，KCP Tube 以服务端基本模式运行的时候可以利用 STUN 打洞，同时支持 IPv4 与 IPv6。
 
 ## 用法
 ### 基本用法
@@ -88,7 +88,7 @@ kcp_nodelay=1
 kcp_interval=10
 kcp_resend=2
 kcp_nc=true
-timeout=300
+udp_timeout=300
 listen_port=6000
 destination_port=3000-4000
 destination_address=123.45.67.89
@@ -108,7 +108,7 @@ kcp_nodelay=1
 kcp_interval=10
 kcp_resend=2
 kcp_nc=true
-timeout=300
+udp_timeout=300
 listen_port=3000-4000
 destination_port=6000
 destination_address=::1
@@ -127,8 +127,8 @@ encryption_algorithm=AES-GCM
 | dport_refresh  | 20 - 65535 |否|单位“秒”。预设值 60 秒，小于20秒按20秒算，大于65535时按65536秒算|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20 |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305 |
 | encryption_password  | 任意字符 |视情况|设置了 encryption_algorithm 时必填|
-| timeout     | 0 - 65535 |否|单位“秒”。预设值 1800 秒，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ kcptube 之间的超时设置|
-| keep_alive  | 0 - 65535 |否 | 预设值为 0，等于停用 Keep Alive|
+| udp_timeout  | 0 - 65535 |否|单位“秒”。预设值 1800 秒，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ kcptube 之间的超时设置|
+| keep_alive  | 0 - 65535 |否 | 预设值为 0，等于停用 Keep Alive<br>该选项是指两个KCP端之间的Keep Alive|
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|
 | kcp_mtu  | 正整数 |否|预设值1440|

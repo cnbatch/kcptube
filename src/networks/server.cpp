@@ -66,7 +66,7 @@ bool server_mode::start()
 		listen_on_ep.port(port_number);
 		try
 		{
-			udp_servers.insert({ port_number, std::make_unique<udp_server>(network_io, sequence_task_pool, task_limit, true, listen_on_ep, /*port_number,*/ func) });
+			udp_servers.insert({ port_number, std::make_unique<udp_server>(network_io, sequence_task_pool_peer, task_limit, true, listen_on_ep, /*port_number,*/ func) });
 		}
 		catch (std::exception &ex)
 		{
@@ -120,7 +120,7 @@ bool server_mode::start()
 
 void server_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
-	if (data_size == 0)
+	if (data == nullptr || data_size == 0)
 		return;
 	input_count_before_kcp += data_size;
 	uint8_t *data_ptr = data.get();
@@ -148,7 +148,7 @@ void server_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t da
 
 void server_mode::udp_server_incoming_with_thread_pool(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
-	if (data_size == 0)
+	if (data == nullptr || data_size == 0)
 		return;
 	input_count_before_kcp += data_size;
 	uint8_t *data_ptr = data.get();
@@ -180,13 +180,16 @@ void server_mode::udp_server_incoming_with_thread_pool(std::unique_ptr<uint8_t[]
 
 	std::unique_ptr<uint8_t[]> unique_nullptr;
 	auto function_and_data = task_assigner.submit(task_function, std::move(unique_nullptr));
-	sequence_task_pool.push_task((size_t)this, std::move(function_and_data), std::move(data));
+	sequence_task_pool_peer.push_task((size_t)this, std::move(function_and_data), std::move(data));
 
 	input_count2 += data_size;
 }
 
 void server_mode::udp_server_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
+	if (data == nullptr)
+		return;
+	
 	uint8_t *data_ptr = data.get();
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
 	if (conv == 0)
@@ -326,6 +329,8 @@ void server_mode::udp_server_incoming_unpack(std::unique_ptr<uint8_t[]> data, si
 
 void server_mode::tcp_client_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::shared_ptr<KCP::KCP> kcp_session)
 {
+	if (data == nullptr || incoming_session == nullptr)
+		return;
 	uint8_t *data_ptr = data.get();
 	size_t new_data_size = packet::create_data_packet(protocol_type::tcp, data_ptr, data_size);
 	kcp_session->Send((const char *)data_ptr, new_data_size);
@@ -345,6 +350,9 @@ void server_mode::tcp_client_incoming(std::unique_ptr<uint8_t[]> data, size_t da
 
 void server_mode::udp_client_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, std::shared_ptr<KCP::KCP> kcp_session)
 {
+	if (data == nullptr)
+		return;
+
 	uint8_t *data_ptr = data.get();
 	size_t new_data_size = packet::create_data_packet(protocol_type::udp, data_ptr, data_size);
 
@@ -521,7 +529,7 @@ void server_mode::udp_server_incoming_new_connection(std::unique_ptr<uint8_t[]> 
 bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp)
 {
 	bool connect_success = false;
-	tcp_client target_connector(io_context, sequence_task_pool, false);
+	tcp_client target_connector(io_context, sequence_task_pool_local, false);
 	std::string &destination_address = current_settings.destination_address;
 	uint16_t destination_port = current_settings.destination_port;
 	asio::error_code ec;
@@ -576,7 +584,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	{
 		udp_client_incoming(std::move(data), data_size, peer, port_number, data_kcp);
 	};
-	std::shared_ptr<udp_client> target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool, task_limit, false, udp_func_ap);
+	std::shared_ptr<udp_client> target_connector = std::make_shared<udp_client>(network_io, sequence_task_pool_local, task_limit, true, udp_func_ap);
 	target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target, ec);
 	if (ec)
 		return false;
@@ -658,7 +666,7 @@ int server_mode::kcp_sender_with_pool(std::shared_ptr<KCP::KCP> data_kcp, tcp_se
 
 	std::unique_ptr<uint8_t[]> unique_nullptr;
 	auto function_and_data = task_assigner.submit(task_function, std::move(unique_nullptr));
-	sequence_task_pool.push_task((size_t)this, std::move(function_and_data), std::move(new_buffer));
+	sequence_task_pool_local.push_task((size_t)this, std::move(function_and_data), std::move(new_buffer));
 	return 0;
 }
 
@@ -673,6 +681,7 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::shared_ptr<K
 		session->when_disconnect(empty_tcp_disconnect);
 		session->session_is_ending(true);
 		session->pause(false);
+		session->stop();
 		session->disconnect();
 		std::vector<uint8_t> data = packet::inform_disconnect_packet(protocol_type::tcp);
 		kcp_ptr->Send((const char *)data.data(), data.size());

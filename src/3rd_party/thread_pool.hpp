@@ -382,6 +382,15 @@ namespace ttp
 			return tasks_total_of_threads[thread_number].load();
 		}
 
+		[[nodiscard]]
+		size_t get_task_count() const
+		{
+			size_t total = 0;
+			for (size_t i = 0; i < thread_count; ++i)
+				total += tasks_total_of_threads[i].load();
+			return total;
+		}
+
 		/**
 		* @brief Push a function with zero or more arguments, but no return value, into the task queue. Does not return a future, so the user must use wait_for_tasks() or some other method to ensure that the task finishes executing, otherwise bad things will happen.
 		*

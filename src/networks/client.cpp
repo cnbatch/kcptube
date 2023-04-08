@@ -219,7 +219,7 @@ void handshake::loop_kcp_update(const asio::error_code &e)
 
 	auto waited_seconds = calculate_difference(packet::right_now(), start_time);
 
-	if (waited_seconds < handshake_timeout)
+	if (kcp_ptr != nullptr && waited_seconds < handshake_timeout)
 	{
 		kcp_ptr->Update(time_now_for_kcp());
 	}
@@ -241,5 +241,8 @@ void handshake::cancel_all()
 	stop.store(true);
 	timer_data_loop.cancel();
 	if (udp_socket.is_open())
-		udp_socket.close();
+	{
+		asio::error_code ec;
+		udp_socket.close(ec);
+	}
 }

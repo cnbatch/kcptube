@@ -21,7 +21,7 @@
 #include "kcp.hpp"
 
 constexpr uint8_t TIME_GAP = std::numeric_limits<uint8_t>::max();	//seconds
-constexpr size_t BUFFER_SIZE = 4096u;
+constexpr size_t BUFFER_SIZE = 2048u;
 constexpr size_t BUFFER_EXPAND_SIZE = 128u;
 constexpr size_t RETRY_TIMES = 30u;
 constexpr size_t RETRY_WAITS = 2u;

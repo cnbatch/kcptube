@@ -1,4 +1,5 @@
 ﻿#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <iterator>
 #include <fstream>
@@ -12,22 +13,6 @@
 #include "networks/client.hpp"
 #include "networks/server.hpp"
 
-size_t get_system_memory_size();
-size_t get_system_memory_size()
-{
-#ifdef ASIO_HAS_UNISTD_H
-	long pages = sysconf(_SC_PHYS_PAGES);
-	long page_size = sysconf(_SC_PAGE_SIZE);
-	return pages * page_size / 2;
-#endif
-#ifdef ASIO_HAS_IOCP
-	MEMORYSTATUSEX status = {};
-	status.dwLength = sizeof(status);
-	GlobalMemoryStatusEx(&status);
-	return status.ullAvailPhys;
-#endif
-}
-
 
 int main(int argc, char *argv[])
 {
@@ -38,16 +23,23 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	size_t task_count_limit = get_system_memory_size() / BUFFER_SIZE / 4;
+	constexpr size_t task_count_limit = (size_t)std::numeric_limits<int16_t>::max() >> 3;
 	ttp::concurrency_t thread_counts = 1;
+	uint16_t thread_group_count = 1;
+	int io_thread_count = 1;
 	if (std::thread::hardware_concurrency() > 3)
-		thread_counts = std::thread::hardware_concurrency() / 2;
+	{
+		thread_counts = std::thread::hardware_concurrency();
+		thread_group_count = (uint16_t)std::log2(thread_counts);
+		io_thread_count = (int)std::log(thread_counts);
+	}
 
 	ttp::task_thread_pool task_pool{ thread_counts };
-	ttp::task_group_pool task_groups{ thread_counts };
+	ttp::task_group_pool task_groups_local{ thread_group_count };
+	ttp::task_group_pool task_groups_peer{ thread_group_count };
 
-	asio::io_context ioc{ (int)thread_counts };
-	asio::io_context network_io{ (int)thread_counts };
+	asio::io_context ioc{ io_thread_count };
+	asio::io_context network_io{ io_thread_count };
 
 	std::vector<client_mode> clients;
 	std::vector<server_mode> servers;
@@ -80,10 +72,10 @@ int main(int argc, char *argv[])
 		switch (settings.mode)
 		{
 		case running_mode::client:
-			clients.emplace_back(client_mode(ioc, network_io, task_pool, task_groups, task_count_limit, settings));
+			clients.emplace_back(client_mode(ioc, network_io, task_pool, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
 		case running_mode::server:
-			servers.emplace_back(server_mode(ioc, network_io, task_pool, task_groups, task_count_limit, settings));
+			servers.emplace_back(server_mode(ioc, network_io, task_pool, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
 		default:
 			break;
