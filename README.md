@@ -151,7 +151,7 @@ encryption_algorithm=AES-GCM
 | prestissimo | 512         |   2048    |      1    |   4        |   2      |Yes|
 
 ### Log 文件
-在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就追加），将 IP 地址与端口写进去。
+在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。
 
 获取到的打洞地址会同时显示在控制台当中。
 

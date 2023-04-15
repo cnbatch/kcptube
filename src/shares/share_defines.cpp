@@ -92,9 +92,9 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 				break;
 
 			case strhash("dport_refresh"):	// client only
-				if (auto time_interval = std::stoi(value); time_interval < CONSTANT_VALUES::DPORT_REFRESH_MINIMAL)
-					current_user_settings.dynamic_port_refresh = CONSTANT_VALUES::DPORT_REFRESH_MINIMAL;
-				else if (time_interval >= CONSTANT_VALUES::DPORT_REFRESH_MINIMAL && time_interval < USHRT_MAX)
+				if (auto time_interval = std::stoi(value); time_interval < constant_values::dport_refresh_minimal)
+					current_user_settings.dynamic_port_refresh = constant_values::dport_refresh_minimal;
+				else if (time_interval >= constant_values::dport_refresh_minimal && time_interval < USHRT_MAX)
 					current_user_settings.dynamic_port_refresh = static_cast<uint16_t>(time_interval);
 				else
 					current_user_settings.dynamic_port_refresh = USHRT_MAX;
@@ -290,10 +290,10 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 			error_msg.emplace_back("kcp_nc not set");
 
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW;
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
 
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW;
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 
 		break;
 	}
@@ -305,9 +305,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW * 2;
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW * 2;
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 		break;
 	}
 
@@ -318,9 +318,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW * 2;
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW * 2;
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 		break;
 	}
 
@@ -331,9 +331,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW * 2;
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW * 2;
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 		break;
 	}
 
@@ -344,9 +344,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 4;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW;
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW;
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 		break;
 	}
 
@@ -357,9 +357,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 6;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW;
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW;
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 		break;
 	}
 
@@ -374,18 +374,18 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.kcp_resend = 8;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = CONSTANT_VALUES::KCP_SEND_WINDOW;
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = CONSTANT_VALUES::KCP_RECEIVE_WINDOW;
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 		break;
 	}
 	}
 
 	if (current_user_settings.kcp_mtu < 0)
-		current_user_settings.kcp_mtu = CONSTANT_VALUES::KCP_MTU;
+		current_user_settings.kcp_mtu = constant_values::kcp_mtu;
 
 	if (current_user_settings.udp_timeout == 0)
-		current_user_settings.udp_timeout = CONSTANT_VALUES::TIMEOUT;
+		current_user_settings.udp_timeout = constant_values::timeout_value;
 
 	if (current_user_settings.destination_address.empty())
 		error_msg.emplace_back("invalid destination_address setting");
@@ -394,7 +394,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		current_user_settings.encryption == encryption_mode::unknow ||
 		current_user_settings.encryption == encryption_mode::none)
 	{
-		current_user_settings.kcp_mtu -= CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE;
+		current_user_settings.kcp_mtu -= constant_values::checksum_block_size;
 	}
 	else if (current_user_settings.encryption_password.empty())
 	{
@@ -520,7 +520,7 @@ void print_ip_to_file(const std::string &message, const std::filesystem::path &l
 	static std::ofstream output_file{};
 	static std::mutex mtx;
 	std::unique_lock locker{ mtx };
-	output_file.open(log_file, std::ios::out | std::ios::app);
+	output_file.open(log_file, std::ios::out | std::ios::trunc);
 	output_file << message;
 	output_file.close();
 }

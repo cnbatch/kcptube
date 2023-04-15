@@ -73,7 +73,7 @@ namespace ttp
 		}
 
 		[[nodiscard]]
-		size_t get_task_count(size_t number) const
+		size_t get_task_count() const
 		{
 			return tasks_total.load();
 		}

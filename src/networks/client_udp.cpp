@@ -49,7 +49,7 @@ bool udp_to_forwarder::start()
 	try
 	{
 		udp_callback_t udp_func_ap = std::bind(&udp_to_forwarder::udp_server_incoming, this, _1, _2, _3, _4);
-		udp_access_point = std::make_unique<udp_server>(network_io, sequence_task_pool_local, task_limit, true, listen_on_ep, udp_func_ap);
+		udp_access_point = std::make_unique<udp_server>(network_io, sequence_task_pool_local, task_limit, listen_on_ep, udp_func_ap);
 
 		timer_send_data.expires_after(EXPRING_UPDATE_INTERVAL);
 		timer_send_data.async_wait([this](const asio::error_code &e) { kcp_loop_updates(e); });
@@ -165,7 +165,7 @@ void udp_to_forwarder::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size
 
 void udp_to_forwarder::udp_client_incoming_to_udp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
 {
-	if (data_size == 0 || kcp_ptr == nullptr)
+	if (data == nullptr || data_size == 0 || kcp_ptr == nullptr)
 		return;
 
 	uint8_t *data_ptr = data.get();
@@ -175,30 +175,6 @@ void udp_to_forwarder::udp_client_incoming_to_udp(std::shared_ptr<KCP::KCP> kcp_
 		return;
 
 	udp_client_incoming_to_udp_unpack(kcp_ptr, std::move(data), plain_size, peer, local_port_number);
-}
-
-void udp_to_forwarder::udp_client_incoming_to_udp_with_thread_pool(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
-{
-	if (data_size == 0 || kcp_ptr == nullptr)
-		return;
-
-	uint8_t *data_ptr = data.get();
-
-	std::function<ttp::task_callback(std::unique_ptr<uint8_t[]>)> task_function =
-		[this, kcp_ptr, data_size, peer, local_port_number, data_ptr](std::unique_ptr<uint8_t[]> null_data) -> ttp::task_callback
-	{
-		auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
-		if (!error_message.empty() || plain_size == 0)
-			return [](std::unique_ptr<uint8_t[]> null_data) {};
-
-		auto return_function = [this, kcp_ptr, plain_size = plain_size, peer, local_port_number](std::unique_ptr<uint8_t[]> data)
-		{ udp_client_incoming_to_udp_unpack(kcp_ptr, std::move(data), plain_size, peer, local_port_number); };
-		return return_function;
-	};
-
-	std::unique_ptr<uint8_t[]> unique_nullptr;
-	auto function_and_data = task_assigner.submit(task_function, std::move(unique_nullptr));
-	sequence_task_pool_peer.push_task((size_t)this, std::move(function_and_data), std::move(data));
 }
 
 void udp_to_forwarder::udp_client_incoming_to_udp_unpack(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number)
@@ -305,42 +281,6 @@ int udp_to_forwarder::kcp_sender(const char *buf, int len, void * user)
 	forwarder *udp_forwarder = reinterpret_cast<forwarder*>(user);
 	udp::endpoint ep = get_remote_address();
 	udp_forwarder->async_send_out(std::move(new_buffer), cipher_size, ep);
-	return 0;
-}
-
-int udp_to_forwarder::kcp_sender_with_pool(const char *buf, int len, void * user)
-{
-	forwarder *udp_forwarder = reinterpret_cast<forwarder*>(user);
-	std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(len + BUFFER_EXPAND_SIZE);
-	uint8_t *new_buffer_ptr = new_buffer.get();
-	std::copy_n((const uint8_t *)buf, len, new_buffer_ptr);
-
-	std::function<ttp::task_callback(std::unique_ptr<uint8_t[]>)> task_function =
-		[this, udp_forwarder, new_buffer_ptr, len](std::unique_ptr<uint8_t[]> null_data) -> ttp::task_callback
-	{
-		auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer_ptr, len);
-		if (!error_message.empty() || cipher_size == 0)
-		{
-			if (!error_message.empty())
-			{
-				std::cerr << error_message << "\n";
-				print_message_to_file(error_message + "\n", current_settings.log_messages);
-			}
-			return [](std::unique_ptr<uint8_t[]> null_data) {};
-		}
-
-		auto return_function = [this, udp_forwarder, cipher_size = cipher_size](std::unique_ptr<uint8_t[]> data)
-		{
-			udp::endpoint ep = get_remote_address();
-			udp_forwarder->async_send_out(std::move(data), cipher_size, ep);
-		};
-		return return_function;
-	};
-
-	std::unique_ptr<uint8_t[]> unique_nullptr;
-	auto function_and_data = task_assigner.submit(task_function, std::move(unique_nullptr));
-	sequence_task_pool_local.push_task((size_t)this, std::move(function_and_data), std::move(new_buffer));
-
 	return 0;
 }
 
@@ -503,8 +443,8 @@ void udp_to_forwarder::loop_change_new_port()
 		uint32_t conv = kcp_ptr->GetConv();
 		asio::error_code ec;
 
-		auto udp_func = std::bind(&udp_to_forwarder::udp_client_incoming_to_udp_with_thread_pool, this, _1, _2, _3, _4, _5);
-		auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, true, kcp_ptr, udp_func);
+		auto udp_func = std::bind(&udp_to_forwarder::udp_client_incoming_to_udp, this, _1, _2, _3, _4, _5);
+		auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func);
 		if (udp_forwarder == nullptr)
 			continue;
 
@@ -615,7 +555,7 @@ void udp_to_forwarder::keep_alive(const asio::error_code& e)
 void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake_ptr, uint32_t conv, uint16_t start_port, uint16_t end_port)
 {
 	auto [destination_address, destination_port] = handshake_ptr->get_cached_peer();
-	std::scoped_lock handshake_lockers{ mutex_udp_address_map_to_handshake, mutex_udp_seesion_caches };
+	std::scoped_lock handshake_lockers{ mutex_udp_address_map_to_handshake, mutex_udp_seesion_caches, mutex_udp_session_map_to_kcp };
 	udp::endpoint peer = udp_handshake_map_to_address[handshake_ptr];
 
 	if (start_port != 0 && end_port != 0)
@@ -625,8 +565,8 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	}
 
 	std::shared_ptr<KCP::KCP> kcp_ptr = std::make_shared<KCP::KCP>(conv, nullptr);
-	auto udp_func = std::bind(&udp_to_forwarder::udp_client_incoming_to_udp_with_thread_pool, this, _1, _2, _3, _4, _5);
-	auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, true, kcp_ptr, udp_func);
+	auto udp_func = std::bind(&udp_to_forwarder::udp_client_incoming_to_udp, this, _1, _2, _3, _4, _5);
+	auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func);
 	if (udp_forwarder == nullptr)
 		return;
 
@@ -636,7 +576,7 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 		udp::resolver::results_type udp_endpoints = udp_forwarder->get_remote_hostname(destination_address, destination_port, ec);
 		if (ec)
 		{
-			std::string error_message = time_to_string_with_square_brackets() + ec.message() + "\n";
+			std::string error_message = time_to_string_with_square_brackets() + ec.message() + " (UDP)\n";
 			std::cerr << error_message;
 			print_message_to_file(error_message, current_settings.log_messages);
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
@@ -691,7 +631,7 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	kcp_changeport_timestamp[kcp_ptr].store(packet::right_now() + current_settings.dynamic_port_refresh);
 	lock_kcp_changeport_timestamp.unlock();
 
-	std::scoped_lock lockers{ mutex_udp_session_map_to_kcp, mutex_kcp_session_map_to_udp, mutex_id_map_to_forwarder, mutex_kcp_channels };
+	std::scoped_lock lockers{ mutex_kcp_session_map_to_udp, mutex_id_map_to_forwarder, mutex_kcp_channels };
 	udp_session_map_to_kcp.insert({ peer, kcp_ptr });
 	kcp_session_map_to_udp[conv] = peer;
 	id_map_to_forwarder.insert({ conv, udp_forwarder });

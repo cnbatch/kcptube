@@ -18,23 +18,23 @@ int main(int argc, char *argv[])
 {
 	if (argc <= 1)
 	{
-		printf("Usage: %s config1.conf\n", argv[0]);
-		printf("       %s config1.conf config2.conf...\n", argv[0]);
+		char app_name[] = "kcptube";
+		printf("%s version 20230415\n", app_name);
+		printf("Usage: %s config1.conf\n", app_name);
+		printf("       %s config1.conf config2.conf...\n", app_name);
 		return 0;
 	}
 
 	constexpr size_t task_count_limit = (size_t)std::numeric_limits<int16_t>::max() >> 3;
-	ttp::concurrency_t thread_counts = 1;
 	uint16_t thread_group_count = 1;
 	int io_thread_count = 1;
 	if (std::thread::hardware_concurrency() > 3)
 	{
-		thread_counts = std::thread::hardware_concurrency();
-		thread_group_count = (uint16_t)std::log2(thread_counts);
-		io_thread_count = (int)std::log(thread_counts);
+		auto thread_counts = std::thread::hardware_concurrency();
+		thread_group_count = (uint16_t)(thread_counts / 2);
+		io_thread_count = (int)std::log2(thread_counts);
 	}
 
-	ttp::task_thread_pool task_pool{ thread_counts };
 	ttp::task_group_pool task_groups_local{ thread_group_count };
 	ttp::task_group_pool task_groups_peer{ thread_group_count };
 
@@ -72,10 +72,10 @@ int main(int argc, char *argv[])
 		switch (settings.mode)
 		{
 		case running_mode::client:
-			clients.emplace_back(client_mode(ioc, network_io, task_pool, task_groups_local, task_groups_peer, task_count_limit, settings));
+			clients.emplace_back(client_mode(ioc, network_io, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
 		case running_mode::server:
-			servers.emplace_back(server_mode(ioc, network_io, task_pool, task_groups_local, task_groups_peer, task_count_limit, settings));
+			servers.emplace_back(server_mode(ioc, network_io, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
 		default:
 			break;

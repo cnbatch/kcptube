@@ -30,7 +30,7 @@ bool server_mode::start()
 {
 	printf("start_up() running in server mode\n");
 
-	udp_callback_t func = std::bind(&server_mode::udp_server_incoming_with_thread_pool, this, _1, _2, _3, _4);
+	auto func = std::bind(&server_mode::udp_server_incoming, this, _1, _2, _3, _4);
 	std::set<uint16_t> listen_ports;
 	if (current_settings.listen_port != 0)
 		listen_ports.insert(current_settings.listen_port);
@@ -66,7 +66,7 @@ bool server_mode::start()
 		listen_on_ep.port(port_number);
 		try
 		{
-			udp_servers.insert({ port_number, std::make_unique<udp_server>(network_io, sequence_task_pool_peer, task_limit, true, listen_on_ep, /*port_number,*/ func) });
+			udp_servers.insert({ port_number, std::make_unique<udp_server>(network_io, sequence_task_pool_peer, task_limit, listen_on_ep, func) });
 		}
 		catch (std::exception &ex)
 		{
@@ -146,45 +146,6 @@ void server_mode::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size_t da
 	input_count2 += data_size;
 }
 
-void server_mode::udp_server_incoming_with_thread_pool(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
-{
-	if (data == nullptr || data_size == 0)
-		return;
-	input_count_before_kcp += data_size;
-	uint8_t *data_ptr = data.get();
-	std::function<ttp::task_callback(std::unique_ptr<uint8_t[]>)> task_function =
-		[this, data_ptr, data_size, peer, port_number](std::unique_ptr<uint8_t[]> null_data) -> ttp::task_callback
-	{
-		auto null_function = [](std::unique_ptr<uint8_t[]> null_data) {};
-		if (stun_header != nullptr)
-		{
-			uint32_t ipv4_address = 0;
-			uint16_t ipv4_port = 0;
-			std::array<uint8_t, 16> ipv6_address{};
-			uint16_t ipv6_port = 0;
-			if (rfc8489::unpack_address_port(data_ptr, stun_header->transaction_id_part_1, stun_header->transaction_id_part_2, ipv4_address, ipv4_port, ipv6_address, ipv6_port))
-			{
-				save_external_ip_address(ipv4_address, ipv4_port, ipv6_address, ipv6_port);
-				return null_function;
-			}
-		}
-
-		auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
-		if (!error_message.empty() || plain_size == 0)
-			return null_function;
-
-		auto return_function = [this, plain_size = plain_size, peer, port_number](std::unique_ptr<uint8_t[]> data)
-		{ udp_server_incoming_unpack(std::move(data), plain_size, peer, port_number); };
-		return return_function;
-	};
-
-	std::unique_ptr<uint8_t[]> unique_nullptr;
-	auto function_and_data = task_assigner.submit(task_function, std::move(unique_nullptr));
-	sequence_task_pool_peer.push_task((size_t)this, std::move(function_and_data), std::move(data));
-
-	input_count2 += data_size;
-}
-
 void server_mode::udp_server_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
 	if (data == nullptr)
@@ -216,7 +177,6 @@ void server_mode::udp_server_incoming_unpack(std::unique_ptr<uint8_t[]> data, si
 		{
 			if (kcp_iter->second != peer)
 			{
-				//std::cout << "peer address changed, old: " << kcp_iter->second << ", new: " << peer << "; KCP " << conv << "\n";
 				shared_locker_kcp_session_map_to_source_udp.unlock();
 				std::unique_lock unique_locker_kcp_session_map_to_source_udp{ mutex_kcp_session_map_to_source_udp };
 				if (kcp_iter->second != peer)
@@ -529,7 +489,11 @@ void server_mode::udp_server_incoming_new_connection(std::unique_ptr<uint8_t[]> 
 bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp)
 {
 	bool connect_success = false;
-	tcp_client target_connector(io_context, sequence_task_pool_local, false);
+	auto callback_function = [data_kcp, this](std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> target_session)
+	{
+		tcp_client_incoming(std::move(data), data_size, target_session, data_kcp);
+	};
+	tcp_client target_connector(io_context, callback_function);
 	std::string &destination_address = current_settings.destination_address;
 	uint16_t destination_port = current_settings.destination_port;
 	asio::error_code ec;
@@ -541,11 +505,7 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 		return false;
 	}
 
-	auto callback_function = [data_kcp, this](std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> target_session)
-	{
-		tcp_client_incoming(std::move(data), data_size, target_session, data_kcp);
-	};
-	std::shared_ptr<tcp_session> local_session = target_connector.connect(callback_function, ec);
+	std::shared_ptr<tcp_session> local_session = target_connector.connect(ec);
 	if (!ec)
 	{
 		connect_success = true;
@@ -584,7 +544,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	{
 		udp_client_incoming(std::move(data), data_size, peer, port_number, data_kcp);
 	};
-	std::shared_ptr<udp_client> target_connector = std::make_shared<udp_client>(network_io, sequence_task_pool_local, task_limit, true, udp_func_ap);
+	std::shared_ptr<udp_client> target_connector = std::make_shared<udp_client>(network_io, sequence_task_pool_local, task_limit, udp_func_ap);
 	target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target, ec);
 	if (ec)
 		return false;
@@ -630,43 +590,6 @@ int server_mode::kcp_sender(std::shared_ptr<KCP::KCP> data_kcp, tcp_session *ses
 	if (session != nullptr && session->is_pause() && data_kcp->WaitingForSend() < data_kcp->GetSendWindowSize())
 		session->pause(false);
 	output_count2 += cipher_size;
-	return 0;
-}
-
-int server_mode::kcp_sender_with_pool(std::shared_ptr<KCP::KCP> data_kcp, tcp_session *session, const char *buf, int len, void *user)
-{
-	udp_server *udp_sender = reinterpret_cast<udp_server*>(user);
-	std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(len + BUFFER_EXPAND_SIZE);
-	uint8_t *new_buffer_ptr = new_buffer.get();
-	std::copy_n((const uint8_t *)buf, len, new_buffer_ptr);
-
-	std::function<ttp::task_callback(std::unique_ptr<uint8_t[]>)> task_function =
-		[this, data_kcp, session, udp_sender, new_buffer_ptr, len](std::unique_ptr<uint8_t[]> null_data) -> ttp::task_callback
-	{
-		auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer_ptr, len);
-		if (!error_message.empty() || cipher_size == 0)
-		{
-			if (!error_message.empty())
-			{
-				std::cerr << error_message << "\n";
-				print_message_to_file(error_message + "\n", current_settings.log_messages);
-			}
-			return [](std::unique_ptr<uint8_t[]> null_data) {};
-		}
-
-		auto return_function = [this, data_kcp, session, udp_sender, cipher_size = cipher_size](std::unique_ptr<uint8_t[]> data)
-		{
-			udp_sender->async_send_out(std::move(data), cipher_size, get_remote_address(data_kcp));
-			if (session != nullptr && session->is_pause() && data_kcp->WaitingForSend() < data_kcp->GetSendWindowSize())
-				session->pause(false);
-		};
-		output_count2 += cipher_size;
-		return return_function;
-	};
-
-	std::unique_ptr<uint8_t[]> unique_nullptr;
-	auto function_and_data = task_assigner.submit(task_function, std::move(unique_nullptr));
-	sequence_task_pool_local.push_task((size_t)this, std::move(function_and_data), std::move(new_buffer));
 	return 0;
 }
 
@@ -740,6 +663,9 @@ bool server_mode::update_local_udp_target(std::shared_ptr<udp_client> target_con
 
 void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_port, const std::array<uint8_t, 16> &ipv6_address, uint16_t ipv6_port)
 {
+	std::string v4_info;
+	std::string v6_info;
+
 	if (ipv4_address != 0 && ipv4_port != 0 && (external_ipv4_address.load() != ipv4_address || external_ipv4_port.load() != ipv4_port))
 	{
 		external_ipv4_address.store(ipv4_address);
@@ -747,10 +673,8 @@ void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_
 		std::stringstream ss;
 		ss << "External IPv4 Address: " << asio::ip::make_address_v4(ipv4_address) << "\n";
 		ss << "External IPv4 Port: " << ipv4_port << "\n";
-		std::string message = ss.str();
 		if (!current_settings.log_ip_address.empty())
-			print_ip_to_file(message, current_settings.log_ip_address);
-		std::cout << message;
+			v4_info = ss.str();
 	}
 
 	std::shared_lock locker(mutex_ipv6);
@@ -764,9 +688,14 @@ void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_
 		std::stringstream ss;
 		ss << "External IPv6 Address: " << asio::ip::make_address_v6(ipv6_address) << "\n";
 		ss << "External IPv6 Port: " << ipv6_port << "\n";
-		std::string message = ss.str();
 		if (!current_settings.log_ip_address.empty())
-			print_ip_to_file(message, current_settings.log_ip_address);
+			v6_info = ss.str();
+	}
+
+	if (!current_settings.log_ip_address.empty())
+	{
+		std::string message = "Update Time: " + time_to_string() + "\n" + v4_info + v6_info;
+		print_ip_to_file(message, current_settings.log_ip_address);
 		std::cout << message;
 	}
 }

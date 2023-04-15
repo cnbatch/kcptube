@@ -13,15 +13,15 @@ enum class running_mode { unknow, empty, server, client };
 enum class kcp_mode { unknow, manual, largo, andante, moderato, allegro, presto, prestissimo };
 enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
 
-namespace CONSTANT_VALUES
+namespace constant_values
 {
-	constexpr uint16_t TIMEOUT = 1800;	// second
-	constexpr uint16_t DPORT_REFRESH_DEFAULT = 60;
-	constexpr uint16_t DPORT_REFRESH_MINIMAL = 20;
-	constexpr int KCP_SEND_WINDOW = 256;
-	constexpr int KCP_RECEIVE_WINDOW = 1024;
-	constexpr int KCP_MTU = 1420;
-	constexpr int CHECKSUM_BLOCK_SIZE = 2;
+	constexpr uint16_t timeout_value = 1800;	// second
+	constexpr uint16_t dport_refresh_default = 60;
+	constexpr uint16_t dport_refresh_minimal = 20;
+	constexpr int kcp_send_window = 256;
+	constexpr int kcp_receive_window = 1024;
+	constexpr int kcp_mtu = 1420;
+	constexpr int checksum_block_size = 2;
 };
 
 
@@ -42,7 +42,7 @@ struct user_settings
 	uint16_t destination_port = 0;
 	uint16_t destination_port_start = 0;
 	uint16_t destination_port_end = 0;
-	uint16_t dynamic_port_refresh = CONSTANT_VALUES::DPORT_REFRESH_DEFAULT;	// seconds
+	uint16_t dynamic_port_refresh = constant_values::dport_refresh_default;	// seconds
 	uint16_t udp_timeout = 0;	 // seconds
 	uint16_t keep_alive = 0;	// seconds
 	encryption_mode encryption = encryption_mode::empty;

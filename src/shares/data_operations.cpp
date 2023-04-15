@@ -239,7 +239,7 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 		uint8_t second_hash = simple_hashing::checksum8(input_data.data(), input_data.size());
 
 		size_t pos = input_data.size();
-		input_data.resize(cipher_length + CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE);
+		input_data.resize(cipher_length + constant_values::checksum_block_size);
 		input_data[pos] = first_hash;
 		pos++;
 		input_data[pos] = second_hash;
@@ -288,7 +288,7 @@ std::pair<std::string, size_t> decrypt_data(const std::string &password, encrypt
 	default:
 	{
 		bitwise_not(data_ptr, length);
-		data_length = length - CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE;
+		data_length = length - constant_values::checksum_block_size;
 		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
 		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
 
@@ -335,7 +335,7 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	default:
 	{
 		std::transform(data_cache.begin(), data_cache.end(), data_cache.begin(), [](auto ch) { return ~ch; });
-		int data_length = length - CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE;
+		int data_length = length - constant_values::checksum_block_size;
 		uint8_t first_hash = simple_hashing::xor_u8(data_ptr, data_length);
 		uint8_t second_hash = simple_hashing::checksum8(data_ptr, data_length);
 		if (first_hash != data_cache[data_length] || second_hash != data_cache[data_length + 1])
@@ -389,7 +389,7 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	default:
 	{
 		std::transform(input_data.begin(), input_data.end(), input_data.begin(), [](auto ch) { return ~ch; });
-		size_t data_length = input_data.size() - CONSTANT_VALUES::CHECKSUM_BLOCK_SIZE;
+		size_t data_length = input_data.size() - constant_values::checksum_block_size;
 		uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), data_length);
 		uint8_t second_hash = simple_hashing::checksum8(input_data.data(), data_length);
 		if (first_hash != input_data[data_length] || second_hash != input_data[data_length + 1])
