@@ -14,16 +14,17 @@ public:
 
 	forwarder() = delete;
 
-	forwarder(asio::io_context &io_context, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func) :
-		udp_client(io_context, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)),
+	forwarder(asio::io_context &io_context, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, bool v4_only = false) :
+		udp_client(io_context,
+			std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
 		kcp(input_kcp), callback(callback_func) {}
 
-	forwarder(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func) :
-		udp_client(io_context, group_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)),
+	forwarder(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, bool v4_only = false) :
+		udp_client(io_context, group_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
 		kcp(input_kcp), callback(callback_func) {}
 
-	forwarder(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func) :
-		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)),
+	forwarder(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, bool v4_only = false) :
+		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
 		kcp(input_kcp), callback(callback_func) {}
 
 	void replace_callback(process_data_t callback_func)
@@ -132,7 +133,7 @@ class tcp_to_forwarder
 	void udp_client_incoming_to_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void udp_client_incoming_to_tcp_unpack(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void udp_client_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
-	int kcp_sender(KCP::KCP *kcp_ptr, tcp_session *session, const char *buf, int len, void *user);
+	int kcp_sender(const char *buf, int len, void *user);
 	udp::endpoint get_remote_address();
 	void local_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<tcp_session> session);
 	void process_disconnect(uint32_t conv, tcp_session *session);

@@ -1,6 +1,6 @@
 #pragma once
 
-// this is a modified version of BS's thread_pool_light (https://github.com/bshoshany/thread-poo)
+// this is a modified version of BS's thread_pool_light (https://github.com/bshoshany/thread-pool)
 
 #ifndef __THREAD_POOL_HPP__
 #define __THREAD_POOL_HPP__

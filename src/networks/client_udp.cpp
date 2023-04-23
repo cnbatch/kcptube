@@ -27,7 +27,12 @@ bool udp_to_forwarder::start()
 	if (port_number == 0)
 		return false;
 
-	udp::endpoint listen_on_ep(udp::v6(), port_number);
+	udp::endpoint listen_on_ep;
+	if (current_settings.ipv4_only)
+		listen_on_ep = udp::endpoint(udp::v4(), port_number);
+	else
+		listen_on_ep = udp::endpoint(udp::v6(), port_number);
+
 	if (!current_settings.listen_on.empty())
 	{
 		asio::error_code ec;
@@ -40,7 +45,7 @@ bool udp_to_forwarder::start()
 			return false;
 		}
 
-		if (local_address.is_v4())
+		if (local_address.is_v4() && !current_settings.ipv4_only)
 			listen_on_ep.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
 		else
 			listen_on_ep.address(local_address);
@@ -150,6 +155,9 @@ void udp_to_forwarder::udp_server_incoming(std::unique_ptr<uint8_t[]> data, size
 			kcp_session = iter->second;
 		}
 	}
+
+	if (kcp_session->WaitingForSend() >= kcp_session->GetSendWindowSize())
+		return;
 
 	size_t new_data_size = packet::create_data_packet(protocol_type::udp, data_ptr, data_size);
 
@@ -349,7 +357,7 @@ void udp_to_forwarder::cleanup_expiring_data_connections()
 		uint32_t conv = iter->first;
 		auto &[kcp_ptr, expire_time] = iter->second;
 
-		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS || kcp_ptr->WaitingForSend() > 0)
+		if (kcp_ptr->WaitingForSend() > 0 || calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 		{
 			kcp_ptr->Update(time_now_for_kcp());
 			continue;
@@ -444,7 +452,7 @@ void udp_to_forwarder::loop_change_new_port()
 		asio::error_code ec;
 
 		auto udp_func = std::bind(&udp_to_forwarder::udp_client_incoming_to_udp, this, _1, _2, _3, _4, _5);
-		auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func);
+		auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
 		if (udp_forwarder == nullptr)
 			continue;
 
@@ -566,7 +574,7 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 
 	std::shared_ptr<KCP::KCP> kcp_ptr = std::make_shared<KCP::KCP>(conv, nullptr);
 	auto udp_func = std::bind(&udp_to_forwarder::udp_client_incoming_to_udp, this, _1, _2, _3, _4, _5);
-	auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func);
+	auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
 	if (udp_forwarder == nullptr)
 		return;
 
@@ -610,11 +618,12 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	kcp_ptr->SetWindowSize(current_settings.kcp_sndwnd, current_settings.kcp_rcvwnd);
 	kcp_ptr->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
 	kcp_ptr->RxMinRTO() = 10;
-	kcp_ptr->Update(time_now_for_kcp());
+	kcp_ptr->SetBandwidth(current_settings.outbound_bandwidth, current_settings.inbound_bandwidth);
 	kcp_ptr->SetOutput([this](const char *buf, int len, void *user) -> int
 		{
 			return kcp_sender(buf, len, user);
 		});
+	kcp_ptr->Update(time_now_for_kcp());
 
 	for (auto &data : udp_seesion_caches[handshake_ptr])
 	{

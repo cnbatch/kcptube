@@ -37,6 +37,15 @@ namespace KCP
 		custom_data.store(nullptr);
 	}
 
+	void KCP::ResetWindowValues()
+	{
+		ikcpcb *kcp_ptr = (ikcpcb *)ikcp_ptr;
+		if (outbound_bandwidth > 0)
+			kcp_ptr->snd_wnd = (uint32_t)(outbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_rto) + 32;
+		if (inbound_bandwidth > 0)
+			kcp_ptr->rcv_wnd = (uint32_t)(inbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_rto) + 32;
+	}
+
 	void KCP::SetOutput(std::function<int(const char *, int, void *)> output_func)
 	{
 		this->output = output_func;
@@ -58,7 +67,7 @@ namespace KCP
 	int KCP::Send(const char *buffer, size_t len)
 	{
 		std::scoped_lock locker{ mtx };
-		return ikcp_send((ikcpcb *)ikcp_ptr, buffer, len);
+		return ikcp_send((ikcpcb *)ikcp_ptr, buffer, (int)len);
 	}
 
 	void KCP::Update(uint32_t current)
@@ -82,7 +91,9 @@ namespace KCP
 	int KCP::Input(const char *data, long size)
 	{
 		std::scoped_lock locker{ mtx };
-		return ikcp_input((ikcpcb *)ikcp_ptr, data, size);
+		auto ret = ikcp_input((ikcpcb *)ikcp_ptr, data, size);
+		ResetWindowValues();
+		return ret;
 	}
 
 	// flush pending data
@@ -176,6 +187,11 @@ namespace KCP
 		return ((IKCPCB *)ikcp_ptr)->rx_minrto;
 	}
 
+	void KCP::SetBandwidth(uint64_t out_bw, uint64_t in_bw)
+	{
+		outbound_bandwidth = out_bw;
+		inbound_bandwidth = in_bw;
+	}
 
 	int proxy_output(KCP *kcp, const char *buf, int len)
 	{

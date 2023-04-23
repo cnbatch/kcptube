@@ -220,8 +220,8 @@ private:
 	tcp::acceptor tcp_acceptor;
 	acceptor_callback_t acceptor_callback;
 	tcp_callback_t session_callback;
-	bool paused;
 	const size_t task_limit;
+	bool paused;
 };
 
 class tcp_client
@@ -229,14 +229,14 @@ class tcp_client
 public:
 	tcp_client() = delete;
 
-	tcp_client(asio::io_context &io_context, tcp_callback_t callback_func)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), session_callback(callback_func) {}
+	tcp_client(asio::io_context &io_context, tcp_callback_t callback_func, bool v4_only = false)
+		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), session_callback(callback_func), ipv4_only(v4_only) {}
 
-	tcp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, tcp_callback_t callback_func)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), session_callback(callback_func) {}
+	tcp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, tcp_callback_t callback_func, bool v4_only = false)
+		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), session_callback(callback_func), ipv4_only(v4_only) {}
 
-	tcp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, tcp_callback_t callback_func)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), session_callback(callback_func) {}
+	tcp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, tcp_callback_t callback_func, bool v4_only = false)
+		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), session_callback(callback_func), ipv4_only(v4_only) {}
 
 	std::shared_ptr<tcp_session> connect(asio::error_code &ec);
 
@@ -252,6 +252,7 @@ private:
 	tcp::resolver resolver;
 	asio::ip::basic_resolver_results<asio::ip::tcp> remote_endpoints;
 	const size_t task_limit;
+	const bool ipv4_only;
 };
 
 
@@ -312,26 +313,29 @@ class udp_client
 public:
 	udp_client() = delete;
 
-	udp_client(asio::io_context &io_context, udp_callback_t callback_func)
-		: task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), connection_socket(io_context), resolver(io_context), callback(callback_func),
+	udp_client(asio::io_context &io_context, udp_callback_t callback_func, bool v4_only = false)
+		: task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0),
+		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false)
+		paused(false), stopped(false), ipv4_only(v4_only)
 	{
 		initialise();
 	}
 
-	udp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, udp_callback_t callback_func)
-		: task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), connection_socket(io_context), resolver(io_context), callback(callback_func),
+	udp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, udp_callback_t callback_func, bool v4_only = false)
+		: task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit),
+		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false)
+		paused(false), stopped(false), ipv4_only(v4_only)
 	{
 		initialise();
 	}
 
-	udp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, udp_callback_t callback_func)
-		: task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), connection_socket(io_context), resolver(io_context), callback(callback_func),
+	udp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, udp_callback_t callback_func, bool v4_only = false)
+		: task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit),
+		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false)
+		paused(false), stopped(false), ipv4_only(v4_only)
 	{
 		initialise();
 	}
@@ -377,10 +381,11 @@ protected:
 	std::atomic<bool> paused;
 	std::atomic<bool> stopped;
 	const size_t task_limit;
+	const bool ipv4_only;
 };
 
-std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host);
-std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host);
-void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header);
+std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
+std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
+void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header, bool v4_only = false);
 
 #endif // !__CONNECTIONS__

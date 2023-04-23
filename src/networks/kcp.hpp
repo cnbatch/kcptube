@@ -21,10 +21,12 @@ namespace KCP
 	//---------------------------------------------------------------------
 	class KCP
 	{
-		void *ikcp_ptr;
 		friend int proxy_output(KCP *kcp, const char *buf, int len);
 		friend void proxy_writelog(KCP *kcp, const char *buf);
 	private:
+		void *ikcp_ptr;
+		uint64_t outbound_bandwidth = 0;
+		uint64_t inbound_bandwidth = 0;
 		std::atomic<void *> custom_data;
 		mutable std::shared_mutex mtx;
 		std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
@@ -32,6 +34,7 @@ namespace KCP
 
 		void Initialise(uint32_t conv, void *user);
 		void MoveKCP(KCP &other) noexcept;
+		void ResetWindowValues();
 
 	public:
 
@@ -127,6 +130,7 @@ namespace KCP
 
 		int32_t& RxMinRTO();
 		int& LogMask();
+		void SetBandwidth(uint64_t out_bw, uint64_t in_bw);
 	};
 }
 

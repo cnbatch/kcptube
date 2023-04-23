@@ -1,4 +1,5 @@
 #include <climits>
+#include <cmath>
 #include <stdexcept>
 #include <cstdlib>
 #include <fstream>
@@ -173,23 +174,29 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 				case strhash("manual"):
 					current_user_settings.kcp_setting = kcp_mode::manual;
 					break;
-				case strhash("largo"):
-					current_user_settings.kcp_setting = kcp_mode::largo;
+				case strhash("regular1"):
+					current_user_settings.kcp_setting = kcp_mode::regular1;
 					break;
-				case strhash("andante"):
-					current_user_settings.kcp_setting = kcp_mode::andante;
+				case strhash("regular2"):
+					current_user_settings.kcp_setting = kcp_mode::regular2;
 					break;
-				case strhash("moderato"):
-					current_user_settings.kcp_setting = kcp_mode::moderato;
+				case strhash("regular3"):
+					current_user_settings.kcp_setting = kcp_mode::regular3;
 					break;
-				case strhash("allegro"):
-					current_user_settings.kcp_setting = kcp_mode::allegro;
+				case strhash("regular4"):
+					current_user_settings.kcp_setting = kcp_mode::regular4;
 					break;
-				case strhash("presto"):
-					current_user_settings.kcp_setting = kcp_mode::presto;
+				case strhash("fast1"):
+					current_user_settings.kcp_setting = kcp_mode::fast1;
 					break;
-				case strhash("prestissimo"):
-					current_user_settings.kcp_setting = kcp_mode::prestissimo;
+				case strhash("fast2"):
+					current_user_settings.kcp_setting = kcp_mode::fast2;
+					break;
+				case strhash("fast3"):
+					current_user_settings.kcp_setting = kcp_mode::fast3;
+					break;
+				case strhash("fast4"):
+					current_user_settings.kcp_setting = kcp_mode::fast4;
 					break;
 				default:
 					current_user_settings.kcp_setting = kcp_mode::unknow;
@@ -249,9 +256,24 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 				current_user_settings.stun_server = original_value;
 				break;
 
+			case strhash("outbound_bandwidth"):
+				current_user_settings.outbound_bandwidth = bandwidth_from_string(original_value);
+				break;
+
+			case strhash("inbound_bandwidth"):
+				current_user_settings.inbound_bandwidth = bandwidth_from_string(original_value);
+				break;
+
 			case strhash("log_path"):
 				current_user_settings.log_directory = original_value;
 				break;
+
+			case strhash("ipv4_only"):
+			{
+				bool yes = value == "yes" || value == "true" || value == "1";
+				current_user_settings.ipv4_only = yes;
+				break;
+			}
 
 			default:
 				error_msg.emplace_back("unknow option: " + arg);
@@ -270,9 +292,6 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 
 void check_settings(user_settings &current_user_settings, std::vector<std::string> &error_msg)
 {
-	if (kcp_mode::unknow == current_user_settings.kcp_setting)
-		current_user_settings.kcp_setting = kcp_mode::andante;
-
 	switch (current_user_settings.kcp_setting)
 	{
 	case kcp_mode::manual:
@@ -290,18 +309,18 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 			error_msg.emplace_back("kcp_nc not set");
 
 		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
 
 		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 
 		break;
 	}
 
-	case kcp_mode::prestissimo:
+	case kcp_mode::fast1:
 	{
 		current_user_settings.kcp_nodelay = 1;
-		current_user_settings.kcp_interval = 4;
+		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
@@ -311,23 +330,10 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		break;
 	}
 
-	case kcp_mode::presto:
+	case kcp_mode::fast2:
 	{
 		current_user_settings.kcp_nodelay = 1;
-		current_user_settings.kcp_interval = 10;
-		current_user_settings.kcp_resend = 2;
-		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
-			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
-		if (current_user_settings.kcp_rcvwnd < 0)
-			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
-		break;
-	}
-
-	case kcp_mode::allegro:
-	{
-		current_user_settings.kcp_nodelay = 1;
-		current_user_settings.kcp_interval = 15;
+		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
@@ -337,11 +343,37 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		break;
 	}
 
-	case kcp_mode::moderato:
+	case kcp_mode::fast3:
 	{
-		current_user_settings.kcp_nodelay = 0;
-		current_user_settings.kcp_interval = 20;
-		current_user_settings.kcp_resend = 4;
+		current_user_settings.kcp_nodelay = 1;
+		current_user_settings.kcp_interval = 5;
+		current_user_settings.kcp_resend = 2;
+		current_user_settings.kcp_nc = 1;
+		if (current_user_settings.kcp_sndwnd < 0)
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
+		if (current_user_settings.kcp_rcvwnd < 0)
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
+		break;
+	}
+
+	case kcp_mode::fast4:
+	{
+		current_user_settings.kcp_nodelay = 1;
+		current_user_settings.kcp_interval = 5;
+		current_user_settings.kcp_resend = 3;
+		current_user_settings.kcp_nc = 1;
+		if (current_user_settings.kcp_sndwnd < 0)
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
+		if (current_user_settings.kcp_rcvwnd < 0)
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
+		break;
+	}
+
+	case kcp_mode::regular1:
+	{
+		current_user_settings.kcp_nodelay = 1;
+		current_user_settings.kcp_interval = 10;
+		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
@@ -350,11 +382,11 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		break;
 	}
 
-	case kcp_mode::andante:
+	case kcp_mode::regular2:
 	{
-		current_user_settings.kcp_nodelay = 0;
-		current_user_settings.kcp_interval = 30;
-		current_user_settings.kcp_resend = 6;
+		current_user_settings.kcp_nodelay = 1;
+		current_user_settings.kcp_interval = 10;
+		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
@@ -363,15 +395,28 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		break;
 	}
 
-	case kcp_mode::largo:
+	case kcp_mode::regular3:
+	{
+		current_user_settings.kcp_nodelay = 0;
+		current_user_settings.kcp_interval = 10;
+		current_user_settings.kcp_resend = 2;
+		current_user_settings.kcp_nc = 1;
+		if (current_user_settings.kcp_sndwnd < 0)
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
+		if (current_user_settings.kcp_rcvwnd < 0)
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
+		break;
+	}
+
+	case kcp_mode::regular4:
 		[[fallthrough]];
 	case kcp_mode::unknow:
 		[[fallthrough]];
 	default:
 	{
 		current_user_settings.kcp_nodelay = 0;
-		current_user_settings.kcp_interval = 40;
-		current_user_settings.kcp_resend = 8;
+		current_user_settings.kcp_interval = 10;
+		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
@@ -484,6 +529,59 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 	}
 }
 
+uint64_t bandwidth_from_string(const std::string &bandwidth)
+{
+	if (bandwidth.empty())
+		return 0;
+
+	constexpr uint64_t kilo = 1000;
+	constexpr uint64_t kibi = 1024;
+	uint64_t full_bandwidth = 0;
+	uint64_t bandwidth_expand = 1;
+	std::string bandwidth_number = bandwidth;
+	char unit = bandwidth.back();
+	switch (unit)
+	{
+	case 'K':
+		bandwidth_expand = kilo;
+		break;
+	case 'k':
+		bandwidth_expand = kibi;
+		break;
+	case 'M':
+		bandwidth_expand = kilo * kilo;
+		break;
+	case 'm':
+		bandwidth_expand = kibi * kibi;
+		break;
+	case 'G':
+		bandwidth_expand = kilo * kilo * kilo;
+		break;
+	case 'g':
+		bandwidth_expand = kibi * kibi * kibi;
+		break;
+	default:
+		break;
+	}
+
+	if (bandwidth_expand > 0)
+		bandwidth_number.pop_back();
+
+	if (bandwidth_number.empty())
+		return 0;
+
+	try
+	{
+		full_bandwidth = std::stoi(bandwidth_number) * bandwidth_expand / 8;
+	}
+	catch (...)
+	{
+		return 0;
+	}
+
+	return full_bandwidth;
+}
+
 int64_t calculate_difference(int64_t number1, int64_t number2)
 {
 	return std::abs(number1 - number2);
@@ -521,7 +619,8 @@ void print_ip_to_file(const std::string &message, const std::filesystem::path &l
 	static std::mutex mtx;
 	std::unique_lock locker{ mtx };
 	output_file.open(log_file, std::ios::out | std::ios::trunc);
-	output_file << message;
+	if (output_file.is_open() && output_file.good())
+		output_file << message;
 	output_file.close();
 }
 
@@ -534,6 +633,7 @@ void print_message_to_file(const std::string &message, const std::filesystem::pa
 	static std::mutex mtx;
 	std::unique_lock locker{ mtx };
 	output_file.open(log_file, std::ios::out | std::ios::app);
-	output_file << message;
+	if (output_file.is_open() && output_file.good())
+		output_file << message;
 	output_file.close();
 }

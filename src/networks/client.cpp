@@ -87,6 +87,7 @@ bool handshake::send_handshake(protocol_type ptype, const std::string &destinati
 		return false;
 	kcp_ptr->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
 	kcp_ptr->RxMinRTO() = 10;
+	kcp_ptr->SetBandwidth(current_settings.outbound_bandwidth, current_settings.inbound_bandwidth);
 	kcp_ptr->Update(time_now_for_kcp());
 	if (kcp_ptr->Send((const char *)handshake_data.data(), (long)handshake_data.size()) < 0)
 		return false;

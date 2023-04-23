@@ -27,7 +27,12 @@ bool tcp_to_forwarder::start()
 	if (port_number == 0)
 		return false;
 
-	tcp::endpoint listen_on_ep(tcp::v6(), port_number);
+	tcp::endpoint listen_on_ep;
+	if (current_settings.ipv4_only)
+		listen_on_ep = tcp::endpoint(tcp::v4(), port_number);
+	else
+		listen_on_ep = tcp::endpoint(tcp::v6(), port_number);
+
 	if (!current_settings.listen_on.empty())
 	{
 		asio::error_code ec;
@@ -40,7 +45,7 @@ bool tcp_to_forwarder::start()
 			return false;
 		}
 
-		if (local_address.is_v4())
+		if (local_address.is_v4() && !current_settings.ipv4_only)
 			listen_on_ep.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
 		else
 			listen_on_ep.address(local_address);
@@ -117,6 +122,12 @@ void tcp_to_forwarder::tcp_server_incoming(std::unique_ptr<uint8_t[]> data, size
 		return;
 	}
 
+	if (!incoming_session->session_is_ending() && !incoming_session->is_pause() &&
+		kcp_ptr->WaitingForSend() >= kcp_ptr->GetSendWindowSize())
+	{
+		incoming_session->pause(true);
+	}
+
 	uint8_t *data_ptr = data.get();
 
 	size_t new_data_size = packet::create_data_packet(protocol_type::tcp, data_ptr, data_size);
@@ -128,12 +139,6 @@ void tcp_to_forwarder::tcp_server_incoming(std::unique_ptr<uint8_t[]> data, size
 	if (auto iter = kcp_channels.find(conv); iter != kcp_channels.end())
 		iter->second.second.store(next_refresh_time);
 	locker_kcp_channels.unlock();
-
-	if (!incoming_session->session_is_ending() && !incoming_session->is_pause() &&
-		kcp_ptr->WaitingForSend() >= kcp_ptr->GetSendWindowSize())
-	{
-		incoming_session->pause(true);
-	}
 
 	input_count += data_size;
 }
@@ -337,7 +342,7 @@ void tcp_to_forwarder::udp_client_to_disconnecting_tcp(std::shared_ptr<KCP::KCP>
 	input_count2 += data_size;
 }
 
-int tcp_to_forwarder::kcp_sender(KCP::KCP *kcp_ptr, tcp_session *session, const char *buf, int len, void *user)
+int tcp_to_forwarder::kcp_sender(const char *buf, int len, void *user)
 {
 	std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(len + BUFFER_EXPAND_SIZE);
 	uint8_t *new_buffer_ptr = new_buffer.get();
@@ -349,8 +354,6 @@ int tcp_to_forwarder::kcp_sender(KCP::KCP *kcp_ptr, tcp_session *session, const 
 	forwarder *udp_forwarder = reinterpret_cast<forwarder*>(user);
 	udp::endpoint ep = get_remote_address();
 	udp_forwarder->async_send_out(std::move(new_buffer), cipher_size, ep);
-	if (session->is_pause() && kcp_ptr->WaitingForSend() < kcp_ptr->GetSendWindowSize())
-		session->pause(false);
 	output_count2 += cipher_size;
 	return 0;
 }
@@ -450,7 +453,7 @@ void tcp_to_forwarder::cleanup_expiring_data_connections()
 		uint32_t conv = iter->first;
 		auto &[kcp_ptr, expire_time] = iter->second;
 
-		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS || kcp_ptr->WaitingForSend() > 0)
+		if (kcp_ptr->WaitingForSend() > 0 || calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 		{
 			kcp_ptr->Update(time_now_for_kcp());
 			continue;
@@ -553,7 +556,7 @@ void tcp_to_forwarder::loop_change_new_port()
 		asio::error_code ec;
 
 		auto udp_func = std::bind(&tcp_to_forwarder::udp_client_incoming_to_tcp, this, _1, _2, _3, _4, _5);
-		auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func);
+		auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
 
 		if (udp_forwarder == nullptr)
 			continue;
@@ -700,7 +703,7 @@ void tcp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 
 	std::shared_ptr<KCP::KCP> kcp_ptr = std::make_shared<KCP::KCP>(conv, nullptr);
 	auto udp_func = std::bind(&tcp_to_forwarder::udp_client_incoming_to_tcp, this, _1, _2, _3, _4, _5);
-	auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func);
+	auto udp_forwarder = std::make_shared<forwarder>(network_io, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
 	if (udp_forwarder == nullptr)
 		return;
 
@@ -744,19 +747,23 @@ void tcp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	kcp_ptr->SetWindowSize(current_settings.kcp_sndwnd, current_settings.kcp_rcvwnd);
 	kcp_ptr->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
 	kcp_ptr->RxMinRTO() = 10;
+	kcp_ptr->SetBandwidth(current_settings.outbound_bandwidth, current_settings.inbound_bandwidth);
 	kcp_ptr->SetOutput([this, kcp_raw_ptr = kcp_ptr.get(), session = incoming_session.get()](const char *buf, int len, void *user) -> int
-	{
-			return kcp_sender(kcp_raw_ptr, session, buf, len, user);
-	});
+		{
+			int ret = kcp_sender(buf, len, user);
+			if (session->is_pause() && kcp_raw_ptr->WaitingForSend() < kcp_raw_ptr->GetSendWindowSize())
+				session->pause(false);
+			return ret;
+		});
 
 	std::unique_lock lock_kcp_changeport_timestamp{ mutex_kcp_changeport_timestamp };
 	kcp_changeport_timestamp[kcp_ptr].store(packet::right_now() + current_settings.dynamic_port_refresh);
 	lock_kcp_changeport_timestamp.unlock();
 
 	incoming_session->replace_callback([kcp_ptr, this](std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session) mutable
-	{
+		{
 			tcp_server_incoming(std::move(data), data_size, incoming_session, kcp_ptr);
-	});
+		});
 	incoming_session->when_disconnect([kcp_ptr, this](std::shared_ptr<tcp_session> session) { local_disconnect(kcp_ptr, session); });
 	incoming_session->async_read_data();
 

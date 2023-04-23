@@ -66,7 +66,7 @@ class server_mode
 	bool create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp);
 	bool create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const udp::endpoint &peer);
 
-	int kcp_sender(std::shared_ptr<KCP::KCP> data_kcp, tcp_session *session, const char *buf, int len, void *user);
+	int kcp_sender(std::shared_ptr<KCP::KCP> data_kcp, const char *buf, int len, void *user);
 
 	void process_tcp_disconnect(tcp_session *session, std::shared_ptr<KCP::KCP> kcp_ptr);
 	udp::endpoint get_remote_address(std::shared_ptr<KCP::KCP> kcp_ptr);
