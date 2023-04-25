@@ -28,16 +28,26 @@ bool handshake::send_handshake(protocol_type ptype, const std::string &destinati
 	if (kcp_ptr == nullptr)
 		return false;
 
-	asio::ip::v6_only v6_option(false);
-	udp_socket.open(udp::v6());
-	udp_socket.set_option(v6_option);
+	if (current_settings.ipv4_only)
+	{
+		udp_socket.open(udp::v4());
+	}
+	else
+	{
+		asio::ip::v6_only v6_option(false);
+		udp_socket.open(udp::v6());
+		udp_socket.set_option(v6_option);
+	}
 
 	asio::error_code ec;
 	udp::resolver resolver(ioc);
 	for (int i = 0; i <= RETRY_TIMES; ++i)
 	{
-		udp::resolver::results_type udp_endpoints = resolver.resolve(udp::v6(), destination_address, std::to_string(destination_port),
-			udp::resolver::numeric_service | udp::resolver::v4_mapped | udp::resolver::all_matching, ec);
+		auto udp_version = current_settings.ipv4_only ? udp::v4() : udp::v6();
+		udp::resolver::resolver_base::flags input_flags = udp::resolver::numeric_service | udp::resolver::v4_mapped | udp::resolver::all_matching;
+		if (current_settings.ipv4_only)
+			input_flags = udp::resolver::numeric_service;
+		udp::resolver::results_type udp_endpoints = resolver.resolve(udp_version, destination_address, std::to_string(destination_port), input_flags, ec);
 		if (ec)
 		{
 			std::cerr << ec.message() << "\n";
