@@ -8,16 +8,12 @@ if (WIN32)
 	target_link_libraries(${PROJECT_NAME} PUBLIC wsock32 ws2_32)
 endif()
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD")
-	target_link_libraries(${PROJECT_NAME} PUBLIC omp)
-endif()
-
 if (UNIX)
 	target_link_libraries(${PROJECT_NAME} PUBLIC stdc++)
 	target_link_libraries(${PROJECT_NAME} PUBLIC Threads::Threads)
 endif()
 
-if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD" OR ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD")
+if(${CMAKE_SYSTEM_NAME} MATCHES "^DragonFly?" OR ${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD" OR ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD")
 	target_link_libraries(${PROJECT_NAME} PRIVATE /usr/local/lib/libbotan-2.a)
 elseif(${CMAKE_SYSTEM_NAME} MATCHES "NetBSD")
 	target_link_libraries(${PROJECT_NAME} PRIVATE /usr/pkg/lib/libbotan-2.a)

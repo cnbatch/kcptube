@@ -359,17 +359,10 @@ void server_mode::udp_server_incoming_new_connection(std::unique_ptr<uint8_t[]> 
 			handshake_kcp->Update(time_now_for_kcp());
 			handshake_kcp->RxMinRTO() = 10;
 			handshake_kcp->SetBandwidth(current_settings.outbound_bandwidth, current_settings.inbound_bandwidth);
-			handshake_kcp->SetOutput([this, port_number, peer](const char *buf, int len, void *user) -> int
+			handshake_kcp->ReplaceUserPtr(udp_servers[port_number].get());
+			handshake_kcp->SetOutput([this, peer](const char *buf, int len, void *user) -> int
 				{
-					std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(len + BUFFER_EXPAND_SIZE);
-					uint8_t *new_buffer_ptr = new_buffer.get();
-					std::copy_n((uint8_t *)buf, len, new_buffer_ptr);
-					auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer_ptr, len);
-					if (!error_message.empty() || cipher_size == 0)
-						return 0;
-
-					udp_servers[port_number]->async_send_out(std::move(new_buffer), cipher_size, peer);
-					return 0;
+					return kcp_sender(peer, buf, len, user);
 				});
 
 			if (handshake_kcp->Input((const char *)data_ptr, (long)data_size) < 0)
@@ -524,7 +517,8 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 		local_session->when_disconnect([data_kcp, this](std::shared_ptr<tcp_session> session) { process_tcp_disconnect(session.get(), data_kcp); });
 		data_kcp->SetOutput([this, data_kcp, session = local_session.get()](const char *buf, int len, void *user) -> int
 			{
-				int ret = kcp_sender(data_kcp, buf, len, user);
+				auto peer = get_remote_address(data_kcp);
+				int ret = kcp_sender(peer, buf, len, user);
 				if (session != nullptr && session->is_pause() && data_kcp->WaitingForSend() < data_kcp->GetSendWindowSize())
 					session->pause(false);
 				return ret;
@@ -566,7 +560,8 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 
 	data_kcp->SetOutput([this, data_kcp](const char *buf, int len, void *user) -> int
 		{
-			return kcp_sender(data_kcp, buf, len, user);
+			auto peer = get_remote_address(data_kcp);
+			return kcp_sender(peer, buf, len, user);
 		});
 
 	if (udp_target != nullptr || update_local_udp_target(target_connector))
@@ -592,7 +587,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	return connect_success;
 }
 
-int server_mode::kcp_sender(std::shared_ptr<KCP::KCP> data_kcp, const char *buf, int len, void *user)
+int server_mode::kcp_sender(udp::endpoint peer, const char *buf, int len, void *user)
 {
 	std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(len + BUFFER_EXPAND_SIZE);
 	uint8_t *new_buffer_ptr = new_buffer.get();
@@ -601,7 +596,7 @@ int server_mode::kcp_sender(std::shared_ptr<KCP::KCP> data_kcp, const char *buf,
 	if (!error_message.empty() || cipher_size == 0)
 		return 0;
 
-	((udp_server *)user)->async_send_out(std::move(new_buffer), cipher_size, get_remote_address(data_kcp));
+	((udp_server *)user)->async_send_out(std::move(new_buffer), cipher_size, peer);
 	output_count2 += cipher_size;
 	return 0;
 }

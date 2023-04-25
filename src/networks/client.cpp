@@ -117,10 +117,12 @@ void handshake::start_receive()
 	if (!udp_socket.is_open())
 		return;
 
+	auto this_handshake = shared_from_this();
 	if (calculate_difference(packet::right_now(), start_time) > handshake_timeout)
 	{
 		cancel_all();
-		call_on_failure(shared_from_this(), "Receive: Handshake Timed out");
+		if (!finished.load())
+			call_on_failure(this_handshake, "Receive: Handshake Timed out");
 		//timer_waiting.cancel();
 	}
 	else
@@ -129,7 +131,7 @@ void handshake::start_receive()
 		std::unique_ptr<uint8_t[]> recv_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE);
 		auto asio_buffer = asio::buffer(recv_buffer.get(), BUFFER_SIZE);
 		udp_socket.async_receive_from(asio_buffer, *udp_ep_ptr,
-			[/*this*/this_handshake = shared_from_this(), udp_ep_ptr, buffer_ptr = std::move(recv_buffer)](const asio::error_code &error, size_t bytes_transferred) mutable
+			[/*this*/this_handshake, udp_ep_ptr, buffer_ptr = std::move(recv_buffer)](const asio::error_code &error, size_t bytes_transferred) mutable
 			{
 			this_handshake->handle_receive(std::move(buffer_ptr), error, bytes_transferred);
 			});
@@ -197,6 +199,7 @@ void handshake::process_handshake(std::unique_ptr<uint8_t[]> recv_buffer, std::s
 		auto [conv, start_port, end_port] = packet::get_initialise_details_from_unpacked_data(unbacked_data);
 		cancel_all();
 		call_on_success(shared_from_this(), conv, start_port, end_port);
+		finished.store(true);
 		break;
 	}
 	case feature::failure:
@@ -228,7 +231,8 @@ void handshake::loop_kcp_update(const asio::error_code &e)
 	if (waited_seconds >= handshake_timeout)
 	{
 		cancel_all();
-		call_on_failure(shared_from_this(), "Loop: Handshake Timed out");
+		if (!finished.load())
+			call_on_failure(shared_from_this(), "Loop: Handshake Timed out");
 
 		return;
 	}

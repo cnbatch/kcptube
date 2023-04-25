@@ -951,10 +951,16 @@ int64_t udp_client::time_gap_of_send()
 
 void udp_client::initialise()
 {
-	asio::ip::v6_only v6_option(false);
-	connection_socket.open(udp::v6());
-	if (!ipv4_only)
+	if (ipv4_only)
+	{
+		connection_socket.open(udp::v4());
+	}
+	else
+	{
+		asio::ip::v6_only v6_option(false);
+		connection_socket.open(udp::v6());
 		connection_socket.set_option(v6_option);
+	}
 }
 
 void udp_client::start_receive()

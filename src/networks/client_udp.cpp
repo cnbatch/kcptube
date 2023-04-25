@@ -192,8 +192,8 @@ void udp_to_forwarder::udp_client_incoming_to_udp_unpack(std::shared_ptr<KCP::KC
 	if (kcp_ptr->GetConv() != conv)
 	{
 		std::string error_message = time_to_string_with_square_brackets() +
-			"kcp conv is not the same as record : conv = " + std::to_string(conv) +
-			", local kcp_ptr : " + std::to_string(kcp_ptr->GetConv()) + "\n";
+			"UDP<->KCP, conv is not the same as record : conv = " + std::to_string(conv) +
+			", local kcp : " + std::to_string(kcp_ptr->GetConv()) + "\n";
 		std::cerr << error_message;
 		print_message_to_file(error_message, current_settings.log_messages);
 		return;
@@ -652,8 +652,11 @@ void udp_to_forwarder::on_handshake_failure(std::shared_ptr<handshake> handshake
 	std::cerr << time_to_string_with_square_brackets()  << error_message << "\n";
 	print_message_to_file(time_to_string_with_square_brackets() + error_message + "\n", current_settings.log_messages);
 	std::scoped_lock lockers{ mutex_udp_address_map_to_handshake, mutex_udp_seesion_caches };
-	udp::endpoint peer = udp_handshake_map_to_address[handshake_ptr];
+	auto session_iter = udp_handshake_map_to_address.find(handshake_ptr);
+	if (session_iter == udp_handshake_map_to_address.end())
+		return;
+	udp::endpoint peer = session_iter->second;
 	udp_address_map_to_handshake.erase(peer);
 	udp_seesion_caches.erase(handshake_ptr);
-	udp_handshake_map_to_address.erase(handshake_ptr);
+	udp_handshake_map_to_address.erase(session_iter);
 }

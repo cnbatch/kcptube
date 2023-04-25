@@ -112,6 +112,7 @@ void tcp_to_forwarder::tcp_server_accept_incoming(std::shared_ptr<tcp_session> i
 		return;
 	}
 
+	std::unique_lock lock_handshake{ mutex_handshake_map_to_tcp_session };
 	handshake_map_to_tcp_session.insert({ hs, incoming_session });
 }
 
@@ -167,8 +168,8 @@ void tcp_to_forwarder::udp_client_incoming_to_tcp_unpack(std::shared_ptr<KCP::KC
 	if (kcp_ptr->GetConv() != conv)
 	{
 		std::string error_message = time_to_string_with_square_brackets() +
-			"kcp conv is not the same as record : conv = " + std::to_string(conv) +
-			", local kcp_ptr : " + std::to_string(kcp_ptr->GetConv()) + "\n";
+			"TCP<->KCP, conv is not the same as record : conv = " + std::to_string(conv) +
+			", local kcp : " + std::to_string(kcp_ptr->GetConv()) + "\n";
 		std::cerr << error_message;
 		return;
 	}
@@ -698,8 +699,10 @@ void tcp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 		current_settings.destination_port_end = end_port;
 	}
 
+	std::unique_lock lock_handshake{ mutex_handshake_map_to_tcp_session };
 	std::shared_ptr<tcp_session> incoming_session = handshake_map_to_tcp_session[handshake_ptr];
 	handshake_map_to_tcp_session.erase(handshake_ptr);
+	lock_handshake.unlock();
 
 	std::shared_ptr<KCP::KCP> kcp_ptr = std::make_shared<KCP::KCP>(conv, nullptr);
 	auto udp_func = std::bind(&tcp_to_forwarder::udp_client_incoming_to_tcp, this, _1, _2, _3, _4, _5);
@@ -778,8 +781,13 @@ void tcp_to_forwarder::on_handshake_failure(std::shared_ptr<handshake> handshake
 {
 	std::cerr << error_message << "\n";
 	print_message_to_file(error_message + "\n", current_settings.log_messages);
-	std::shared_ptr<tcp_session> incoming_session = handshake_map_to_tcp_session[handshake_ptr];
-	handshake_map_to_tcp_session.erase(handshake_ptr);
+	std::unique_lock lock_handshake{ mutex_handshake_map_to_tcp_session };
+	auto session_iter = handshake_map_to_tcp_session.find(handshake_ptr);
+	if (session_iter == handshake_map_to_tcp_session.end())
+		return;
+	std::shared_ptr<tcp_session> incoming_session = session_iter->second;
+	handshake_map_to_tcp_session.erase(session_iter);
+	lock_handshake.unlock();
 	incoming_session->when_disconnect(empty_tcp_disconnect);
 	incoming_session->disconnect();
 }

@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
 	if (argc <= 1)
 	{
 		char app_name[] = "kcptube";
-		printf("%s version 20230423\n", app_name);
+		printf("%s version 20230426\n", app_name);
 		printf("Usage: %s config1.conf\n", app_name);
 		printf("       %s config1.conf config2.conf...\n", app_name);
 		return 0;
@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	std::cout << "error_found: " << (error_found ? "Yes" : "No") << "\n";
+	std::cout << "Error Found in Configuration File(s): " << (error_found ? "Yes" : "No") << "\n";
 	std::cout << "Servers: " << servers.size() << "\n";
 	std::cout << "Clients: " << clients.size() << "\n";
 
@@ -104,6 +104,5 @@ int main(int argc, char *argv[])
 		ioc.run();
 	}
 
-	printf("bye\n");
 	return 0;
 }
