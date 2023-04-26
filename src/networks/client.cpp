@@ -92,9 +92,14 @@ bool handshake::send_handshake(protocol_type ptype, const std::string &destinati
 			return 0;
 		});
 
-	udp_socket.send_to(asio::buffer(create_raw_random_data(current_settings.kcp_mtu)), local_empty_target, 0, ec);
+	if (current_settings.ipv4_only)
+		udp_socket.send_to(asio::buffer(create_raw_random_data(current_settings.kcp_mtu)), local_empty_target_v4, 0, ec);
+	else
+		udp_socket.send_to(asio::buffer(create_raw_random_data(current_settings.kcp_mtu)), local_empty_target_v6, 0, ec);
+
 	if (ec)
 		return false;
+
 	kcp_ptr->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
 	kcp_ptr->RxMinRTO() = 10;
 	kcp_ptr->SetBandwidth(current_settings.outbound_bandwidth, current_settings.inbound_bandwidth);

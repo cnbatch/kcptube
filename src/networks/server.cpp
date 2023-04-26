@@ -554,7 +554,11 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 		udp_client_incoming(std::move(data), data_size, peer, port_number, data_kcp);
 	};
 	std::shared_ptr<udp_client> target_connector = std::make_shared<udp_client>(network_io, sequence_task_pool_local, task_limit, udp_func_ap, current_settings.ipv4_only);
-	target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target, ec);
+	if (current_settings.ipv4_only)
+		target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
+	else
+		target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
+
 	if (ec)
 		return false;
 

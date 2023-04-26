@@ -571,7 +571,11 @@ void tcp_to_forwarder::loop_change_new_port()
 		}
 
 		forwarder *new_forwarder_ptr = udp_forwarder.get();
-		new_forwarder_ptr->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target, ec);
+		if (current_settings.ipv4_only)
+			new_forwarder_ptr->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
+		else
+			new_forwarder_ptr->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
+
 		if (ec)
 		{
 			timestamp += current_settings.dynamic_port_refresh;
@@ -740,7 +744,11 @@ void tcp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	if (ec)
 		return;
 
-	udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target, ec);
+	if (current_settings.ipv4_only)
+		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
+	else
+		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
+
 	if (ec)
 		return;
 	udp_forwarder->async_receive();
