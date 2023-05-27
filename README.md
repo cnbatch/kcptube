@@ -412,7 +412,7 @@ sysctl -w net.inet6.ip6.v6only=0
 为了降低延迟，kcptube 启用了 TCP_NODELAY 选项。对于某些大流量应用场景，可能会造成 TCP 数据传输量减少。
 
 ### KCP
-kcptube 用的是原版 [KCP](https://github.com/skywind3000/kcp)，除了 interval 最小值从 10 改成 2 之外，其它部份未经修改。换句话说，原版的存在“bug”，kcptube 也会有。例如：
+kcptube 用的是原版 [KCP](https://github.com/skywind3000/kcp)，除了 interval 最小值从 10 改成 1 之外，其它部份未经修改。换句话说，原版的存在“bug”，kcptube 也会有。例如：
 
 * [如何避免缓存积累延迟的问题](https://github.com/skywind3000/kcp/issues/175)
 * [求助：一些压测出现的问题， 发大包后不断累积](https://github.com/skywind3000/kcp/issues/243)

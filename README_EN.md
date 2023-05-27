@@ -413,7 +413,7 @@ It should be reminded that using two checksums still cannot completely avoid con
 To reduce latency, kcptube has enabled the TCP_NODELAY option. For some high-traffic application scenarios, this may result in a reduction in the amount of TCP data transmitted.
 
 ### KCP
-KCP Tube uses the original version of the [KCP](https://github.com/skywind3000/kcp), with the exception that the minimum value of the interval has been changed from 10 to 2, and other parts have not been modified. In other words, if there are ‘bugs’ in the original version, they will also exist in kcptube. For example:
+KCP Tube uses the original version of the [KCP](https://github.com/skywind3000/kcp), with the exception that the minimum value of the interval has been changed from 10 to 1, and other parts have not been modified. In other words, if there are ‘bugs’ in the original version, they will also exist in kcptube. For example:
 
 * [如何避免缓存积累延迟的问题](https://github.com/skywind3000/kcp/issues/175)
 * [求助：一些压测出现的问题， 发大包后不断累积](https://github.com/skywind3000/kcp/issues/243)
