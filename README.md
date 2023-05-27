@@ -32,7 +32,7 @@ KCP Tube 并不使用任何“多路复用”功能，每接受一个入站连�
 
 ## 用法
 ### 全部用法
-请前往 [Wiki 页面](https://github.com/cnbatch/kcptube/wiki)，或前往[文档页面](docs/README_zh-hans.md)。
+请前往 [Wiki 页面](https://github.com/cnbatch/kcptube/wiki)，或前往[文档页面](docs/README.md)。
 
 ### 基本用法
 `kcptube config.conf`
