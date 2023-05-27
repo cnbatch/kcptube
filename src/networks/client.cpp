@@ -1,6 +1,5 @@
 #include <iostream>
 #include <limits>
-#include <random>
 #include <thread>
 #include "client.hpp"
 #include "../shares/data_operations.hpp"
@@ -8,14 +7,6 @@
 using namespace std::placeholders;
 using namespace std::chrono;
 using namespace std::literals;
-
-uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num)
-{
-	std::random_device rd;
-	std::mt19937 mt(rd());
-	std::uniform_int_distribution<uint16_t> uniform_dist(start_port_num, end_port_num);
-	return uniform_dist(mt);
-}
 
 handshake::~handshake()
 {
@@ -39,35 +30,7 @@ bool handshake::send_handshake(protocol_type ptype, const std::string &destinati
 		udp_socket.set_option(v6_option);
 	}
 
-	asio::error_code ec;
-	udp::resolver resolver(ioc);
-	for (int i = 0; i <= RETRY_TIMES; ++i)
-	{
-		auto udp_version = current_settings.ipv4_only ? udp::v4() : udp::v6();
-		udp::resolver::resolver_base::flags input_flags = udp::resolver::numeric_service | udp::resolver::v4_mapped | udp::resolver::all_matching;
-		if (current_settings.ipv4_only)
-			input_flags = udp::resolver::numeric_service;
-		udp::resolver::results_type udp_endpoints = resolver.resolve(udp_version, destination_address, std::to_string(destination_port), input_flags, ec);
-		if (ec)
-		{
-			std::cerr << ec.message() << "\n";
-			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
-		}
-		else if (udp_endpoints.size() == 0)
-		{
-			std::string error_message = time_to_string_with_square_brackets() + "destination address not found\n";
-			std::cerr << error_message;
-			if (!current_settings.log_messages.empty())
-				print_message_to_file(error_message, current_settings.log_messages);
-			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
-		}
-		else
-		{
-			remote_server = *udp_endpoints.begin();
-			break;
-		}
-	}
-
+	asio::error_code ec = resolve_remote_host(destination_address, destination_port);
 	if (ec)
 	{
 		std::cerr << __FUNCTION__ << ":" << __LINE__ << ", error message: " << ec.message() << "\nError Number: " << ec.value() << "\n";
@@ -133,7 +96,8 @@ void handshake::start_receive()
 		return;
 
 	auto this_handshake = shared_from_this();
-	if (calculate_difference(packet::right_now(), start_time) > handshake_timeout)
+	int64_t time_difference = calculate_difference(packet::right_now(), start_time);
+	if (time_difference > handshake_timeout)
 	{
 		cancel_all();
 		if (!finished.load())
@@ -142,6 +106,15 @@ void handshake::start_receive()
 	}
 	else
 	{
+		if (!finished.load() && !handshake_resent.load() && time_difference > handshake_timeout / 2)
+		{
+			asio::error_code ec = resolve_remote_host(destination_address_cache, destination_port_cache);
+			if (ec)
+				std::cerr << __FUNCTION__ << ":" << __LINE__ << ", error message: " << ec.message() << "\nError Number: " << ec.value() << "\n";
+			else
+				handshake_resent.store(true);
+		}
+
 		std::shared_ptr<udp::endpoint> udp_ep_ptr = std::make_shared<udp::endpoint>();
 		std::unique_ptr<uint8_t[]> recv_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE);
 		auto asio_buffer = asio::buffer(recv_buffer.get(), BUFFER_SIZE);
@@ -151,6 +124,39 @@ void handshake::start_receive()
 			this_handshake->handle_receive(std::move(buffer_ptr), error, bytes_transferred);
 			});
 	}
+}
+
+asio::error_code handshake::resolve_remote_host(const std::string &destination_address, uint16_t destination_port)
+{
+	asio::error_code ec;
+	udp::resolver resolver(ioc);
+	for (int i = 0; i <= RETRY_TIMES; ++i)
+	{
+		auto udp_version = current_settings.ipv4_only ? udp::v4() : udp::v6();
+		udp::resolver::resolver_base::flags input_flags = udp::resolver::numeric_service | udp::resolver::v4_mapped | udp::resolver::all_matching;
+		if (current_settings.ipv4_only)
+			input_flags = udp::resolver::numeric_service;
+		udp::resolver::results_type udp_endpoints = resolver.resolve(udp_version, destination_address, std::to_string(destination_port), input_flags, ec);
+		if (ec)
+		{
+			std::cerr << ec.message() << "\n";
+			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
+		}
+		else if (udp_endpoints.size() == 0)
+		{
+			std::string error_message = time_to_string_with_square_brackets() + "destination address not found\n";
+			std::cerr << error_message;
+			if (!current_settings.log_messages.empty())
+				print_message_to_file(error_message, current_settings.log_messages);
+			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
+		}
+		else
+		{
+			remote_server = *udp_endpoints.begin();
+			break;
+		}
+	}
+	return ec;
 }
 
 void handshake::handle_receive(std::unique_ptr<uint8_t[]> recv_buffer, const asio::error_code &error, std::size_t bytes_transferred)
@@ -212,9 +218,9 @@ void handshake::process_handshake(std::unique_ptr<uint8_t[]> recv_buffer, std::s
 	case feature::initialise:
 	{
 		auto [conv, start_port, end_port] = packet::get_initialise_details_from_unpacked_data(unbacked_data);
+		finished.store(true);
 		cancel_all();
 		call_on_success(shared_from_this(), conv, start_port, end_port);
-		finished.store(true);
 		break;
 	}
 	case feature::failure:

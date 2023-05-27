@@ -28,7 +28,7 @@ constexpr size_t RETRY_WAITS = 2u;
 constexpr size_t CLEANUP_WAITS = 30;	// second
 constexpr auto KCP_UPDATE_INTERVAL = std::chrono::milliseconds(1);
 constexpr auto STUN_RESEND = std::chrono::seconds(30);
-constexpr auto CHANGEPORT_UPDATE_INTERVAL = std::chrono::seconds(1);
+constexpr auto KEEPALIVE_UPDATE_INTERVAL = std::chrono::seconds(1);
 constexpr auto FINDER_EXPIRES_INTERVAL = std::chrono::seconds(1);
 constexpr auto EXPRING_UPDATE_INTERVAL = std::chrono::milliseconds(50);
 const asio::ip::udp::endpoint local_empty_target_v4(asio::ip::make_address_v4("127.0.0.1"), 70);
@@ -43,7 +43,7 @@ enum class feature : uint8_t
 	data
 };
 
-enum class protocol_type : uint8_t { tcp = 0, udp };
+enum class protocol_type : uint8_t { not_care, tcp, udp };
 
 uint32_t time_now_for_kcp();
 std::string_view feature_to_string(feature ftr);
@@ -65,6 +65,8 @@ namespace packet
 
 	std::tuple<uint32_t, uint16_t, uint16_t> get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data);
 	std::tuple<uint32_t, uint16_t, uint16_t> get_initialise_details_from_unpacked_data(const uint8_t *data);
+
+	void modify_initialise_details_of_unpacked_data(uint8_t *data, uint16_t start_port, uint16_t end_port);
 
 	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl);
 
@@ -385,8 +387,71 @@ protected:
 	const bool ipv4_only;
 };
 
+class forwarder : public udp_client
+{
+public:
+	using process_data_t = std::function<void(std::shared_ptr<KCP::KCP>, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
+
+	forwarder() = delete;
+
+	forwarder(asio::io_context &io_context, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, bool v4_only = false) :
+		udp_client(io_context,
+			std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
+		kcp(input_kcp), callback(callback_func) {}
+
+	forwarder(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, bool v4_only = false) :
+		udp_client(io_context, group_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
+		kcp(input_kcp), callback(callback_func) {}
+
+	forwarder(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, bool v4_only = false) :
+		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
+		kcp(input_kcp), callback(callback_func) {}
+
+	void replace_callback(process_data_t callback_func)
+	{
+		callback = callback_func;
+	}
+
+	void remove_callback()
+	{
+		kcp.reset();
+		callback = [](std::shared_ptr<KCP::KCP> kcp, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint ep, asio::ip::port_type num) {};
+	}
+
+private:
+	void handle_receive(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
+	{
+		if (paused.load() || stopped.load())
+			return;
+
+		std::shared_ptr<KCP::KCP> kcp_ptr = kcp.lock();
+		if (kcp_ptr == nullptr)
+			return;
+		callback(kcp_ptr, std::move(data), data_size, peer, local_port_number);
+	}
+
+	std::weak_ptr<KCP::KCP> kcp;
+	process_data_t callback;
+};
+
+struct kcp_mappings
+{
+	udp::endpoint ingress_source_endpoint;
+	udp::endpoint egress_target_endpoint;
+	std::shared_ptr<KCP::KCP> ingress_kcp;
+	std::shared_ptr<KCP::KCP> egress_kcp;
+	std::atomic<udp_server *> ingress_listener;
+	std::shared_ptr<forwarder> egress_forwarder;
+	std::shared_ptr<tcp_session> local_tcp;
+	std::shared_ptr<udp_client> local_udp;
+	std::atomic<int64_t> changeport_timestamp;
+	protocol_type connection_protocol;
+};
+
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
 std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
 void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header, bool v4_only = false);
+uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);
+
 
 #endif // !__CONNECTIONS__

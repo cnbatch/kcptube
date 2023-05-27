@@ -7,16 +7,16 @@
 # REQUIRE: LOGIN DAEMON
 # KEYWORD: shutdown
 
-# Add these lines to /etc/rc.conf.local or /etc/rc.conf to enable `kcptubed':
+# Add these lines to /etc/rc.conf.local or /etc/rc.conf to enable `kcptube':
 #
-# kcptubed_enable (bool):          Set to "NO" by default.
-#                                  Set it to "YES" to enable kcptubed
-# kcptubed_config (path):          Set to "/usr/local/etc/kcptubed/config.conf" by default
-#                                  Set it to the kcptubed server config
+# kcptube_enable (bool):          Set to "NO" by default.
+#                                 Set it to "YES" to enable kcptube
+# kcptube_config (path):          Set to "/usr/local/etc/kcptube/config.conf" by default
+#                                 Set it to the kcptube server config
 
 . /etc/rc.subr
 
-name="kcptubed"
+name="kcptube"
 rcvar="${name}_enable"
 
 eval ": \${${name}_enable:=\"NO\"}"
@@ -26,15 +26,15 @@ pidfile="/var/run/${name}.pid"
 procname="/usr/local/bin/kcptube"
 configfile="$(eval echo \${${name}_config})"
 
-start_precmd="kcptubed_startprecmd"
-start_cmd=kcptubed_start
+start_precmd="kcptube_startprecmd"
+start_cmd=kcptube_start
 
-kcptubed_startprecmd()
+kcptube_startprecmd()
 {
 	touch "${pidfile}"
 }
 
-kcptubed_start()
+kcptube_start()
 {
 	/usr/sbin/daemon -c -p ${pidfile} ${procname} ${configfile} > /dev/null 2>&1
 }

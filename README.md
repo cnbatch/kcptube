@@ -1,17 +1,39 @@
 # KCP Tube
 
+**[Click Here for English Version](README_EN.md)**
+
 ## 简单介绍
-[UDP Hop](https://github.com/cnbatch/udphop) 只支持转发 UDP 流量，为了能够利用 UDP 转发 TCP 流量，因此就有了KCP Tube。利用 KCP 的可靠重传保证转发的 TCP 不会丢包。
+但凡使用过三大运营商的家用宽带，并且需要家宽互联，那么几乎都会体验到 UDP 被限速的情况。为了躲避三大运营商针对 UDP 的 QoS，我制作了另一个工具，叫做 [UDP Hop](https://github.com/cnbatch/udphop)。原理是定期更换端口号。
+
+只不过，UDP Hop 只支持转发 UDP 流量。为了能够利用 UDP 转发 TCP 流量，因此就有了KCP Tube。利用 KCP 的可靠重传保证转发的 TCP 不会丢包。
 
 制作 KCP Tube 的另一个原因是，其它 KCP 转发工具只能转发 TCP 流量，但我又需要用 KCP 转发 UDP 流量。主要是为了方便玩游戏。
 
-当然了，其实 udphop 以及 kcptube 都是同时构想出来的。所以为了方便起见，先做好了 KCP Tube，接着再在 KCP Tube 的基础上裁剪成 UDP Hop。
+当然了，其实 udphop 以及 kcptube 都是同时构想出来的。所以为了方便起见，先做好了 KCP Tube 搭好框架，接着再在 KCP Tube 的基础上裁剪成 UDP Hop。然后再把 UDP Hop 的修补代码反向合并回 KCP Tube。
 
 为了方便家宽 Full Cone NAT 用户使用，KCP Tube 以服务端基本模式运行的时候可以利用 STUN 打洞，同时支持 IPv4 与 IPv6。
 
 正如 [KCP](https://github.com/skywind3000/kcp) 本身的用途一样，KCP Tube 的主要目标是降低延迟，而不是偏向于传输超大流量。那么能不能传输超大流量呢？能，只是效果未必比得上现有的 TCP-KCP 转发工具。
 
+### 不使用多路复用
+KCP Tube 并不使用任何“多路复用”功能，每接受一个入站连接，就会创建一个对应的出站连接。
+
+原因是为了躲避运营商的 QoS。多路复用状态下，一旦某个端口号被 QoS，就会导致共用端口号的其它会话同时受阻，直到更换端口号为止。
+
+连接之间相互独立，即使某个端口号被 QoS，受影响的仅仅只是这一路会话，不影响其他会话。
+
+除非遇到极为严格的运营商，限速针对的是整个 IP 地址。但这种情况下，无论是否使用多路复用都毫无作用。
+
+### 支持的模式
+目前支持 3 种模式：
+- 客户端模式
+- 服务端模式
+- 中继节点模式
+
 ## 用法
+### 全部用法
+请前往 [Wiki 页面](https://github.com/cnbatch/kcptube/wiki)，或前往[文档页面](docs/README_zh-hans.md)。
+
 ### 基本用法
 `kcptube config.conf`
 
@@ -28,7 +50,7 @@ encryption_password=qwerty1234
 encryption_algorithm=AES-GCM
 ```
 
-服务端模式实例：
+服务端模式示例：
 ```
 mode=server
 kcp=regular2
@@ -43,7 +65,7 @@ stun_server=stun.qq.com
 log_path=./
 ```
 
-备注：客户端模式的 `listen_port` 不一定要等于服务端模式的 `destination_port`，两边的端口可以不一致。
+备注：初次连接时，服务端会向客户端告知自己的端口范围，因此客户端模式的 `listen_port` 不一定要等于服务端模式的 `destination_port`，两边的端口可以不一致，但客户端所写的端口号范围不能超出服务端的范围，以免客户端选错端口连接不上。
 
 如果要指定侦听的网卡，那就指定该网卡的 IP 地址，加一行即可
 ```
@@ -129,12 +151,12 @@ encryption_algorithm=AES-GCM
 ### 参数介绍
 
 |  名称   | 可设置值  | 必填 |备注|
-|  ----  | ----  | ---- | ---- |
-| mode  | client<br>server |是|客户端<br>服务端|
+|  ----  | ----  | :----: | ---- |
+| mode  | client<br>server<br>relay |是|客户端<br>服务端<br>中继节点|
 | listen_port | 1 - 65535 |是|以服务端运行时可以指定端口范围|
 | destination_port | 1 - 65535 |是|以客户端运行时可以指定端口范围|
 | destination_address  | IP地址、域名 |是|填入 IPv6 地址时不需要中括号|
-| dport_refresh  | 20 - 65535 |否|单位“秒”。预设值 60 秒，小于20秒按20秒算，大于65535时按65536秒算|
+| dport_refresh  | 0 - 32767 |否|单位“秒”。不填写表示使用预设值 60 秒。<br>1 至 20 按 20 秒算，大于 32767 按 32767 秒算。<br>设为 0 表示禁用。|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>不加密 |
 | encryption_password  | 任意字符 |视情况|设置了 encryption_algorithm 且不为 none 时必填|
 | udp_timeout  | 0 - 65535 |否|单位“秒”。预设值 1800 秒，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ kcptube 之间的超时设置|
@@ -142,7 +164,7 @@ encryption_algorithm=AES-GCM
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|
 | kcp_mtu  | 正整数 |否|预设值1440|
-| kcp  | manual<br>fast1 - 5<br>regular1 - 5<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越大，速度越慢)|
+| kcp  | manual<br>fast1 - 4<br>regular1 - 4<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越大，速度越慢)|
 | kcp_sndwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
 | kcp_rcvwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
 | kcp_nodelay  | 正整数 |视情况|kcp=manual 时必填，预设值见下表|
@@ -152,6 +174,8 @@ encryption_algorithm=AES-GCM
 | outbound_bandwidth | 正整数 |否|出站带宽，用于通讯过程中动态更新 kcp_sndwnd 的值|
 | inbound_bandwidth | 正整数 |否|入站带宽，用于通讯过程中动态更新 kcp_rcvwnd 的值|
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|若系统禁用了 IPv6，须启用该选项并设为 yes 或 true 或 1|
+| [listener] | N/A |是<br>(仅限中继模式)|中继模式的标签，用于指定监听模式的 KCP 设置<br>该标签表示与客户端交互数据|
+| [forwarder] | N/A  |是<br>(仅限中继模式)|中继模式的标签，用于指定转运模式的 KCP 设置<br>该标签表示与服务端交互数据|
 
 #### outbound_bandwidth 与 inbound_bandwidth
 可用后缀：K / M / G
@@ -172,14 +196,14 @@ encryption_algorithm=AES-GCM
 
 #### KCP 模式预设值
 | 快速模式      | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
-|  ----        | ----       | ----      | ----      | ----       | ----     | ---- 
+|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   | ---- |
 | fast1        | 2048       |   2048    |      1    |   1        |   2      |Yes|
 | fast2        | 2048       |   2048    |      1    |   1        |   3      |Yes|
 | fast3        | 2048       |   2048    |      1    |   5        |   2      |Yes|
 | fast4        | 2048       |   2048    |      1    |   5        |   3      |Yes|
 
 | 常速模式      | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
-|  ----        | ----       | ----      | ----      | ----       | ----     | ---- 
+|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   | ---- |
 | regular1     | 1024       |   1024    |      1    |   10       |   2      |Yes|
 | regular2     | 1024       |   1024    |      1    |   10       |   3      |Yes|
 | regular3     | 1024       |   1024    |      0    |   10       |   2      |Yes|
@@ -253,14 +277,14 @@ chmod +x /usr/local/bin/kcptube
 
 本项目的 `service` 目录已经准备好相应服务文件。
 
-1. 找到 kcptubed 文件，复制到 `/usr/local/etc/rc.d/`
-2. 运行命令 `chmod +x /usr/local/etc/rc.d/kcptubed`
-3. 把配置文件复制到 `/usr/local/etc/kcptubed/`
+1. 找到 kcptube 文件，复制到 `/usr/local/etc/rc.d/`
+2. 运行命令 `chmod +x /usr/local/etc/rc.d/kcptube`
+3. 把配置文件复制到 `/usr/local/etc/kcptube/`
     - 记得把配置文件命名为 `config.conf`
-        - 完整的路径名：`/usr/local/etc/kcptubed/config.conf`
-4. 在 `/etc/rc.conf` 加一行 `kcptubed_enable="YES"`
+        - 完整的路径名：`/usr/local/etc/kcptube/config.conf`
+4. 在 `/etc/rc.conf` 加一行 `kcptube_enable="YES"`
 
-最后，运行 `service kcptubed start` 即可启动服务
+最后，运行 `service kcptube start` 即可启动服务
 
 ---
 
@@ -273,7 +297,7 @@ chmod +x /usr/local/bin/kcptube
 - [botan2](https://github.com/randombit/botan)
 
 ### Windows
-请事先使用 vcpkg 安装依赖包 `asio`，一句命令即可：
+请事先使用 vcpkg 安装依赖包 `asio` 与 `botan`，命令如下：
 
 ```
 vcpkg install asio:x64-windows asio:x64-windows-static
@@ -281,7 +305,7 @@ vcpkg install botan:x64-windows botan:x64-windows-static
 ```
 （如果需要 ARM 或者 32 位 x86 版本，请自行调整选项）
 
-然后用 Visual Studio 打开 `sln\punchnat.sln` 自行编译
+然后用 Visual Studio 打开 `sln\kcptube.sln` 自行编译
 
 ### FreeBSD
 同样，请先安装依赖项 asio 以及 botan2，另外还需要 cmake，用系统自带 pkg 即可安装：
@@ -330,7 +354,7 @@ make
 
 - **做法1**
 
-    按照正常流程编译好，删除刚刚生成的 udphop 二进制文件，并运行命令
+    按照正常流程编译好，删除刚刚生成的 kcptube 二进制文件，并运行命令
     ```
     make VERBOSE=1
     ```
@@ -373,7 +397,7 @@ sysctl -w net.inet6.ip6.v6only=0
 
 如果已经使用了加密选项，那么就可以忽略本节内容。kcptube 选择的加解密算法已经附带验证能力，可以顺便保证传送内容不出错。
 
-如果选择不使用加密功能，那么 kcptub 就会将 MTU 缩小 2 个字节，以便尾附 2 字节的校验码。
+如果选择不使用加密功能，那么 kcptube 就会将 MTU 缩小 2 个字节，以便尾附 2 字节的校验码。
 
 然而 kcptube 使用的 Botan 库并不附带 16-bit 校验算法，因此 kcptube 同时使用了两种 8-bit 校验码：
 - 纵向冗余校验 (LRC, Longitudinal Redundancy Check)

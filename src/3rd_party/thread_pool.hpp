@@ -109,8 +109,8 @@ namespace ttp
 			{
 				std::scoped_lock tasks_lock(tasks_mutex);
 				tasks.push_back({ task_function, std::move(data) });
+				++tasks_total;
 			}
-			++tasks_total;
 			task_available_cv.notify_one();
 		}
 
@@ -198,10 +198,13 @@ namespace ttp
 		*/
 		void wait_for_tasks()
 		{
-			waiting = true;
-			std::unique_lock<std::mutex> tasks_lock(tasks_mutex);
-			task_done_cv.wait(tasks_lock, [this] { return (tasks_total == 0); });
-			waiting = false;
+			if (!waiting)
+			{
+				waiting = true;
+				std::unique_lock<std::mutex> tasks_lock(tasks_mutex);
+				task_done_cv.wait(tasks_lock, [this] { return (tasks_total == 0); });
+				waiting = false;
+			}
 		}
 
 	private:
@@ -227,7 +230,10 @@ namespace ttp
 		void destroy_threads()
 		{
 			running = false;
-			task_available_cv.notify_all();
+			{
+				const std::scoped_lock tasks_lock(tasks_mutex);
+				task_available_cv.notify_all();
+			}
 			for (concurrency_t i = 0; i < thread_count; ++i)
 			{
 				threads[i].join();
@@ -423,8 +429,8 @@ namespace ttp
 			{
 				std::scoped_lock tasks_lock(tasks_mutex_of_threads[thread_number]);
 				task_queue_of_threads[thread_number].push_back({ task_function, std::move(data) });
+				++tasks_total_of_threads[thread_number];
 			}
-			++tasks_total_of_threads[thread_number];
 			task_available_cv[thread_number].notify_one();
 		}
 
@@ -439,8 +445,8 @@ namespace ttp
 					task_function(std::move(data));
 				};
 				task_queue_of_threads[thread_number].push_back({ task_func, std::move(data) });
+				++tasks_total_of_threads[thread_number];
 			}
-			++tasks_total_of_threads[thread_number];
 			task_available_cv[thread_number].notify_one();
 		}
 
@@ -527,13 +533,16 @@ namespace ttp
 		*/
 		void wait_for_tasks()
 		{
-			waiting = true;
-			for (concurrency_t i = 0; i < thread_count; ++i)
+			if (!waiting)
 			{
-				std::unique_lock<std::mutex> tasks_lock(tasks_mutex_of_threads[i]);
-				task_done_cv.wait(tasks_lock, [this, i] { return (tasks_total_of_threads[i].load() == 0); });
+				waiting = true;
+				for (concurrency_t i = 0; i < thread_count; ++i)
+				{
+					std::unique_lock<std::mutex> tasks_lock(tasks_mutex_of_threads[i]);
+					task_done_cv.wait(tasks_lock, [this, i] { return (tasks_total_of_threads[i].load() == 0); });
+				}
+				waiting = false;
 			}
-			waiting = false;
 		}
 
 	private:
@@ -561,6 +570,7 @@ namespace ttp
 			running = false;
 			for (concurrency_t i = 0; i < thread_count; ++i)
 			{
+				const std::scoped_lock tasks_lock(tasks_mutex_of_threads[i]);
 				task_available_cv[i].notify_all();
 			}
 

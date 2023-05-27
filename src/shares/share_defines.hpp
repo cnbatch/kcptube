@@ -5,19 +5,21 @@
 
 #include <cstdint>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
 #include <filesystem>
 
-enum class running_mode { unknow, empty, server, client };
+enum class running_mode { unknow, server, client, relay, relay_ingress, relay_egress };
 enum class kcp_mode { unknow, regular1, regular2, regular3, regular4, fast1, fast2, fast3, fast4, manual };
 enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
 
 namespace constant_values
 {
 	constexpr uint16_t timeout_value = 1800;	// second
-	constexpr uint16_t dport_refresh_default = 60;
-	constexpr uint16_t dport_refresh_minimal = 20;
+	constexpr uint16_t extends_5_seconds = 5;
+	constexpr int16_t dport_refresh_default = 60;
+	constexpr int16_t dport_refresh_minimal = 20;
 	constexpr int kcp_send_window = 1024;
 	constexpr int kcp_receive_window = 1024;
 	constexpr int kcp_mtu = 1420;
@@ -42,11 +44,11 @@ struct user_settings
 	uint16_t destination_port = 0;
 	uint16_t destination_port_start = 0;
 	uint16_t destination_port_end = 0;
-	uint16_t dynamic_port_refresh = constant_values::dport_refresh_default;	// seconds
+	int16_t dynamic_port_refresh = -1;	// seconds
 	uint16_t udp_timeout = 0;	 // seconds
 	uint16_t keep_alive = 0;	// seconds
 	encryption_mode encryption = encryption_mode::empty;
-	running_mode mode = running_mode::empty;
+	running_mode mode = running_mode::unknow;
 	kcp_mode kcp_setting = kcp_mode::unknow;
 	int kcp_mtu = -1;
 	int kcp_sndwnd = -1;
@@ -65,13 +67,13 @@ struct user_settings
 	std::filesystem::path log_directory;
 	std::filesystem::path log_ip_address;
 	std::filesystem::path log_messages;
+	std::shared_ptr<user_settings> ingress;
+	std::shared_ptr<user_settings> egress;
 };
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
-void check_settings(user_settings &current_user_settings, std::vector<std::string> &error_msg);
-uint64_t bandwidth_from_string(const std::string &bandwidth);
-
 int64_t calculate_difference(int64_t number1, int64_t number2);
+std::set<uint16_t> convert_to_port_list(const user_settings &current_settings);
 
 std::string time_to_string();
 std::string time_to_string_with_square_brackets();

@@ -111,6 +111,14 @@ void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, 
 	return;
 }
 
+uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num)
+{
+	std::random_device rd;
+	std::mt19937 mt(rd());
+	std::uniform_int_distribution<uint16_t> uniform_dist(start_port_num, end_port_num);
+	return uniform_dist(mt);
+}
+
 uint32_t time_now_for_kcp()
 {
 	return static_cast<uint32_t>((duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()) & 0xFFFF'FFFFul);
@@ -293,6 +301,17 @@ namespace packet
 		uint16_t port_end = reinterpret_cast<const decltype(port_end) *>(ptr)[0];
 
 		return { uid, port_start, port_end };
+	}
+
+	void modify_initialise_details_of_unpacked_data(uint8_t *data, uint16_t start_port, uint16_t end_port)
+	{
+		uint8_t *ptr = data;
+		ptr = ptr + sizeof(uint32_t);
+
+		reinterpret_cast<uint16_t *>(ptr)[0] = start_port;
+		ptr = ptr + sizeof(start_port);
+
+		reinterpret_cast<uint16_t *>(ptr)[0] = end_port;
 	}
 
 	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl)

@@ -1,6 +1,6 @@
 // This is a wrapper of ikcp
 #include "kcp.hpp"
-#include "ikcp.h"
+#include "../3rd_party/ikcp.h"
 
 
 int middle_layer_output(const char *buf, int len, IKCPCB *kcp, void *user);
@@ -11,12 +11,15 @@ namespace KCP
 {
 	void KCP::Initialise(uint32_t conv, void *user)
 	{
+		//kcp_mappings_ptr.store(nullptr);
 		ikcp_ptr = ikcp_create(conv, this);
 		custom_data.store(user);
 	}
 
 	void KCP::MoveKCP(KCP &other) noexcept
 	{
+		//kcp_mappings_ptr.store(other.kcp_mappings_ptr.load());
+		//other.kcp_mappings_ptr.store(nullptr);
 		ikcp_ptr = other.ikcp_ptr;
 		((ikcpcb *)ikcp_ptr)->user = this;
 		custom_data.store(other.custom_data.load());
@@ -26,6 +29,7 @@ namespace KCP
 
 	KCP::KCP(const KCP &other) noexcept
 	{
+		//kcp_mappings_ptr.store(other.kcp_mappings_ptr.load());
 		ikcp_ptr = other.ikcp_ptr;
 		((ikcpcb *)ikcp_ptr)->user = this;
 		custom_data.store(other.custom_data.load());

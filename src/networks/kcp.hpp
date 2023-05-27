@@ -23,11 +23,14 @@ namespace KCP
 	{
 		friend int proxy_output(KCP *kcp, const char *buf, int len);
 		friend void proxy_writelog(KCP *kcp, const char *buf);
+	public:
+		//std::atomic<void *> kcp_mappings_ptr;
+		std::atomic<void *> custom_data;
+
 	private:
 		void *ikcp_ptr;
 		uint64_t outbound_bandwidth = 0;
 		uint64_t inbound_bandwidth = 0;
-		std::atomic<void *> custom_data;
 		mutable std::shared_mutex mtx;
 		std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
 		std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
@@ -52,7 +55,7 @@ namespace KCP
 		// create a new kcp control object, 'conv' must equal in two endpoint
 		// from the same connection. 'user' will be passed to the output callback
 		// output callback can be setup like this: 'kcp->output = my_udp_output'
-		KCP(uint32_t conv, void *user) { Initialise(conv, this); custom_data = user; }
+		KCP(uint32_t conv, void *user) { Initialise(conv, this); custom_data.store(user); }
 
 		// release kcp control object
 		~KCP();

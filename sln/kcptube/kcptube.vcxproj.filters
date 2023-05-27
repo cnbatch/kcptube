@@ -28,6 +28,9 @@
     <Filter Include="Header Files\3rd_party">
       <UniqueIdentifier>{f6b55cad-aa37-4682-ba27-5e636883f7e6}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\3rd_party">
+      <UniqueIdentifier>{cc2a35b1-bc0b-4f2e-a955-bb9773b414b1}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\main.cpp">
@@ -60,8 +63,14 @@
     <ClCompile Include="..\..\src\shares\data_operations.cpp">
       <Filter>Source Files\shares</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\networks\ikcp.c">
+    <ClCompile Include="..\..\src\shares\configurations.cpp">
+      <Filter>Source Files\shares</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\networks\relay.cpp">
       <Filter>Source Files\networks</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\3rd_party\ikcp.c">
+      <Filter>Source Files\3rd_party</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -95,10 +104,16 @@
     <ClInclude Include="..\..\src\shares\simple_hashing.hpp">
       <Filter>Header Files\shares</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\networks\ikcp.h">
+    <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp">
+      <Filter>Header Files\3rd_party</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\shares\configurations.hpp">
+      <Filter>Header Files\shares</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\relay.hpp">
       <Filter>Header Files\networks</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp">
+    <ClInclude Include="..\..\src\3rd_party\ikcp.h">
       <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
   </ItemGroup>
