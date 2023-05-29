@@ -139,7 +139,7 @@ asio::error_code handshake::resolve_remote_host(const std::string &destination_a
 		udp::resolver::results_type udp_endpoints = resolver.resolve(udp_version, destination_address, std::to_string(destination_port), input_flags, ec);
 		if (ec)
 		{
-			std::cerr << ec.message() << "\n";
+			std::cerr << "Resolve failed. " << ec.message() << "\n";
 			std::this_thread::sleep_for(std::chrono::seconds(RETRY_WAITS));
 		}
 		else if (udp_endpoints.size() == 0)
@@ -219,14 +219,12 @@ void handshake::process_handshake(std::unique_ptr<uint8_t[]> recv_buffer, std::s
 	{
 		auto [conv, start_port, end_port] = packet::get_initialise_details_from_unpacked_data(unbacked_data);
 		finished.store(true);
-		cancel_all();
 		call_on_success(shared_from_this(), conv, start_port, end_port);
 		break;
 	}
 	case feature::failure:
 	{
 		error_message = packet::get_error_message_from_unpacked_data(unbacked_data);
-		cancel_all();
 		call_on_failure(shared_from_this(), error_message);
 		break;
 	}
@@ -253,7 +251,9 @@ void handshake::loop_kcp_update(const asio::error_code &e)
 	{
 		cancel_all();
 		if (!finished.load())
+		{
 			call_on_failure(shared_from_this(), "Loop: Handshake Timed out");
+		}
 
 		return;
 	}

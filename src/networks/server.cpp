@@ -9,6 +9,14 @@ using namespace std::placeholders;
 using namespace std::chrono;
 using namespace std::literals;
 
+//std::atomic_int data_count{};
+//std::atomic_int data_count1{};
+//std::atomic_int data_count2{};
+//std::atomic_int data_count3{};
+//std::atomic_int data_count4{};
+//std::atomic_int data_count5{};
+//std::atomic_int data_count6{};
+
 uint32_t server_mode::generate_token_number()
 {
 	std::random_device rd;
@@ -165,16 +173,24 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 	if (kcp_ptr->Input((const char *)data_ptr, (long)plain_size) < 0)
 		return;
 
-	udp::endpoint &ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-	if (ingress_source_endpoint != peer)
-		ingress_source_endpoint = peer;
+	{
+		std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
+		udp::endpoint &ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+		if (ingress_source_endpoint != peer)
+		{
+			shared_lock_ingress.unlock();
+			std::unique_lock unique_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
+			if (ingress_source_endpoint != peer)
+				ingress_source_endpoint = peer;
+		}
+	}
 
 	while (true)
 	{
 		int buffer_size = kcp_ptr->PeekSize();
 		if (buffer_size <= 0)
 			break;
-
+		
 		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(buffer_size);
 		uint8_t *buffer_ptr = buffer_cache.get();
 
@@ -183,9 +199,12 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 			break;
 
 		auto [packet_timestamp, ftr, prtcl, unbacked_data_ptr, unbacked_data_size] = packet::unpack(buffer_ptr, kcp_data_size);
+
 		auto timestamp = packet::right_now();
 		if (calculate_difference(timestamp, packet_timestamp) > TIME_GAP)
 			continue;
+
+		kcp_mappings_ptr->ingress_listener.store(udp_servers[port_number].get());
 
 		switch (ftr)
 		{
@@ -293,7 +312,6 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 {
 	if (data_size == 0)
 		return;
-
 	uint8_t *data_ptr = data.get();
 	std::shared_lock shared_locker_handshake_channels{ mutex_handshake_channels, std::defer_lock };
 	std::unique_lock unique_locker_handshake_channels{ mutex_handshake_channels, std::defer_lock };
@@ -324,9 +342,7 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				});
 
 			if (handshake_kcp->Input((const char *)data_ptr, (long)data_size) < 0)
-			{
 				return;
-			}
 
 			int buffer_size = handshake_kcp->PeekSize();
 			if (buffer_size <= 0)
@@ -529,7 +545,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 		{
 			target_connector->async_receive();
 			kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->custom_data.load();
-			kcp_mappings_ptr->egress_target_endpoint = peer;
+			kcp_mappings_ptr->ingress_source_endpoint = peer;
 			kcp_mappings_ptr->local_udp = target_connector;
 			data_kcp->Flush();
 			return true;
@@ -559,7 +575,10 @@ int server_mode::kcp_sender(const char *buf, int len, void *user)
 		return 0;
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)user;
-	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, kcp_mappings_ptr->ingress_source_endpoint);
+	std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
+	udp::endpoint ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+	shared_lock_ingress.unlock();
+	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
 	output_count2 += cipher_size;
 	return 0;
 }
@@ -683,7 +702,7 @@ void server_mode::cleanup_expiring_handshake_connections()
 		}
 
 		int64_t expire_time = iter->second;
-		if (kcp_ptr->WaitingForSend() > 0 || calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
+		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 		{
 			kcp_ptr->Update(time_now_for_kcp());
 			continue;
@@ -713,7 +732,7 @@ void server_mode::cleanup_expiring_data_connections()
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)kcp_ptr->custom_data.load();
 		int64_t expire_time = iter->second;
 		uint32_t conv = kcp_ptr->GetConv();
-		if (kcp_ptr->WaitingForSend() > 0 || calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
+		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 		{
 			kcp_ptr->Update(time_now_for_kcp());
 			continue;
@@ -724,10 +743,6 @@ void server_mode::cleanup_expiring_data_connections()
 		case protocol_type::tcp:
 		{
 			std::shared_ptr<tcp_session> &current_session = kcp_mappings_ptr->local_tcp;
-
-			if (auto loop_iter = kcp_looping.find(kcp_ptr); loop_iter != kcp_looping.end())
-				kcp_looping.erase(loop_iter);
-
 			if (current_session != nullptr)
 			{
 				current_session->when_disconnect(empty_tcp_disconnect);
@@ -735,10 +750,18 @@ void server_mode::cleanup_expiring_data_connections()
 				current_session->stop();
 				current_session = nullptr;
 			}
+
+			if (auto loop_iter = kcp_looping.find(kcp_ptr); loop_iter != kcp_looping.end())
+				kcp_looping.erase(loop_iter);
+
 			break;
 		}
 		case protocol_type::udp:
 		{
+			std::shared_ptr<udp_client> &current_session = kcp_mappings_ptr->local_udp;
+			current_session->stop();
+			current_session->disconnect();
+
 			if (auto loop_iter = kcp_looping.find(kcp_ptr); loop_iter != kcp_looping.end())
 				kcp_looping.erase(loop_iter);
 

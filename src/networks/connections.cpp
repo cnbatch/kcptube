@@ -1012,6 +1012,7 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	last_receive_time.store(packet::right_now());
 	udp::endpoint copy_of_incoming_endpoint = incoming_endpoint;
 	asio::error_code ec;
+
 	start_receive();
 
 	if (buffer_cache == nullptr || bytes_transferred == 0)

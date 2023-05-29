@@ -436,8 +436,11 @@ private:
 
 struct kcp_mappings
 {
+	std::shared_mutex mutex_ingress_endpoint;
 	udp::endpoint ingress_source_endpoint;
+	std::shared_mutex mutex_egress_endpoint;
 	udp::endpoint egress_target_endpoint;
+	udp::endpoint egress_previous_target_endpoint;
 	std::shared_ptr<KCP::KCP> ingress_kcp;
 	std::shared_ptr<KCP::KCP> egress_kcp;
 	std::atomic<udp_server *> ingress_listener;

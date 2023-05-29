@@ -161,6 +161,8 @@ void tcp_to_forwarder::udp_forwarder_incoming_to_tcp_unpack(std::shared_ptr<KCP:
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
 	if (kcp_ptr->GetConv() != conv)
 	{
+		std::stringstream ss;
+		ss << peer;
 		std::string error_message = time_to_string_with_square_brackets() +
 			"TCP<->KCP, conv is not the same as record : conv = " + std::to_string(conv) +
 			", local kcp : " + std::to_string(kcp_ptr->GetConv()) + "\n";
@@ -230,10 +232,13 @@ void tcp_to_forwarder::udp_forwarder_incoming_to_tcp_unpack(std::shared_ptr<KCP:
 			tcp_channel->async_send_data(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
 			output_count += unbacked_data_size;
 
-			if (kcp_mappings_ptr->egress_target_endpoint != peer)
+			std::shared_lock share_locker_egress{ kcp_mappings_ptr->mutex_egress_endpoint };
+			if (kcp_mappings_ptr->egress_target_endpoint != peer && kcp_mappings_ptr->egress_previous_target_endpoint != peer)
 			{
+				share_locker_egress.unlock();
+				std::scoped_lock lockers{ kcp_mappings_ptr->mutex_egress_endpoint, mutex_target_address };
+				kcp_mappings_ptr->egress_previous_target_endpoint = kcp_mappings_ptr->egress_target_endpoint;
 				kcp_mappings_ptr->egress_target_endpoint = peer;
-				std::scoped_lock locker{ mutex_target_address };
 				*target_address = peer.address();
 			}
 			break;
@@ -257,6 +262,8 @@ void tcp_to_forwarder::udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::K
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
 	if (kcp_ptr->GetConv() != conv)
 	{
+		std::stringstream ss;
+		ss << peer;
 		std::string error_message = time_to_string_with_square_brackets() +
 			"kcp conv is not the same as record : conv = " + std::to_string(conv) +
 			", local kcp_ptr : " + std::to_string(kcp_ptr->GetConv()) + "\n";
@@ -436,6 +443,7 @@ void tcp_to_forwarder::local_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, std::
 	//	kcp_looping.erase(kcp_looping_iter);
 
 	//kcp_keepalive.erase(kcp_ptr);
+	kcp_mappings_ptr->changeport_timestamp.store(LLONG_MAX);
 	kcp_mappings_ptr->egress_forwarder->replace_callback(udp_func);
 
 	std::vector<uint8_t> data = packet::inform_disconnect_packet(protocol_type::tcp);
@@ -452,7 +460,7 @@ void tcp_to_forwarder::process_disconnect(uint32_t conv, tcp_session *session)
 {
 	auto udp_func = std::bind(&tcp_to_forwarder::udp_forwarder_to_disconnecting_tcp, this, _1, _2, _3, _4, _5);
 
-	std::scoped_lock lockers{ mutex_kcp_channels, mutex_expiring_kcp, mutex_kcp_looping, mutex_kcp_keepalive };
+	std::scoped_lock lockers{ mutex_kcp_channels, mutex_expiring_kcp };
 	auto kcp_channel_iter = kcp_channels.find(conv);
 	if (kcp_channel_iter == kcp_channels.end())
 		return;
@@ -460,7 +468,7 @@ void tcp_to_forwarder::process_disconnect(uint32_t conv, tcp_session *session)
 	std::shared_ptr<kcp_mappings> kcp_mappings_ptr = kcp_channel_iter->second;
 	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_mappings_ptr->egress_kcp;
 	
-	if (std::scoped_lock locker_expiring_kcp{ mutex_expiring_kcp }; expiring_kcp.find(kcp_ptr) == expiring_kcp.end())
+	if (expiring_kcp.find(kcp_ptr) == expiring_kcp.end())
 		expiring_kcp.insert({ kcp_mappings_ptr, packet::right_now() });
 
 	if (std::scoped_lock locker_kcp_keepalive{mutex_kcp_keepalive}; kcp_keepalive.find(kcp_ptr) != kcp_keepalive.end())
@@ -499,7 +507,11 @@ void tcp_to_forwarder::change_new_port(kcp_mappings *kcp_mappings_ptr)
 	{
 		uint16_t new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
 		std::shared_lock locker{ mutex_target_address };
-		kcp_mappings_ptr->egress_target_endpoint = udp::endpoint(*target_address, new_port_numer);
+		asio::ip::address temp_address = *target_address;
+		locker.unlock();
+		std::scoped_lock locker_egress{kcp_mappings_ptr->mutex_egress_endpoint};
+		kcp_mappings_ptr->egress_target_endpoint.address(temp_address);
+		kcp_mappings_ptr->egress_target_endpoint.port(new_port_numer);
 	}
 
 	asio::error_code ec;
@@ -557,7 +569,7 @@ void tcp_to_forwarder::cleanup_expiring_data_connections()
 		auto &[kcp_mappings_ptr, expire_time] = *iter;
 		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_mappings_ptr->egress_kcp;
 
-		if (kcp_ptr->WaitingForSend() > 0 || calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
+		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 		{
 			kcp_ptr->Update(time_now_for_kcp());
 			continue;
@@ -759,6 +771,7 @@ void tcp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	bool success = save_udp_target(udp_forwarder, kcp_mappings_ptr->egress_target_endpoint);
 	if (!success)
 		return;
+	kcp_mappings_ptr->egress_previous_target_endpoint = kcp_mappings_ptr->egress_target_endpoint;
 
 	asio::error_code ec;
 	if (current_settings.ipv4_only)

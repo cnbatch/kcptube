@@ -151,7 +151,6 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 		kcp_mappings_ptr = kcp_channels_iter->second;
 	locker_id_map_to_both_sides.unlock();
 
-	udp::endpoint &ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
 	std::shared_ptr<KCP::KCP> kcp_ptr_ingress = kcp_mappings_ptr->ingress_kcp;
 	std::shared_ptr<KCP::KCP> kcp_ptr_egress = kcp_mappings_ptr->egress_kcp;
 	std::shared_ptr<forwarder> forwarder_ptr_egress = kcp_mappings_ptr->egress_forwarder;
@@ -159,8 +158,17 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 	if (kcp_ptr_ingress->Input((const char *)data_ptr, (long)plain_size) < 0)
 		return;
 
-	if (ingress_source_endpoint != peer)
-		ingress_source_endpoint = peer;
+	{
+		std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
+		udp::endpoint &ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+		if (ingress_source_endpoint != peer)
+		{
+			shared_lock_ingress.unlock();
+			std::unique_lock unique_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
+			if (ingress_source_endpoint != peer)
+				ingress_source_endpoint = peer;
+		}
+	}
 
 	while (true)
 	{
@@ -451,10 +459,13 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 			kcp_looping[kcp_mappings_ptr->egress_kcp].store(kcp_mappings_ptr->egress_kcp->Check(time_now_for_kcp()));
 			lock_kcp_looping.unlock();
 
-			if (kcp_mappings_ptr->egress_target_endpoint != peer)
+			std::shared_lock share_locker_egress{ kcp_mappings_ptr->mutex_egress_endpoint };
+			if (kcp_mappings_ptr->egress_target_endpoint != peer && kcp_mappings_ptr->egress_previous_target_endpoint != peer)
 			{
+				share_locker_egress.unlock();
+				std::scoped_lock lockers{ kcp_mappings_ptr->mutex_egress_endpoint, mutex_egress_target_address };
+				kcp_mappings_ptr->egress_previous_target_endpoint = kcp_mappings_ptr->egress_target_endpoint;
 				kcp_mappings_ptr->egress_target_endpoint = peer;
-				std::scoped_lock locker{mutex_egress_target_address};
 				*target_address = peer.address();
 			}
 			break;
@@ -485,7 +496,11 @@ void relay_mode::change_new_port(kcp_mappings *kcp_mappings_ptr)
 	{
 		uint16_t new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
 		std::shared_lock locker{ mutex_egress_target_address };
-		kcp_mappings_ptr->egress_target_endpoint = udp::endpoint(*target_address, new_port_numer);
+		asio::ip::address temp_address = *target_address;
+		locker.unlock();
+		std::scoped_lock locker_egress{kcp_mappings_ptr->mutex_egress_endpoint};
+		kcp_mappings_ptr->egress_target_endpoint.address(temp_address);
+		kcp_mappings_ptr->egress_target_endpoint.port(new_port_numer);
 	}
 
 	asio::error_code ec;
@@ -615,7 +630,10 @@ int relay_mode::kcp_sender_via_listener(const char *buf, int len, void *user)
 		return 0;
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)user;
-	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, kcp_mappings_ptr->ingress_source_endpoint);
+	std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
+	udp::endpoint ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+	shared_lock_ingress.unlock();
+	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
 	//((udp_server *)user)->async_send_out(std::move(new_buffer), cipher_size, peer);
 	change_new_port(kcp_mappings_ptr);
 	return 0;
@@ -765,7 +783,7 @@ void relay_mode::cleanup_expiring_handshake_connections()
 		}
 
 		int64_t expire_time = iter->second;
-		if (kcp_ptr->WaitingForSend() > 0 || calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
+		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 		{
 			kcp_ptr->Update(time_now_for_kcp());
 			continue;
@@ -816,7 +834,7 @@ void relay_mode::cleanup_expiring_data_connections()
 		std::shared_ptr<KCP::KCP> ingress_kcp_ptr = kcp_mappings_ptr->ingress_kcp;
 		std::shared_ptr<KCP::KCP> egress_kcp_ptr = kcp_mappings_ptr->ingress_kcp;
 
-		if (ingress_kcp_ptr->WaitingForSend() > 0 || egress_kcp_ptr->WaitingForSend() > 0 || calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
+		if (calculate_difference(time_right_now, expire_time) < CLEANUP_WAITS)
 		{
 			ingress_kcp_ptr->Update(kcp_right_now);
 			egress_kcp_ptr->Update(kcp_right_now);
