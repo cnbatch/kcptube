@@ -29,10 +29,10 @@
   <ItemGroup>
     <ClCompile Include="..\..\src\3rd_party\ikcp.c" />
     <ClCompile Include="..\..\src\main.cpp" />
-    <ClCompile Include="..\..\src\networks\client.cpp" />
     <ClCompile Include="..\..\src\networks\client_tcp.cpp" />
     <ClCompile Include="..\..\src\networks\client_udp.cpp" />
     <ClCompile Include="..\..\src\networks\connections.cpp" />
+    <ClCompile Include="..\..\src\networks\handshake.cpp" />
     <ClCompile Include="..\..\src\networks\kcp.cpp" />
     <ClCompile Include="..\..\src\networks\relay.cpp" />
     <ClCompile Include="..\..\src\networks\server.cpp" />
@@ -46,6 +46,7 @@
     <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp" />
     <ClInclude Include="..\..\src\networks\client.hpp" />
     <ClInclude Include="..\..\src\networks\connections.hpp" />
+    <ClInclude Include="..\..\src\networks\handshake.hpp" />
     <ClInclude Include="..\..\src\networks\kcp.hpp" />
     <ClInclude Include="..\..\src\networks\relay.hpp" />
     <ClInclude Include="..\..\src\networks\server.hpp" />

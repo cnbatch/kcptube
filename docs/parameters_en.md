@@ -13,7 +13,7 @@
 | stun_server  | STUN Server's address |No| Cannot be used if listen_port option is port range mode|
 | log_path  | The directory where the Logs are stored |No|Cannot point to the file itself|
 | kcp_mtu  | Positive Integer |No|Default value is 1440|
-| kcp  | manual<br>fast1 - 4<br>regular1 - 4<br> &nbsp; |Yes|Setup Manually<br>Fast Modes<br>Regular Speeds<br>(the number at the end: the larger the value, the slower the speed)|
+| kcp  | manual<br>fast1 - 6<br>regular1 - 4<br> &nbsp; |Yes|Setup Manually<br>Fast Modes<br>Regular Speeds<br>(the number at the end: the smaller the value, the faster the speed)|
 | kcp_sndwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
 | kcp_rcvwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
 | kcp_nodelay  | Positive Integer |Depends…|…on the setting of ‘kcp=’, if if the value is set as ‘kcp==manual’, this option is required. See the table below for default values.|
@@ -45,18 +45,24 @@ Please note that it is bps (Bits Per Second), not Bps (Bytes Per Second).
 
 ## KCP Mode Default Values
 | Fast Mode    | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
-|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   | ---- |
-| fast1        | 2048       |   2048    |      1    |   1        |   2      |Yes|
-| fast2        | 2048       |   2048    |      1    |   1        |   3      |Yes|
-| fast3        | 2048       |   2048    |      1    |   5        |   2      |Yes|
-| fast4        | 2048       |   2048    |      1    |   5        |   3      |Yes|
+|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
+| fast1        | 2048       |   2048    |      1    |   1        |   2      |   1   |
+| fast2        | 2048       |   2048    |      2    |   1        |   2      |   1   |
+| fast3        | 2048       |   2048    |      1    |   1        |   3      |   1   |
+| fast4        | 2048       |   2048    |      2    |   1        |   3      |   1   |
+| fast5        | 2048       |   2048    |      1    |   1        |   4      |   1   |
+| fast6        | 2048       |   2048    |      2    |   1        |   4      |   1   |
 
 | Regular Mode | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
-|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   | ---- |
-| regular1     | 1024       |   1024    |      1    |   10       |   2      |Yes|
-| regular2     | 1024       |   1024    |      1    |   10       |   3      |Yes|
-| regular3     | 1024       |   1024    |      0    |   10       |   2      |Yes|
-| regular4     | 1024       |   1024    |      0    |   10       |   3      |Yes|
+|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
+| regular1     | 1024       |   1024    |      1    |   1        |   5      |   1   |
+| regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
+| regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
+| regular4     | 1024       |   1024    |      0    |   1        |   3      |   1   |
+
+Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency smoother.
+
+If you want to reduce traffic waste, please try choosing regular3 or regular4.
 
 # Log File
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.

@@ -11,7 +11,7 @@
 #include <filesystem>
 
 enum class running_mode { unknow, server, client, relay, relay_ingress, relay_egress };
-enum class kcp_mode { unknow, regular1, regular2, regular3, regular4, fast1, fast2, fast3, fast4, manual };
+enum class kcp_mode { unknow, regular1, regular2, regular3, regular4, fast1, fast2, fast3, fast4, fast5, fast6, manual };
 enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
 
 namespace constant_values

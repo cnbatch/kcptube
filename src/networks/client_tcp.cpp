@@ -15,7 +15,6 @@ tcp_to_forwarder::~tcp_to_forwarder()
 	timer_send_data.cancel();
 	timer_expiring_kcp.cancel();
 	timer_find_expires.cancel();
-	//timer_change_ports.cancel();
 	timer_keep_alive.cancel();
 }
 
@@ -173,6 +172,8 @@ void tcp_to_forwarder::udp_forwarder_incoming_to_tcp_unpack(std::shared_ptr<KCP:
 	if (kcp_ptr->Input((const char *)data_ptr, (long)plain_size) < 0)
 		return;
 
+	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+
 	while (true)
 	{
 		int buffer_size = kcp_ptr->PeekSize();
@@ -187,7 +188,7 @@ void tcp_to_forwarder::udp_forwarder_incoming_to_tcp_unpack(std::shared_ptr<KCP:
 			break;
 
 		auto [packet_timestamp, ftr, prtcl, unbacked_data_ptr, unbacked_data_size] = packet::unpack(buffer_ptr, kcp_data_size);
-		if (prtcl != protocol_type::tcp)
+		if (prtcl != kcp_mappings_ptr->connection_protocol)
 		{
 			continue;
 		}
@@ -196,13 +197,7 @@ void tcp_to_forwarder::udp_forwarder_incoming_to_tcp_unpack(std::shared_ptr<KCP:
 		if (calculate_difference(timestamp, packet_timestamp) > TIME_GAP)
 			continue;
 
-		//std::shared_lock locker_tcp_channel{ mutex_id_map_to_session };
-		//auto session_iter = id_map_to_session.find(conv);
-		//if (session_iter == id_map_to_session.end())
-		//	continue;
-		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
 		tcp_session *tcp_channel = kcp_mappings_ptr->local_tcp.get();
-		//locker_tcp_channel.unlock();
 
 		switch (ftr)
 		{
@@ -300,13 +295,8 @@ void tcp_to_forwarder::udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::K
 			continue;
 
 
-		//std::shared_lock locker_tcp_channel{ mutex_id_map_to_session };
-		//auto session_iter = id_map_to_session.find(conv);
-		//if (session_iter == id_map_to_session.end())
-		//	continue;
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
 		tcp_session *tcp_channel = kcp_mappings_ptr->local_tcp.get();
-		//locker_tcp_channel.unlock();
 
 		switch (ftr)
 		{
@@ -353,8 +343,6 @@ int tcp_to_forwarder::kcp_sender(const char *buf, int len, void *user)
 		return 0;
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)user;
-	//forwarder *udp_forwarder = reinterpret_cast<forwarder*>(user);
-	//udp::endpoint ep = get_remote_address();
 	kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, kcp_mappings_ptr->egress_target_endpoint);
 	change_new_port(kcp_mappings_ptr);
 	output_count2 += cipher_size;
@@ -419,7 +407,6 @@ void tcp_to_forwarder::local_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, std::
 {
 	uint32_t conv = kcp_ptr->GetConv();
 	auto udp_func = std::bind(&tcp_to_forwarder::udp_forwarder_to_disconnecting_tcp, this, _1, _2, _3, _4, _5);
-	//udp::endpoint &ep = kcp_mappings_ptr->egress_target_endpoint;
 
 	std::scoped_lock lockers{ mutex_kcp_channels };
 	auto kcp_channel_iter = kcp_channels.find(conv);
@@ -437,12 +424,6 @@ void tcp_to_forwarder::local_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, std::
 	if (std::scoped_lock locker_kcp_looping{ mutex_kcp_looping }; kcp_looping.find(kcp_ptr) != kcp_looping.end())
 		kcp_looping.erase(kcp_ptr);
 
-	//std::scoped_lock lockers{ mutex_kcp_looping, mutex_expiring_kcp, mutex_kcp_keepalive };
-	//auto kcp_looping_iter = kcp_looping.find(kcp_ptr);
-	//if (kcp_looping_iter != kcp_looping.end())
-	//	kcp_looping.erase(kcp_looping_iter);
-
-	//kcp_keepalive.erase(kcp_ptr);
 	kcp_mappings_ptr->changeport_timestamp.store(LLONG_MAX);
 	kcp_mappings_ptr->egress_forwarder->replace_callback(udp_func);
 
@@ -663,7 +644,8 @@ void tcp_to_forwarder::loop_keep_alive()
 			continue;
 		timestamp += current_settings.keep_alive;
 
-		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(protocol_type::tcp);
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(kcp_mappings_ptr->connection_protocol);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
 		
 		uint32_t next_refresh_time = kcp_ptr->Check(time_now_for_kcp());
@@ -768,6 +750,7 @@ void tcp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	kcp_mappings_ptr->egress_kcp = kcp_ptr;
 	kcp_mappings_ptr->egress_forwarder = udp_forwarder;
 	kcp_mappings_ptr->local_tcp = incoming_session;
+	kcp_mappings_ptr->connection_protocol = protocol_type::tcp;
 	bool success = save_udp_target(udp_forwarder, kcp_mappings_ptr->egress_target_endpoint);
 	if (!success)
 		return;

@@ -594,9 +594,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 
 	case kcp_mode::fast2:
 	{
-		current_user_settings.kcp_nodelay = 1;
+		current_user_settings.kcp_nodelay = 2;
 		current_user_settings.kcp_interval = 1;
-		current_user_settings.kcp_resend = 3;
+		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
@@ -608,8 +608,8 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 	case kcp_mode::fast3:
 	{
 		current_user_settings.kcp_nodelay = 1;
-		current_user_settings.kcp_interval = 5;
-		current_user_settings.kcp_resend = 2;
+		current_user_settings.kcp_interval = 1;
+		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
@@ -620,9 +620,35 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 
 	case kcp_mode::fast4:
 	{
-		current_user_settings.kcp_nodelay = 1;
-		current_user_settings.kcp_interval = 5;
+		current_user_settings.kcp_nodelay = 2;
+		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 3;
+		current_user_settings.kcp_nc = 1;
+		if (current_user_settings.kcp_sndwnd < 0)
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
+		if (current_user_settings.kcp_rcvwnd < 0)
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
+		break;
+	}
+
+	case kcp_mode::fast5:
+	{
+		current_user_settings.kcp_nodelay = 1;
+		current_user_settings.kcp_interval = 1;
+		current_user_settings.kcp_resend = 4;
+		current_user_settings.kcp_nc = 1;
+		if (current_user_settings.kcp_sndwnd < 0)
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
+		if (current_user_settings.kcp_rcvwnd < 0)
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
+		break;
+	}
+
+	case kcp_mode::fast6:
+	{
+		current_user_settings.kcp_nodelay = 2;
+		current_user_settings.kcp_interval = 1;
+		current_user_settings.kcp_resend = 4;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
@@ -634,8 +660,8 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 	case kcp_mode::regular1:
 	{
 		current_user_settings.kcp_nodelay = 1;
-		current_user_settings.kcp_interval = 10;
-		current_user_settings.kcp_resend = 2;
+		current_user_settings.kcp_interval = 1;
+		current_user_settings.kcp_resend = 5;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
@@ -646,9 +672,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 
 	case kcp_mode::regular2:
 	{
-		current_user_settings.kcp_nodelay = 1;
-		current_user_settings.kcp_interval = 10;
-		current_user_settings.kcp_resend = 3;
+		current_user_settings.kcp_nodelay = 2;
+		current_user_settings.kcp_interval = 1;
+		current_user_settings.kcp_resend = 5;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
@@ -660,7 +686,7 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 	case kcp_mode::regular3:
 	{
 		current_user_settings.kcp_nodelay = 0;
-		current_user_settings.kcp_interval = 10;
+		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
@@ -677,7 +703,7 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 	default:
 	{
 		current_user_settings.kcp_nodelay = 0;
-		current_user_settings.kcp_interval = 10;
+		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)

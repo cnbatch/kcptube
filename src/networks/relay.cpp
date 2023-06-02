@@ -906,9 +906,8 @@ void relay_mode::loop_find_expires()
 		std::shared_ptr<KCP::KCP> kcp_ptr_ingress = kcp_mappings_ptr->ingress_kcp;
 		std::shared_ptr<KCP::KCP> kcp_ptr_egress = kcp_mappings_ptr->egress_kcp;
 
-		forwarder *udp_forwarder = kcp_mappings_ptr->egress_forwarder.get();
-		if (udp_forwarder->time_gap_of_receive() > current_settings.egress->udp_timeout &&
-			udp_forwarder->time_gap_of_send() > current_settings.egress->udp_timeout)
+		if (kcp_ptr_ingress->SecondsSinceLastSendTime() > current_settings.egress->udp_timeout &&
+			kcp_ptr_egress->SecondsSinceLastSendTime() > current_settings.egress->udp_timeout)
 		{
 			if (std::scoped_lock locker_expiring_kcp{ mutex_expiring_kcp }; expiring_kcp.find(kcp_mappings_ptr) == expiring_kcp.end())
 				expiring_kcp.insert({ kcp_mappings_ptr, packet::right_now() });

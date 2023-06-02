@@ -31,6 +31,8 @@ namespace KCP
 		void *ikcp_ptr;
 		uint64_t outbound_bandwidth = 0;
 		uint64_t inbound_bandwidth = 0;
+		std::atomic<int64_t> last_receive_time{0};
+		std::atomic<int64_t> last_send_time{0};
 		mutable std::shared_mutex mtx;
 		std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
 		std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
@@ -38,6 +40,7 @@ namespace KCP
 		void Initialise(uint32_t conv, void *user);
 		void MoveKCP(KCP &other) noexcept;
 		void ResetWindowValues();
+		int64_t RightNowInSeconds();
 
 	public:
 
@@ -85,8 +88,6 @@ namespace KCP
 		// or optimize Update when handling massive kcp connections)
 		uint32_t Check(uint32_t current);
 
-		void ReplaceUserPtr(void *user);
-
 		// when you received a low level packet (eg. UDP packet), call it
 		int Input(const char *data, long size);
 
@@ -117,23 +118,16 @@ namespace KCP
 		// nc: 0:normal congestion control(default), 1:disable congestion control
 		int NoDelay(int nodelay, int interval, int resend, bool nc);
 
-
-		void WriteLog(int mask, const char *fmt, ...);
-
 		// read conv
 		static uint32_t GetConv(const void *ptr);
 		uint32_t GetConv();
 
-		// check log mask
-		bool CanLog(int mask);
-
-		int Interval(int interval);
-
 		void SetStreamMode(bool enable);
 
 		int32_t& RxMinRTO();
-		int& LogMask();
 		void SetBandwidth(uint64_t out_bw, uint64_t in_bw);
+		int64_t SecondsSinceLastReceiveTime();
+		int64_t SecondsSinceLastSendTime();
 	};
 }
 

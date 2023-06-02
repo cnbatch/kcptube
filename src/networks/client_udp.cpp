@@ -200,6 +200,8 @@ void udp_to_forwarder::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<KCP:
 	if (kcp_ptr->Input((const char *)data_ptr, (long)plain_size) < 0)
 		return;
 
+	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+
 	while (true)
 	{
 		int buffer_size = kcp_ptr->PeekSize();
@@ -214,7 +216,7 @@ void udp_to_forwarder::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<KCP:
 			break;
 
 		auto [packet_timestamp, ftr, prtcl, unbacked_data_ptr, unbacked_data_size] = packet::unpack(buffer_ptr, kcp_data_size);
-		if (prtcl != protocol_type::udp)
+		if (prtcl != kcp_mappings_ptr->connection_protocol)
 		{
 			continue;
 		}
@@ -223,7 +225,6 @@ void udp_to_forwarder::udp_forwarder_incoming_to_udp_unpack(std::shared_ptr<KCP:
 		if (calculate_difference(timestamp, packet_timestamp) > TIME_GAP)
 			continue;
 
-		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
 		udp::endpoint &udp_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
 
 		switch (ftr)
@@ -338,15 +339,6 @@ bool udp_to_forwarder::update_udp_target(std::shared_ptr<forwarder> target_conne
 
 	return connect_success;
 }
-
-//udp::endpoint udp_to_forwarder::get_remote_address()
-//{
-//	udp::endpoint ep;
-//	std::shared_lock locker{ mutex_udp_target };
-//	ep = *udp_target;
-//	locker.unlock();
-//	return ep;
-//}
 
 void udp_to_forwarder::process_disconnect(uint32_t conv)
 {
@@ -509,9 +501,8 @@ void udp_to_forwarder::loop_find_expires()
 		std::shared_ptr<kcp_mappings> kcp_mappings_ptr = iter->second;
 		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_mappings_ptr->egress_kcp;
 
-		forwarder *udp_forwarder = kcp_mappings_ptr->egress_forwarder.get();
-		if (udp_forwarder->time_gap_of_receive() > current_settings.udp_timeout &&
-			udp_forwarder->time_gap_of_send() > current_settings.udp_timeout)
+		if (kcp_ptr->SecondsSinceLastReceiveTime() > current_settings.udp_timeout &&
+			kcp_ptr->SecondsSinceLastSendTime() > current_settings.udp_timeout)
 		{
 			if (std::scoped_lock locker_expiring_kcp{ mutex_expiring_kcp }; expiring_kcp.find(kcp_ptr) == expiring_kcp.end())
 				expiring_kcp.insert({ kcp_mappings_ptr, packet::right_now() });
@@ -544,7 +535,8 @@ void udp_to_forwarder::loop_keep_alive()
 			continue;
 		timestamp += current_settings.keep_alive;
 		
-		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(protocol_type::udp);
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(kcp_mappings_ptr->connection_protocol);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
 
 		uint32_t next_refresh_time = kcp_ptr->Check(time_now_for_kcp());
@@ -623,6 +615,7 @@ void udp_to_forwarder::on_handshake_success(std::shared_ptr<handshake> handshake
 	kcp_mappings_ptr->egress_kcp = kcp_ptr;
 	kcp_mappings_ptr->egress_forwarder = udp_forwarder;
 	kcp_mappings_ptr->ingress_source_endpoint = peer;
+	kcp_mappings_ptr->connection_protocol = protocol_type::udp;
 	bool success = save_udp_target(udp_forwarder, kcp_mappings_ptr->egress_target_endpoint);
 	if (!success)
 		return;

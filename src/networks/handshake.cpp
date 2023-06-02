@@ -1,7 +1,7 @@
 #include <iostream>
 #include <limits>
 #include <thread>
-#include "client.hpp"
+#include "handshake.hpp"
 #include "../shares/data_operations.hpp"
 
 using namespace std::placeholders;
@@ -121,7 +121,7 @@ void handshake::start_receive()
 		udp_socket.async_receive_from(asio_buffer, *udp_ep_ptr,
 			[/*this*/this_handshake, udp_ep_ptr, buffer_ptr = std::move(recv_buffer)](const asio::error_code &error, size_t bytes_transferred) mutable
 			{
-			this_handshake->handle_receive(std::move(buffer_ptr), error, bytes_transferred);
+				this_handshake->handle_receive(std::move(buffer_ptr), error, bytes_transferred);
 			});
 	}
 }

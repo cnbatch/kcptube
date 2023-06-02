@@ -8,7 +8,7 @@
 客户端模式示例：
 ```
 mode=client
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=500M
 outbound_bandwidth=50M
 listen_port=59000
@@ -21,7 +21,7 @@ encryption_algorithm=AES-GCM
 服务端模式示例：
 ```
 mode=server
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000
@@ -54,7 +54,7 @@ sequenceDiagram
 客户端模式示例：
 ```
 mode=client
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=500M
 outbound_bandwidth=50M
 listen_port=6000
@@ -68,7 +68,7 @@ encryption_algorithm=AES-GCM
 服务端模式示例：
 ```
 mode=server
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000-4000
@@ -88,7 +88,7 @@ encryption_algorithm=AES-GCM
 
 ```
 mode=server
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000

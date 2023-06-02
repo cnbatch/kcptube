@@ -40,7 +40,7 @@ KCP Tube 并不使用任何“多路复用”功能，每接受一个入站连�
 客户端模式示例：
 ```
 mode=client
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=500M
 outbound_bandwidth=50M
 listen_port=59000
@@ -53,7 +53,7 @@ encryption_algorithm=AES-GCM
 服务端模式示例：
 ```
 mode=server
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000
@@ -83,7 +83,7 @@ kcptube config1.conf config2.conf
 客户端模式示例：
 ```
 mode=client
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=500M
 outbound_bandwidth=50M
 listen_port=6000
@@ -97,7 +97,7 @@ encryption_algorithm=AES-GCM
 服务端模式示例：
 ```
 mode=server
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000-4000
@@ -164,7 +164,7 @@ encryption_algorithm=AES-GCM
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|
 | kcp_mtu  | 正整数 |否|预设值1440|
-| kcp  | manual<br>fast1 - 4<br>regular1 - 4<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越大，速度越慢)|
+| kcp  | manual<br>fast1 - 6<br>regular1 - 4<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越小，速度越快)|
 | kcp_sndwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
 | kcp_rcvwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
 | kcp_nodelay  | 正整数 |视情况|kcp=manual 时必填，预设值见下表|
@@ -196,18 +196,24 @@ encryption_algorithm=AES-GCM
 
 #### KCP 模式预设值
 | 快速模式      | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
-|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   | ---- |
-| fast1        | 2048       |   2048    |      1    |   1        |   2      |Yes|
-| fast2        | 2048       |   2048    |      1    |   1        |   3      |Yes|
-| fast3        | 2048       |   2048    |      1    |   5        |   2      |Yes|
-| fast4        | 2048       |   2048    |      1    |   5        |   3      |Yes|
+|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
+| fast1        | 2048       |   2048    |      1    |   1        |   2      |   1   |
+| fast2        | 2048       |   2048    |      2    |   1        |   2      |   1   |
+| fast3        | 2048       |   2048    |      1    |   1        |   3      |   1   |
+| fast4        | 2048       |   2048    |      2    |   1        |   3      |   1   |
+| fast5        | 2048       |   2048    |      1    |   1        |   4      |   1   |
+| fast6        | 2048       |   2048    |      2    |   1        |   4      |   1   |
 
 | 常速模式      | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
-|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   | ---- |
-| regular1     | 1024       |   1024    |      1    |   10       |   2      |Yes|
-| regular2     | 1024       |   1024    |      1    |   10       |   3      |Yes|
-| regular3     | 1024       |   1024    |      0    |   10       |   2      |Yes|
-| regular4     | 1024       |   1024    |      0    |   10       |   3      |Yes|
+|  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
+| regular1     | 1024       |   1024    |      1    |   1        |   5      |   1   |
+| regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
+| regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
+| regular4     | 1024       |   1024    |      0    |   1        |   3      |   1   |
+
+其中，丢包率越高（高于 10%），kcp_nodelay=1 就比 kcp_nodelay=2 越有优势。在丢包率不特别高的情况下，kcp_nodelay=2 可使延迟抖动更为平滑。
+
+如果想减少流量浪费，可以选择 regular3 或 regular4。
 
 ### Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。

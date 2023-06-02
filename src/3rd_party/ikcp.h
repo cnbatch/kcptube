@@ -406,7 +406,6 @@ void ikcp_allocator(void* (*new_malloc)(size_t), void (*new_free)(void*));
 // read conv
 IUINT32 ikcp_getconv(const void *ptr);
 
-int ikcp_interval(ikcpcb *kcp, int interval);
 
 #ifdef __cplusplus
 }

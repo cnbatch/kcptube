@@ -5,7 +5,7 @@
 客户端模式示例：
 ```
 mode=client
-kcp=regular1
+kcp=regular3
 inbound_bandwidth=500M
 outbound_bandwidth=50M
 listen_port=59000
@@ -20,7 +20,7 @@ encryption_algorithm=AES-GCM
 mode=relay
 
 [listener]
-kcp=regular1
+kcp=regular3
 inbound_bandwidth=300M
 outbound_bandwidth=300M
 listen_port=3000-3010
@@ -28,7 +28,7 @@ encryption_password=qwerty1234
 encryption_algorithm=AES-GCM
 
 [forwarder]
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=300M
 outbound_bandwidth=300MM
 destination_port=13000-13010
@@ -41,7 +41,7 @@ udp_timeout=10
 服务端模式示例：
 ```
 mode=server
-kcp=regular2
+kcp=regular4
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=13000-13010
@@ -103,7 +103,7 @@ sequenceDiagram
 例如，可以这样写：
 ```
 mode=relay
-kcp=fast1
+kcp=fast4
 outbound_bandwidth=300M
 inbound_bandwidth=300M
 encryption_password=qwerty1234
