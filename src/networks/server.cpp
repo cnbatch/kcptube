@@ -231,11 +231,6 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 			if (prtcl == protocol_type::tcp)
 			{
 				std::shared_ptr<tcp_session> &tcp_channel = kcp_mappings_ptr->local_tcp;
-				if (unbacked_data_size > 0)
-				{
-					asio::error_code ec;
-					tcp_channel->send_data(unbacked_data_ptr, unbacked_data_size, ec);
-				}
 				process_tcp_disconnect(tcp_channel.get(), kcp_ptr);
 			}
 			else if (prtcl == protocol_type::udp)

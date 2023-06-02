@@ -165,6 +165,8 @@ private:
 
 	void after_read_completed(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, size_t bytes_transferred);
 
+	void transfer_data_to_next_function(std::unique_ptr<uint8_t[]> buffer_cache, size_t bytes_transferred);
+
 	asio::io_context &network_io;
 	ttp::task_thread_pool *task_assigner;
 	ttp::task_group_pool *sequence_task_pool;

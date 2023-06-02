@@ -580,16 +580,6 @@ int64_t tcp_session::time_gap_of_send()
 
 void tcp_session::after_write_completed(const asio::error_code &error, size_t bytes_transferred)
 {
-	if (stopped.load())
-		return;
-
-	if (error)
-	{
-		callback_for_disconnect(shared_from_this());
-		if (connection_socket.is_open())
-			this->disconnect();
-		return;
-	}
 	last_send_time.store(packet::right_now());
 }
 
@@ -600,6 +590,7 @@ void tcp_session::after_read_completed(std::unique_ptr<uint8_t[]> buffer_cache, 
 
 	if (error)
 	{
+		transfer_data_to_next_function(std::move(buffer_cache), bytes_transferred);
 		callback_for_disconnect(shared_from_this());
 		if (connection_socket.is_open())
 			this->disconnect();
@@ -609,6 +600,11 @@ void tcp_session::after_read_completed(std::unique_ptr<uint8_t[]> buffer_cache, 
 	last_receive_time.store(packet::right_now());
 	async_read_data();
 
+	transfer_data_to_next_function(std::move(buffer_cache), bytes_transferred);
+}
+
+void tcp_session::transfer_data_to_next_function(std::unique_ptr<uint8_t[]> buffer_cache, size_t bytes_transferred)
+{
 	if (buffer_cache == nullptr || bytes_transferred == 0)
 		return;
 
