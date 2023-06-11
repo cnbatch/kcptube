@@ -16,8 +16,6 @@ class client_mode
 	std::shared_mutex mutex_handshakes;
 	std::map<kcp_mappings*, std::shared_ptr<kcp_mappings>> handshakes;
 
-	//std::mutex mutex_tcp_session_map_to_handshake;
-	//std::map<std::shared_ptr<tcp_session>, std::shared_ptr<kcp_mappings>, std::owner_less<>> tcp_session_map_to_handshake;
 	std::shared_mutex mutex_udp_local_session_map_to_kcp;
 	std::map<udp::endpoint, std::shared_ptr<kcp_mappings>> udp_local_session_map_to_kcp;
 
