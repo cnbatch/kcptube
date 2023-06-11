@@ -563,7 +563,6 @@ void client_mode::udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, siz
 	if (mux_records_ptr == nullptr)
 	{
 		std::shared_lock shared_locker_udp_map_to_mux_records{mutex_udp_map_to_mux_records};
-		shared_locker_udp_map_to_mux_records.lock();
 		if (udp_map_to_mux_records.find(peer) == udp_map_to_mux_records.end())
 		{
 			shared_locker_udp_map_to_mux_records.unlock();
