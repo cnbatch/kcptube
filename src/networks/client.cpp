@@ -348,6 +348,7 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 			if (kcp_mappings_ptr->egress_target_endpoint != peer && kcp_mappings_ptr->egress_previous_target_endpoint != peer)
 			{
 				share_locker_egress.unlock();
+
 				std::scoped_lock lockers{ kcp_mappings_ptr->mutex_egress_endpoint, mutex_target_address };
 				kcp_mappings_ptr->egress_previous_target_endpoint = kcp_mappings_ptr->egress_target_endpoint;
 				kcp_mappings_ptr->egress_target_endpoint = peer;
@@ -561,13 +562,12 @@ void client_mode::udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, siz
 
 	if (mux_records_ptr == nullptr)
 	{
-		std::shared_lock shared_locker_udp_map_to_mux_records{mutex_udp_map_to_mux_records, std::defer_lock};
-		std::unique_lock unique_locker_udp_map_to_mux_records{mutex_udp_map_to_mux_records, std::defer_lock};
+		std::shared_lock shared_locker_udp_map_to_mux_records{mutex_udp_map_to_mux_records};
 		shared_locker_udp_map_to_mux_records.lock();
 		if (udp_map_to_mux_records.find(peer) == udp_map_to_mux_records.end())
 		{
 			shared_locker_udp_map_to_mux_records.unlock();
-			unique_locker_udp_map_to_mux_records.lock();
+			std::scoped_lock lockers{mutex_udp_map_to_mux_records, mutex_id_map_to_mux_records};
 			if (udp_map_to_mux_records.find(peer) == udp_map_to_mux_records.end())
 			{
 				kcp_ptr = pick_one_from_kcp_channels();
@@ -577,7 +577,6 @@ void client_mode::udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, siz
 				uint32_t conv = kcp_ptr->GetConv();
 				uint32_t new_id = generate_random_number<uint32_t>();
 				uint64_t complete_connection_id = ((uint64_t)conv << 32) + new_id;
-				std::unique_lock locker_id_map_to_mux_records{ mutex_id_map_to_mux_records };
 				while (id_map_to_mux_records.find(complete_connection_id) != id_map_to_mux_records.end())
 				{
 					new_id = generate_random_number<uint32_t>();
@@ -591,7 +590,6 @@ void client_mode::udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, siz
 
 				id_map_to_mux_records[complete_connection_id] = mux_records_ptr;
 				udp_map_to_mux_records[peer] = mux_records_ptr;
-				locker_id_map_to_mux_records.unlock();
 			}
 			else
 			{
