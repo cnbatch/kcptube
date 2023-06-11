@@ -16,6 +16,8 @@ namespace KCP
 	int proxy_output(KCP *kcp, const char *buf, int len);
 	void proxy_writelog(KCP *kcp, const char *buf);
 
+	uint32_t time_now_for_kcp();
+
 	//---------------------------------------------------------------------
 	// KCP wrapper
 	//---------------------------------------------------------------------
@@ -24,27 +26,24 @@ namespace KCP
 		friend int proxy_output(KCP *kcp, const char *buf, int len);
 		friend void proxy_writelog(KCP *kcp, const char *buf);
 	public:
-		//std::atomic<void *> kcp_mappings_ptr;
 		std::atomic<void *> custom_data;
 
 	private:
 		void *ikcp_ptr;
 		uint64_t outbound_bandwidth = 0;
 		uint64_t inbound_bandwidth = 0;
-		std::atomic<int64_t> last_receive_time{0};
-		std::atomic<int64_t> last_send_time{0};
+		std::atomic<int64_t> last_input_time{0};
 		mutable std::shared_mutex mtx;
 		std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
 		std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
 
-		void Initialise(uint32_t conv, void *user);
+		void Initialise(uint32_t conv);
 		void MoveKCP(KCP &other) noexcept;
 		void ResetWindowValues();
-		int64_t RightNowInSeconds();
 
 	public:
 
-		KCP() { Initialise(0, this); }
+		KCP() { Initialise(0); }
 
 		KCP(const KCP &other) noexcept;
 
@@ -58,7 +57,7 @@ namespace KCP
 		// create a new kcp control object, 'conv' must equal in two endpoint
 		// from the same connection. 'user' will be passed to the output callback
 		// output callback can be setup like this: 'kcp->output = my_udp_output'
-		KCP(uint32_t conv, void *user) { Initialise(conv, this); custom_data.store(user); }
+		KCP(uint32_t conv) { Initialise(conv); }
 
 		// release kcp control object
 		~KCP();
@@ -78,6 +77,7 @@ namespace KCP
 		// Check when to call it again (without Input/_send calling).
 		// 'current' - current timestamp in millisec. 
 		void Update(uint32_t current);
+		void Update();
 
 		// Determine when should you invoke Update:
 		// returns when you should invoke Update in millisec, if there 
@@ -87,6 +87,7 @@ namespace KCP
 		// schedule Update (eg. implementing an epoll-like mechanism, 
 		// or optimize Update when handling massive kcp connections)
 		uint32_t Check(uint32_t current);
+		uint32_t Check();
 
 		// when you received a low level packet (eg. UDP packet), call it
 		int Input(const char *data, long size);
@@ -126,8 +127,7 @@ namespace KCP
 
 		int32_t& RxMinRTO();
 		void SetBandwidth(uint64_t out_bw, uint64_t in_bw);
-		int64_t SecondsSinceLastReceiveTime();
-		int64_t SecondsSinceLastSendTime();
+		int64_t LastInputTime();
 	};
 }
 

@@ -8,12 +8,13 @@
 | dport_refresh  | 20 - 65535 |No|The unit is ‘second’. Not writting this option means using the default value of 60 seconds. <br>1 to 20 is treated as 20 seconds; greater than 32767 is treated as 32767 seconds. <br>Set to 0 means disable this option.|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |No    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>No Encryption |
 | encryption_password  | Any character |Depends…|…on the setting of encryption_algorithm, if the value is set and it is not none, it is required|
-| udp_timeout  | 0 - 65535 |No|The unit is ‘second’. The default value is 1800 seconds, set to 0 to use the default value<br>This option represents the timeout setting between UDP application ↔ kcptube|
-| keep_alive  | 0 - 65535 |No | The default value is 0, which means that Keep Alive is disabled. This option refers to Keep Alive between two KCP endpoints.|
+| udp_timeout  | 0 - 65535 |No|The unit is ‘second’. The default value is 180 seconds, set to 0 to use the default value<br>This option represents the timeout setting between UDP application ↔ kcptube|
+| keep_alive  | 0 - 65535 |No | The unit is ‘second’. The default value is 0, which means that Keep Alive is disabled. This option refers to Keep Alive between two KCP endpoints.<br>One way only. Peer will not response any packet. This option can be used only by one side or the other, or both.|
+| mux_tunnels  | 0 - 65535 |No | The default value is 0, which means that multiplexing is disabled. This option means how many multiplexing tunnels between two KCP endpoints.<br>Client Mode only.|
 | stun_server  | STUN Server's address |No| Cannot be used if listen_port option is port range mode|
 | log_path  | The directory where the Logs are stored |No|Cannot point to the file itself|
 | kcp_mtu  | Positive Integer |No|Default value is 1440|
-| kcp  | manual<br>fast1 - 6<br>regular1 - 4<br> &nbsp; |Yes|Setup Manually<br>Fast Modes<br>Regular Speeds<br>(the number at the end: the smaller the value, the faster the speed)|
+| kcp  | manual<br>fast1 - 6<br>regular1 - 5<br> &nbsp; |Yes|Setup Manually<br>Fast Modes<br>Regular Speeds<br>(the number at the end: the smaller the value, the faster the speed)|
 | kcp_sndwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
 | kcp_rcvwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
 | kcp_nodelay  | Positive Integer |Depends…|…on the setting of ‘kcp=’, if if the value is set as ‘kcp==manual’, this option is required. See the table below for default values.|
@@ -59,10 +60,11 @@ Please note that it is bps (Bits Per Second), not Bps (Bytes Per Second).
 | regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
 | regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
 | regular4     | 1024       |   1024    |      0    |   1        |   3      |   1   |
+| regular5     | 1024       |   1024    |      0    |   1        |   0      |   1   |
 
 Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency smoother.
 
-If you want to reduce traffic waste, please try choosing regular3 or regular4.
+If you want to reduce traffic waste and also accept a little bit more latency increase, please try choosing regular3, regular4 or regular5.
 
 # Log File
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.

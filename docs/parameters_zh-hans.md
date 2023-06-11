@@ -9,12 +9,13 @@
 | dport_refresh  | 0 - 32767 |否|单位“秒”。不填写表示使用预设值 60 秒。<br>1 至 20 按 20 秒算，大于 32767 按 32767 秒算。<br>设为 0 表示禁用。|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>不加密 |
 | encryption_password  | 任意字符 |视情况|设置了 encryption_algorithm 且不为 none 时必填|
-| udp_timeout  | 0 - 65535 |否|单位“秒”。预设值 1800 秒，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ kcptube 之间的超时设置|
-| keep_alive  | 0 - 65535 |否 | 预设值为 0，等于停用 Keep Alive<br>该选项是指两个KCP端之间的Keep Alive|
+| udp_timeout  | 0 - 65535 |否|单位“秒”。预设值 180 秒，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ kcptube 之间的超时设置|
+| keep_alive  | 0 - 65535 |否 | 单位“秒”。预设值为 0，等于停用 Keep Alive<br>该选项是指两个KCP端之间的Keep Alive<br>仅单向发送，对方收到后并不回应，可单方面启用|
+| mux_tunnels  | 0 - 65535 |否 | 预设值为 0，等于不使用多路复用通道<br>该选项是指两个KCP端之间的多路复用通道数<br>仅限客户端启用|
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|
 | kcp_mtu  | 正整数 |否|预设值1440|
-| kcp  | manual<br>fast1 - 6<br>regular1 - 4<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越小，速度越快)|
+| kcp  | manual<br>fast1 - 6<br>regular1 - 5<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越小，速度越快)|
 | kcp_sndwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
 | kcp_rcvwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
 | kcp_nodelay  | 正整数 |视情况|kcp=manual 时必填，预设值见下表|
@@ -60,10 +61,11 @@
 | regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
 | regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
 | regular4     | 1024       |   1024    |      0    |   1        |   3      |   1   |
+| regular5     | 1024       |   1024    |      0    |   1        |   0      |   1   |
 
 其中，丢包率越高（高于 10%），kcp_nodelay=1 就比 kcp_nodelay=2 越有优势。在丢包率不特别高的情况下，kcp_nodelay=2 可使延迟抖动更为平滑。
 
-如果想减少流量浪费，可以选择 regular3 或 regular4。
+如果想减少流量浪费、不介意延迟稍微增加，可以选择 regular3、regular4 或 regular5。
 
 # Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。

@@ -11,12 +11,12 @@
 #include <filesystem>
 
 enum class running_mode { unknow, server, client, relay, relay_ingress, relay_egress };
-enum class kcp_mode { unknow, regular1, regular2, regular3, regular4, fast1, fast2, fast3, fast4, fast5, fast6, manual };
+enum class kcp_mode { unknow, regular1, regular2, regular3, regular4, regular5, fast1, fast2, fast3, fast4, fast5, fast6, manual };
 enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
 
 namespace constant_values
 {
-	constexpr uint16_t timeout_value = 1800;	// second
+	constexpr uint16_t timeout_value = 180;	// second
 	constexpr uint16_t extends_5_seconds = 5;
 	constexpr int16_t dport_refresh_default = 60;
 	constexpr int16_t dport_refresh_minimal = 20;
@@ -36,6 +36,15 @@ T generate_random_number()
 	return uniform_dist(mt);
 }
 
+template<typename T>
+T generate_random_number(T start_num, T end_num)
+{
+	thread_local std::random_device rd;
+	thread_local std::mt19937 mt(rd());
+	thread_local std::uniform_int_distribution<T> uniform_dist(start_num, end_num);
+	return uniform_dist(mt);
+}
+
 struct user_settings
 {
 	uint16_t listen_port = 0;
@@ -47,6 +56,7 @@ struct user_settings
 	int16_t dynamic_port_refresh = -1;	// seconds
 	uint16_t udp_timeout = 0;	 // seconds
 	uint16_t keep_alive = 0;	// seconds
+	uint16_t mux_tunnels = 0;	// client only
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::unknow;
 	kcp_mode kcp_setting = kcp_mode::unknow;
@@ -72,7 +82,7 @@ struct user_settings
 };
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
-int64_t calculate_difference(int64_t number1, int64_t number2);
+int64_t calculate_difference(int64_t number1_left, int64_t number_right);
 std::set<uint16_t> convert_to_port_list(const user_settings &current_settings);
 
 std::string time_to_string();

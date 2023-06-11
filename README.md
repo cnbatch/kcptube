@@ -15,15 +15,6 @@
 
 正如 [KCP](https://github.com/skywind3000/kcp) 本身的用途一样，KCP Tube 的主要目标是降低延迟，而不是偏向于传输超大流量。那么能不能传输超大流量呢？能，只是效果未必比得上现有的 TCP-KCP 转发工具。
 
-### 不使用多路复用
-KCP Tube 并不使用任何“多路复用”功能，每接受一个入站连接，就会创建一个对应的出站连接。
-
-原因是为了躲避运营商的 QoS。多路复用状态下，一旦某个端口号被 QoS，就会导致共用端口号的其它会话同时受阻，直到更换端口号为止。
-
-连接之间相互独立，即使某个端口号被 QoS，受影响的仅仅只是这一路会话，不影响其他会话。
-
-除非遇到极为严格的运营商，限速针对的是整个 IP 地址。但这种情况下，无论是否使用多路复用都毫无作用。
-
 ### 支持的模式
 目前支持 3 种模式：
 - 客户端模式
@@ -159,12 +150,13 @@ encryption_algorithm=AES-GCM
 | dport_refresh  | 0 - 32767 |否|单位“秒”。不填写表示使用预设值 60 秒。<br>1 至 20 按 20 秒算，大于 32767 按 32767 秒算。<br>设为 0 表示禁用。|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>不加密 |
 | encryption_password  | 任意字符 |视情况|设置了 encryption_algorithm 且不为 none 时必填|
-| udp_timeout  | 0 - 65535 |否|单位“秒”。预设值 1800 秒，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ kcptube 之间的超时设置|
-| keep_alive  | 0 - 65535 |否 | 预设值为 0，等于停用 Keep Alive<br>该选项是指两个KCP端之间的Keep Alive|
+| udp_timeout  | 0 - 65535 |否|单位“秒”。预设值 180 秒，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ kcptube 之间的超时设置|
+| keep_alive  | 0 - 65535 |否 |单位“秒”。预设值为 0，等于停用 Keep Alive<br>该选项是指两个KCP端之间的Keep Alive<br>仅单向发送，对方收到后并不回应，可单方面启用|
+| mux_tunnels  | 0 - 65535 |否 | 预设值为 0，等于不使用多路复用通道<br>该选项是指两个KCP端之间的多路复用通道数<br>仅限客户端启用|
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|
 | kcp_mtu  | 正整数 |否|预设值1440|
-| kcp  | manual<br>fast1 - 6<br>regular1 - 4<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越小，速度越快)|
+| kcp  | manual<br>fast1 - 6<br>regular1 - 5<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越小，速度越快)|
 | kcp_sndwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
 | kcp_rcvwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
 | kcp_nodelay  | 正整数 |视情况|kcp=manual 时必填，预设值见下表|
@@ -210,10 +202,11 @@ encryption_algorithm=AES-GCM
 | regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
 | regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
 | regular4     | 1024       |   1024    |      0    |   1        |   3      |   1   |
+| regular5     | 1024       |   1024    |      0    |   1        |   0      |   1   |
 
 其中，丢包率越高（高于 10%），kcp_nodelay=1 就比 kcp_nodelay=2 越有优势。在丢包率不特别高的情况下，kcp_nodelay=2 可使延迟抖动更为平滑。
 
-如果想减少流量浪费，可以选择 regular3 或 regular4。
+如果想减少流量浪费、不介意延迟稍微增加，可以选择 regular3、regular4 或 regular5。
 
 ### Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。
@@ -412,6 +405,27 @@ sysctl -w net.inet6.ip6.v6only=0
 这两种校验码的计算速度都足够快，简明又实用，并不是偏门的计算方式。例如 Modbus 就用到了 LRC。
 
 需要提醒的是，使用两种校验码仍然无法 100% 避免内容错误，TCP 本身也是一样。如果确实需要精确无误，请启用加密选项。
+
+## 多路复用
+KCP Tube 虽然有“多路复用”的功能，但默认并不主动打开。每接受一个入站连接，就会创建一个对应的出站连接。
+
+原因是为了躲避运营商的 QoS。多路复用状态下，一旦某个端口号被 QoS，就会导致共用端口号的其它会话同时受阻，直到更换端口号为止。
+
+连接之间相互独立，即使某个端口号被 QoS，受影响的仅仅只是这一路会话，不影响其他会话。
+
+除非被承载的程序会产生大量独立连接。在这种情况下，KCP Tube 会创建大量 KCP 通道，在通讯过程中会消耗较多的CPU资源。
+
+如果确实要用“多路复用”功能，可以参考以下分类：
+
+- 适合使用“多路复用”的场景：
+    - 代理转发程序，例如 Shadowsocks
+
+- 不必使用“多路复用”的场景：
+    - VPN，例如
+        - OpenVPN
+        - Wireguard
+
+启用“多路复用”后，KCP 通道的超时时间为 30 秒。
 
 ## 关于代码
 ### TCP

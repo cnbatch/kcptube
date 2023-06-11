@@ -1,20 +1,29 @@
 // This is a wrapper of ikcp
 #include <chrono>
 #include <cstdlib>
+#include <chrono>
 #include "kcp.hpp"
 #include "../3rd_party/ikcp.h"
 
+using namespace std::chrono;
+using namespace std::literals;
 
 int middle_layer_output(const char *buf, int len, IKCPCB *kcp, void *user);
 void middle_layer_writelog(const char *buf, IKCPCB *kcp, void *user);
-
+int64_t right_now();
 
 namespace KCP
 {
-	void KCP::Initialise(uint32_t conv, void *user)
+	uint32_t time_now_for_kcp()
+	{
+		return static_cast<uint32_t>((duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()) & 0xFFFF'FFFFul);
+	}
+
+	void KCP::Initialise(uint32_t conv)
 	{
 		ikcp_ptr = ikcp_create(conv, this);
-		custom_data.store(user);
+		custom_data.store(nullptr);
+		last_input_time.store(right_now());
 	}
 
 	void KCP::MoveKCP(KCP &other) noexcept
@@ -24,8 +33,7 @@ namespace KCP
 		custom_data.store(other.custom_data.load());
 		other.ikcp_ptr = nullptr;
 		other.custom_data.store(nullptr);
-		last_receive_time.store(other.last_receive_time.load());
-		last_send_time.store(other.last_send_time.load());
+		last_input_time.store(other.last_input_time.load());
 	}
 
 	KCP::KCP(const KCP &other) noexcept
@@ -33,8 +41,7 @@ namespace KCP
 		ikcp_ptr = other.ikcp_ptr;
 		((ikcpcb *)ikcp_ptr)->user = this;
 		custom_data.store(other.custom_data.load());
-		last_receive_time.store(other.last_receive_time.load());
-		last_send_time.store(other.last_send_time.load());
+		last_input_time.store(other.last_input_time.load());
 	}
 
 	KCP::~KCP()
@@ -52,11 +59,11 @@ namespace KCP
 			kcp_ptr->rcv_wnd = (uint32_t)(inbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_rto) + 32;
 	}
 
-	int64_t KCP::RightNowInSeconds()
-	{
-		auto right_now = std::chrono::system_clock::now();
-		return std::chrono::duration_cast<std::chrono::seconds>(right_now.time_since_epoch()).count();
-	}
+	//int64_t KCP::RightNowInSeconds()
+	//{
+	//	auto right_now = std::chrono::system_clock::now();
+	//	return std::chrono::duration_cast<std::chrono::seconds>(right_now.time_since_epoch()).count();
+	//}
 
 	void KCP::SetOutput(std::function<int(const char *, int, void *)> output_func)
 	{
@@ -73,19 +80,13 @@ namespace KCP
 	int KCP::Receive(std::vector<char> &buffer)
 	{
 		std::scoped_lock locker{ mtx };
-		int ret = ikcp_recv((ikcpcb *)ikcp_ptr, buffer.data(), (int)buffer.size());
-		if (ret > 0)
-			last_receive_time.store(RightNowInSeconds());
-		return ret;
+		return ikcp_recv((ikcpcb *)ikcp_ptr, buffer.data(), (int)buffer.size());
 	}
 
 	int KCP::Send(const char *buffer, size_t len)
 	{
 		std::scoped_lock locker{ mtx };
-		int ret = ikcp_send((ikcpcb *)ikcp_ptr, buffer, (int)len);
-		if (ret > 0)
-			last_send_time.store(RightNowInSeconds());
-		return ret;
+		return ikcp_send((ikcpcb *)ikcp_ptr, buffer, (int)len);
 	}
 
 	void KCP::Update(uint32_t current)
@@ -94,10 +95,22 @@ namespace KCP
 		ikcp_update((ikcpcb *)ikcp_ptr, current);
 	}
 
+	void KCP::Update()
+	{
+		std::scoped_lock locker{ mtx };
+		ikcp_update((ikcpcb *)ikcp_ptr, time_now_for_kcp());
+	}
+
 	uint32_t KCP::Check(uint32_t current)
 	{
 		std::shared_lock locker{ mtx };
 		return ikcp_check((ikcpcb *)ikcp_ptr, current);
+	}
+
+	uint32_t KCP::Check()
+	{
+		std::shared_lock locker{ mtx };
+		return ikcp_check((ikcpcb *)ikcp_ptr, time_now_for_kcp());
 	}
 
 	// when you received a low level packet (eg. UDP packet), call it
@@ -106,6 +119,7 @@ namespace KCP
 		std::scoped_lock locker{ mtx };
 		auto ret = ikcp_input((ikcpcb *)ikcp_ptr, data, size);
 		ResetWindowValues();
+		last_input_time.store(right_now());
 		return ret;
 	}
 
@@ -201,17 +215,22 @@ namespace KCP
 		inbound_bandwidth = in_bw;
 	}
 
-	int64_t KCP::SecondsSinceLastReceiveTime()
+	int64_t KCP::LastInputTime()
 	{
-		int64_t current_time = RightNowInSeconds();
-		return std::abs(current_time - last_receive_time.load());
+		return last_input_time.load();
 	}
 
-	int64_t KCP::SecondsSinceLastSendTime()
-	{
-		int64_t current_time = RightNowInSeconds();
-		return std::abs(current_time - last_send_time.load());
-	}
+	//int64_t KCP::SecondsSinceLastReceiveTime()
+	//{
+	//	int64_t current_time = RightNowInSeconds();
+	//	return std::abs(current_time - last_receive_time.load());
+	//}
+
+	//int64_t KCP::SecondsSinceLastSendTime()
+	//{
+	//	int64_t current_time = RightNowInSeconds();
+	//	return std::abs(current_time - last_send_time.load());
+	//}
 
 	int proxy_output(KCP *kcp, const char *buf, int len)
 	{
@@ -237,3 +256,8 @@ void middle_layer_writelog(const char *buf, struct IKCPCB *kcp, void *user)
 	return KCP::proxy_writelog(kcp_ptr, buf);
 }
 
+int64_t right_now()
+{
+	auto right_now = system_clock::now();
+	return duration_cast<seconds>(right_now.time_since_epoch()).count();
+}

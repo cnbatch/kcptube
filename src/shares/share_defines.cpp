@@ -42,9 +42,9 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 }
 
 
-int64_t calculate_difference(int64_t number1, int64_t number2)
+int64_t calculate_difference(int64_t number_left, int64_t number_right)
 {
-	return std::abs(number1 - number2);
+	return std::abs(number_left - number_right);
 }
 
 std::set<uint16_t> convert_to_port_list(const user_settings &current_settings)

@@ -39,10 +39,7 @@
     <ClCompile Include="..\..\src\shares\share_defines.cpp">
       <Filter>Source Files\shares</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\networks\client_tcp.cpp">
-      <Filter>Source Files\networks</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\networks\client_udp.cpp">
+    <ClCompile Include="..\..\src\networks\client.cpp">
       <Filter>Source Files\networks</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\networks\connections.cpp">
@@ -69,7 +66,7 @@
     <ClCompile Include="..\..\src\3rd_party\ikcp.c">
       <Filter>Source Files\3rd_party</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\networks\handshake.cpp">
+    <ClCompile Include="..\..\src\networks\kcp_updater.cpp">
       <Filter>Source Files\networks</Filter>
     </ClCompile>
   </ItemGroup>
@@ -116,7 +113,7 @@
     <ClInclude Include="..\..\src\3rd_party\ikcp.h">
       <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\networks\handshake.hpp">
+    <ClInclude Include="..\..\src\networks\kcp_updater.hpp">
       <Filter>Header Files\networks</Filter>
     </ClInclude>
   </ItemGroup>

@@ -20,17 +20,18 @@
 #include "stun.hpp"
 #include "kcp.hpp"
 
-constexpr uint8_t TIME_GAP = std::numeric_limits<uint8_t>::max();	//seconds
+constexpr size_t TIME_GAP = std::numeric_limits<uint8_t>::max();	//seconds
 constexpr size_t BUFFER_SIZE = 2048u;
 constexpr size_t BUFFER_EXPAND_SIZE = 128u;
 constexpr size_t RETRY_TIMES = 30u;
 constexpr size_t RETRY_WAITS = 2u;
-constexpr size_t CLEANUP_WAITS = 30;	// second
-constexpr auto KCP_UPDATE_INTERVAL = std::chrono::milliseconds(1);
-constexpr auto STUN_RESEND = std::chrono::seconds(30);
+constexpr size_t CLEANUP_WAITS = 15;	// second
+constexpr size_t KCP_CLEANUP_WAITS = 4;	// second
+constexpr size_t RECEIVER_CLEANUP_WAITS = KCP_CLEANUP_WAITS * 2;	// second
+constexpr size_t MUX_CHANNELS_CLEANUP = TIME_GAP >> 3;	//seconds
+constexpr auto EXPRING_UPDATE_INTERVAL = std::chrono::seconds(1);
 constexpr auto KEEPALIVE_UPDATE_INTERVAL = std::chrono::seconds(1);
-constexpr auto FINDER_EXPIRES_INTERVAL = std::chrono::seconds(1);
-constexpr auto EXPRING_UPDATE_INTERVAL = std::chrono::milliseconds(50);
+constexpr auto STUN_RESEND = std::chrono::seconds(30);
 const asio::ip::udp::endpoint local_empty_target_v4(asio::ip::make_address_v4("127.0.0.1"), 70);
 const asio::ip::udp::endpoint local_empty_target_v6(asio::ip::make_address_v6("::1"), 70);
 
@@ -40,12 +41,13 @@ enum class feature : uint8_t
 	failure,
 	disconnect,
 	keep_alive,
-	data
+	raw_data,
+	mux_transfer,
+	mux_cancel
 };
 
-enum class protocol_type : uint8_t { not_care, tcp, udp };
+enum class protocol_type : uint8_t { not_care, mux, tcp, udp };
 
-uint32_t time_now_for_kcp();
 std::string_view feature_to_string(feature ftr);
 std::string protocol_type_to_string(protocol_type prtcl);
 std::string debug_data_to_string(const uint8_t *data, size_t len);
@@ -53,7 +55,30 @@ void debug_print_data(const uint8_t *data, size_t len);
 
 namespace packet
 {
-	constexpr size_t empty_data_size = 8;
+#pragma pack (push, 1)
+	struct upper_layer
+	{
+		int64_t timestamp;
+		uint8_t feature_value;
+		uint8_t protocol_value;
+		uint8_t data[1];
+	};
+	
+	struct settings_wrapper
+	{
+		uint32_t uid;
+		uint16_t port_start;
+		uint16_t port_end;
+	};
+	
+	struct mux_data_wrapper
+	{
+		uint32_t connection_id;
+		uint8_t data[1];
+	};
+#pragma pack(pop)
+
+	constexpr size_t empty_data_size = sizeof(upper_layer) + 1;
 
 	int64_t right_now();
 
@@ -81,11 +106,16 @@ namespace packet
 
 	std::vector<uint8_t> create_keep_alive_packet(protocol_type prtcl);
 
+	std::vector<uint8_t> create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, const std::vector<uint8_t> &custom_data);
+	size_t create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, uint8_t *input_data, size_t data_size);
+	std::tuple<uint32_t, uint8_t*, size_t> extract_mux_data_from_unpacked_data(uint8_t *data, size_t length);
+
+	std::vector<uint8_t> inform_mux_cancel_packet(protocol_type prtcl, uint32_t connection_id);
+	uint32_t extract_mux_cancel_from_unpacked_data(uint8_t *data, size_t length);
+
 	std::string get_error_message_from_unpacked_data(const std::vector<uint8_t> &data);
 	std::string get_error_message_from_unpacked_data(uint8_t *data, size_t length);
 
-	std::tuple<uint32_t, std::vector<uint8_t>> get_confirm_data_from_unpacked_data(const std::vector<uint8_t> &data);
-	std::tuple<uint32_t, uint8_t*, size_t> get_confirm_data_from_unpacked_data(uint8_t *data, size_t length);
 }	// namespace packet
 
 
@@ -313,7 +343,7 @@ private:
 	const size_t task_limit;
 };
 
-class udp_client
+class udp_client : public std::enable_shared_from_this<udp_client>
 {
 public:
 	udp_client() = delete;
@@ -438,6 +468,7 @@ private:
 
 struct kcp_mappings
 {
+	protocol_type connection_protocol;
 	std::shared_mutex mutex_ingress_endpoint;
 	udp::endpoint ingress_source_endpoint;
 	std::shared_mutex mutex_egress_endpoint;
@@ -450,7 +481,17 @@ struct kcp_mappings
 	std::shared_ptr<tcp_session> local_tcp;
 	std::shared_ptr<udp_client> local_udp;
 	std::atomic<int64_t> changeport_timestamp;
-	protocol_type connection_protocol;
+	std::atomic<int64_t> last_data_transfer_time;
+};
+
+struct mux_records
+{
+	uint32_t kcp_conv;
+	uint32_t connection_id;
+	std::shared_ptr<tcp_session> local_tcp;
+	std::shared_ptr<udp_client> local_udp;
+	udp::endpoint source_endpoint;
+	std::atomic<int64_t> last_data_transfer_time;
 };
 
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);

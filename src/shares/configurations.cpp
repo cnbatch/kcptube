@@ -244,6 +244,9 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				case strhash("regular4"):
 					current_settings->kcp_setting = kcp_mode::regular4;
 					break;
+				case strhash("regular5"):
+					current_settings->kcp_setting = kcp_mode::regular5;
+					break;
 				case strhash("fast1"):
 					current_settings->kcp_setting = kcp_mode::fast1;
 					break;
@@ -255,6 +258,12 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 					break;
 				case strhash("fast4"):
 					current_settings->kcp_setting = kcp_mode::fast4;
+					break;
+				case strhash("fast5"):
+					current_settings->kcp_setting = kcp_mode::fast5;
+					break;
+				case strhash("fast6"):
+					current_settings->kcp_setting = kcp_mode::fast6;
 					break;
 				default:
 					current_settings->kcp_setting = kcp_mode::unknow;
@@ -308,6 +317,15 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 					current_settings->keep_alive = static_cast<uint16_t>(time_interval);
 				else
 					current_settings->keep_alive = USHRT_MAX;
+				break;
+
+			case strhash("mux_tunnels"):
+				if (auto time_interval = std::stoi(value); time_interval <= 0)
+					current_settings->mux_tunnels = 0;
+				else if (time_interval > 0 && time_interval < USHRT_MAX)
+					current_settings->mux_tunnels = static_cast<uint16_t>(time_interval);
+				else
+					current_settings->mux_tunnels = USHRT_MAX;
 				break;
 
 			case strhash("stun_server"):
@@ -399,6 +417,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 			if (current_user_settings.egress == nullptr)
 				error_msg.emplace_back("[forwarder] is missing");
 		}
+
+		if (current_user_settings.mux_tunnels > 0)
+			error_msg.emplace_back("mux_tunnels should not be set");
 	}
 
 	if (current_user_settings.ingress != nullptr)
@@ -464,6 +485,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 		if (current_user_settings.destination_address.empty())
 			error_msg.emplace_back("invalid destination_address setting");
+	
+		if (current_user_settings.mux_tunnels > 0)
+			error_msg.emplace_back("mux_tunnels should not be set");
 	}
 
 	if (current_user_settings.mode == running_mode::relay_ingress)
@@ -697,6 +721,18 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 	}
 
 	case kcp_mode::regular4:
+	{
+		current_user_settings.kcp_nodelay = 0;
+		current_user_settings.kcp_interval = 1;
+		current_user_settings.kcp_resend = 3;
+		current_user_settings.kcp_nc = 1;
+		if (current_user_settings.kcp_sndwnd < 0)
+			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
+		if (current_user_settings.kcp_rcvwnd < 0)
+			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
+		break;
+	}
+	case kcp_mode::regular5:
 		[[fallthrough]];
 	case kcp_mode::unknow:
 		[[fallthrough]];
@@ -704,7 +740,7 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 	{
 		current_user_settings.kcp_nodelay = 0;
 		current_user_settings.kcp_interval = 1;
-		current_user_settings.kcp_resend = 3;
+		current_user_settings.kcp_resend = 0;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd < 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
