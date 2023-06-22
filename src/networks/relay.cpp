@@ -893,6 +893,7 @@ void relay_mode::loop_find_expires()
 	auto time_right_now = packet::right_now();
 	
 	std::scoped_lock locker{ mutex_id_map_to_both_sides };
+	uint32_t max_window_size = (uint32_t)(max_capacity_size_by_mtu(current_settings.kcp_mtu) / (id_map_to_both_sides.size() * 2 + 1));
 	for (auto iter = id_map_to_both_sides.begin(), next_iter = iter; iter != id_map_to_both_sides.end(); iter = next_iter)
 	{
 		++next_iter;
@@ -900,6 +901,8 @@ void relay_mode::loop_find_expires()
 		std::shared_ptr<kcp_mappings> kcp_mappings_ptr = iter->second;
 		std::shared_ptr<KCP::KCP> kcp_ptr_ingress = kcp_mappings_ptr->ingress_kcp;
 		std::shared_ptr<KCP::KCP> kcp_ptr_egress = kcp_mappings_ptr->egress_kcp;
+		kcp_ptr_ingress->SetMaxWindowSize(max_window_size);
+		kcp_ptr_egress->SetMaxWindowSize(max_window_size);
 
 		if (calculate_difference(time_right_now, kcp_mappings_ptr->last_data_transfer_time.load()) > current_settings.egress->udp_timeout &&
 			calculate_difference(time_right_now, kcp_ptr_ingress->LastInputTime()) > current_settings.egress->udp_timeout &&

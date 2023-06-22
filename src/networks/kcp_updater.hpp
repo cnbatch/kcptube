@@ -20,6 +20,7 @@ namespace KCP
 	using concurrency_t = std::invoke_result_t<decltype(std::thread::hardware_concurrency)>;
 
 	using task_queue = std::map<std::weak_ptr<KCP>, uint32_t, std::owner_less<>>;
+	using task_queue_ref = std::map<std::weak_ptr<KCP>, uint32_t, std::owner_less<>>;
 	
 	class [[nodiscard]] KCPUpdater
 	{
@@ -57,12 +58,6 @@ namespace KCP
 			return tasks_total.load();
 		}
 
-		/**
-		* @brief Push a function with no parameters, and no return value, into the task queue. Does not return a future, so the user must use wait_for_tasks() or some other method to ensure that the task finishes executing, otherwise bad things will happen.
-		*
-		* @param task_function The function to push.
-		* @param data The data to be used by task_function.
-		*/
 		void submit(std::weak_ptr<KCP> kcp_ptr, uint32_t next_update_time)
 		{
 			{
@@ -77,6 +72,12 @@ namespace KCP
 			}
 		}
 
+		//void direct_submit(std::weak_ptr<KCP> kcp_ptr, uint32_t next_update_time)
+		//{
+		//	tasks[kcp_ptr] = next_update_time;
+		//	tasks_total.store(tasks.size());
+		//}
+
 		void remove(std::weak_ptr<KCP> kcp_ptr)
 		{
 			std::scoped_lock tasks_lock(tasks_mutex);
@@ -86,6 +87,15 @@ namespace KCP
 			tasks.erase(iter);
 			tasks_total.store(tasks.size());
 		}
+
+		//void direct_remove(std::weak_ptr<KCP> kcp_ptr)
+		//{
+		//	auto iter = tasks.find(kcp_ptr);
+		//	if (iter == tasks.end())
+		//		return;
+		//	tasks.erase(iter);
+		//	tasks_total.store(tasks.size());
+		//}
 
 		/**
 		* @brief Wait for tasks to be completed. Normally, this function waits for all tasks, both those that are currently running in the threads and those that are still waiting in the queue. Note: To wait for just one specific task, use submit() instead, and call the wait() member function of the generated future.
@@ -135,44 +145,80 @@ namespace KCP
 		{
 			while (running)
 			{
-				uint32_t kcp_refresh_time = time_now_for_kcp();
+				uint32_t kcp_refresh_time = TimeNowForKCP();
+				uint32_t smallest_refresh_time = std::numeric_limits<uint32_t>::max();
 				int64_t wait_time = std::abs((int64_t)(kcp_refresh_time) - (int64_t)(nearest_update_time.load()));
-				std::unique_lock tasks_lock(tasks_mutex);
-				task_available_cv.wait_for(tasks_lock, std::chrono::milliseconds{wait_time});
-				if (running)
+				task_queue kcp_task_without_lock;
 				{
-					kcp_refresh_time = time_now_for_kcp();
-					uint32_t smallest_refresh_time = std::numeric_limits<uint32_t>::max();
-					for (auto iter = tasks.begin(), next_iter = iter; iter != tasks.end(); iter = next_iter)
+					std::unique_lock tasks_lock(tasks_mutex);
+					task_available_cv.wait_for(tasks_lock, std::chrono::milliseconds{wait_time});
+					if (running)
 					{
-						++next_iter;
-						std::shared_ptr<KCP> kcp_ptr = iter->first.lock();
-						if (kcp_ptr == nullptr)
+						kcp_refresh_time = TimeNowForKCP();
+						for (auto iter = tasks.begin(), next_iter = iter; iter != tasks.end(); iter = next_iter)
 						{
-							tasks.erase(iter);
-							tasks_total.store(tasks.size());
-							continue;
-						}
-						uint32_t &kcp_update_time = iter->second;
+							++next_iter;
+							std::shared_ptr<KCP> kcp_ptr = iter->first.lock();
+							if (kcp_ptr == nullptr)
+							{
+								tasks.erase(iter);
+								tasks_total.store(tasks.size());
+								continue;
+							}
+							uint32_t kcp_update_time = iter->second;
+							kcp_task_without_lock[kcp_ptr] = kcp_update_time;
 
-						if (kcp_refresh_time >= kcp_update_time)
-						{
-							kcp_ptr->Update(kcp_refresh_time);
-							kcp_update_time = kcp_ptr->Check(kcp_refresh_time);
+							if (smallest_refresh_time > kcp_update_time)
+								smallest_refresh_time = kcp_update_time;
 						}
 
-						if (smallest_refresh_time > kcp_update_time)
-							smallest_refresh_time = kcp_update_time;
+						nearest_update_time.store(smallest_refresh_time);
+
+						if (tasks.empty())
+							nearest_update_time.store(std::numeric_limits<uint32_t>::max());
+					}
+				}
+
+				kcp_refresh_time = TimeNowForKCP();
+				smallest_refresh_time = std::numeric_limits<uint32_t>::max();
+				for (auto iter = kcp_task_without_lock.begin(), next_iter = iter; iter != kcp_task_without_lock.end(); iter = next_iter)
+				{
+					++next_iter;
+					std::shared_ptr<KCP> kcp_ptr = iter->first.lock();
+					if (kcp_ptr == nullptr)
+					{
+						kcp_task_without_lock.erase(iter);
+						continue;
+					}
+					uint32_t &kcp_update_time = iter->second;
+
+					if (kcp_refresh_time >= kcp_update_time)
+					{
+						kcp_ptr->Update(kcp_refresh_time);
+						kcp_update_time = kcp_ptr->Check(kcp_refresh_time);
 					}
 
-					nearest_update_time.store(smallest_refresh_time);
-
-					if (tasks.empty())
-						nearest_update_time.store(std::numeric_limits<uint32_t>::max());
-
-					if (waiting)
-						task_done_cv.notify_one();
+					if (smallest_refresh_time > kcp_update_time)
+						smallest_refresh_time = kcp_update_time;
 				}
+
+				nearest_update_time.store(smallest_refresh_time);
+
+				std::unique_lock tasks_lock(tasks_mutex);
+				for (auto &[kcp_ptr, kcp_update_time] : kcp_task_without_lock)
+				{
+					auto iter = tasks.find(kcp_ptr);
+					if (iter == tasks.end())
+						continue;
+
+					iter->second = kcp_update_time;
+				}
+				if (tasks.empty())
+					nearest_update_time.store(std::numeric_limits<uint32_t>::max());
+				tasks_lock.unlock();
+
+				if (waiting)
+					task_done_cv.notify_one();
 			}
 		}
 

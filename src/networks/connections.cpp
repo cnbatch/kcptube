@@ -197,6 +197,24 @@ void debug_print_data(const uint8_t *data, size_t len)
 	std::cout << ss.str();
 }
 
+size_t max_capacity_size_by_mtu(size_t mtu_value)
+{
+	if (mtu_value == 0)
+		return 0;
+#ifdef ASIO_HAS_UNISTD_H
+	static const long pages = sysconf(_SC_PHYS_PAGES);
+	static const long page_size = sysconf(_SC_PAGE_SIZE);
+	return pages * page_size / 2 / mtu_value;
+#endif
+#ifdef ASIO_WINDOWS
+	MEMORYSTATUSEX status = {};
+	status.dwLength = sizeof(status);
+	GlobalMemoryStatusEx(&status);
+	return status.ullAvailPhys / mtu_value;
+#endif
+	return 0;
+}
+
 namespace packet
 {
 	int64_t right_now()
@@ -457,8 +475,9 @@ void tcp_session::stop()
 {
 	stopped.store(true);
 	callback = empty_tcp_callback;
+	asio::error_code ec;
 	if (is_open())
-		connection_socket.close();
+		connection_socket.close(ec);
 }
 
 bool tcp_session::is_pause()
@@ -627,9 +646,9 @@ void tcp_session::after_read_completed(std::unique_ptr<uint8_t[]> buffer_cache, 
 	}
 
 	last_receive_time.store(packet::right_now());
-	async_read_data();
 
 	transfer_data_to_next_function(std::move(buffer_cache), bytes_transferred);
+	async_read_data();
 }
 
 void tcp_session::transfer_data_to_next_function(std::unique_ptr<uint8_t[]> buffer_cache, size_t bytes_transferred)
@@ -730,7 +749,8 @@ std::shared_ptr<tcp_session> tcp_client::connect(asio::error_code &ec)
 		current_socket.connect(endpoint_entry, ec);
 		if (!ec)
 			break;
-		current_socket.close();
+		asio::error_code ec_close;
+		current_socket.close(ec_close);
 	}
 	return new_connection;
 }
@@ -1055,7 +1075,7 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		size_t pointer_to_number = (size_t)this;
 		if (task_limit > 0 && sequence_task_pool->get_task_count(pointer_to_number) > task_limit)
 			return;
-		sequence_task_pool->push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+		sequence_task_pool->push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
 			std::move(buffer_cache));
 	}
@@ -1063,7 +1083,7 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	{
 		if (task_limit > 0 && task_assigner->get_task_count() > task_limit)
 			return;
-		task_assigner->push_task([this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+		task_assigner->push_task([this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
 			std::move(buffer_cache));
 	}

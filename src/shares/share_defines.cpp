@@ -11,8 +11,6 @@
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg)
 {
-	using namespace str_utils;
-
 	user_settings current_user_settings;
 	error_msg.clear();
 

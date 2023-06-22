@@ -333,11 +333,11 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				break;
 
 			case strhash("outbound_bandwidth"):
-				current_settings->outbound_bandwidth = bandwidth_from_string(original_value);
+				current_settings->outbound_bandwidth = bandwidth_from_string(original_value, error_msg);
 				break;
 
 			case strhash("inbound_bandwidth"):
-				current_settings->inbound_bandwidth = bandwidth_from_string(original_value);
+				current_settings->inbound_bandwidth = bandwidth_from_string(original_value, error_msg);
 				break;
 
 			case strhash("log_path"):
@@ -783,18 +783,25 @@ void verify_server_listen_port(user_settings &current_user_settings, std::vector
 
 void verify_client_destination(user_settings &current_user_settings, std::vector<std::string>& error_msg)
 {
-	if (current_user_settings.destination_port == 0 &&
-		(current_user_settings.destination_port_start == 0 ||
-			current_user_settings.destination_port_end == 0))
+	if (current_user_settings.destination_port == 0)
 	{
-		error_msg.emplace_back("destination port setting incorrect");
+		if(current_user_settings.destination_port_start == 0 ||
+			current_user_settings.destination_port_end == 0)
+		{
+			error_msg.emplace_back("destination port setting incorrect");
+		}
+		
+		if(current_user_settings.destination_port_start > current_user_settings.destination_port_end)
+		{
+			error_msg.emplace_back("destination end port must larger than start port");
+		}
 	}
 
 	if (current_user_settings.destination_address.empty())
 		error_msg.emplace_back("invalid destination_address setting");
 }
 
-uint64_t bandwidth_from_string(const std::string &bandwidth)
+uint64_t bandwidth_from_string(const std::string &bandwidth, std::vector<std::string> &error_msg)
 {
 	if (bandwidth.empty())
 		return 0;
@@ -808,24 +815,45 @@ uint64_t bandwidth_from_string(const std::string &bandwidth)
 	switch (unit)
 	{
 	case 'K':
-		bandwidth_expand = kilo;
-		break;
-	case 'k':
 		bandwidth_expand = kibi;
 		break;
-	case 'M':
-		bandwidth_expand = kilo * kilo;
+	case 'k':
+		bandwidth_expand = kilo;
 		break;
-	case 'm':
+	case 'M':
 		bandwidth_expand = kibi * kibi;
 		break;
-	case 'G':
-		bandwidth_expand = kilo * kilo * kilo;
+	case 'm':
+		bandwidth_expand = kilo * kilo;
 		break;
-	case 'g':
+	case 'G':
 		bandwidth_expand = kibi * kibi * kibi;
 		break;
+	case 'g':
+		bandwidth_expand = kilo * kilo * kilo;
+		break;
+	case '0':
+		break;
+	case '1':
+		break;
+	case '2':
+		break;
+	case '3':
+		break;
+	case '4':
+		break;
+	case '5':
+		break;
+	case '6':
+		break;
+	case '7':
+		break;
+	case '8':
+		break;
+	case '9':
+		break;
 	default:
+		error_msg.emplace_back("Unknow bandwidth unit");
 		break;
 	}
 
@@ -841,6 +869,7 @@ uint64_t bandwidth_from_string(const std::string &bandwidth)
 	}
 	catch (...)
 	{
+		error_msg.emplace_back("bandwidth convertion failed");
 		return 0;
 	}
 

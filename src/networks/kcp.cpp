@@ -1,7 +1,18 @@
 // This is a wrapper of ikcp
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <chrono>
+#include <limits>
+
+#ifdef _WIN32
+#include <Windows.h>
+#endif // _WIN32
+
+#ifdef __unix__
+#include <unistd.h>
+#endif //  __unix__
+
 #include "kcp.hpp"
 #include "../3rd_party/ikcp.h"
 
@@ -14,7 +25,7 @@ int64_t right_now();
 
 namespace KCP
 {
-	uint32_t time_now_for_kcp()
+	uint32_t TimeNowForKCP()
 	{
 		return static_cast<uint32_t>((duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()) & 0xFFFF'FFFFul);
 	}
@@ -24,6 +35,7 @@ namespace KCP
 		ikcp_ptr = ikcp_create(conv, this);
 		custom_data.store(nullptr);
 		last_input_time.store(right_now());
+		max_window_size.store(std::numeric_limits<uint32_t>::max());
 	}
 
 	void KCP::MoveKCP(KCP &other) noexcept
@@ -34,6 +46,7 @@ namespace KCP
 		other.ikcp_ptr = nullptr;
 		other.custom_data.store(nullptr);
 		last_input_time.store(other.last_input_time.load());
+		max_window_size.store(other.max_window_size.load());
 	}
 
 	KCP::KCP(const KCP &other) noexcept
@@ -42,6 +55,7 @@ namespace KCP
 		((ikcpcb *)ikcp_ptr)->user = this;
 		custom_data.store(other.custom_data.load());
 		last_input_time.store(other.last_input_time.load());
+		max_window_size.store(other.max_window_size.load());
 	}
 
 	KCP::~KCP()
@@ -54,16 +68,18 @@ namespace KCP
 	{
 		ikcpcb *kcp_ptr = (ikcpcb *)ikcp_ptr;
 		if (outbound_bandwidth > 0)
-			kcp_ptr->snd_wnd = (uint32_t)(outbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_rto) + 32;
+		{
+			kcp_ptr->snd_wnd = std::min((uint32_t)(outbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_rto / 1000), max_window_size.load());
+			if (kcp_ptr->snd_wnd < 32)
+				kcp_ptr->snd_wnd = 32;
+		}
 		if (inbound_bandwidth > 0)
-			kcp_ptr->rcv_wnd = (uint32_t)(inbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_rto) + 32;
+		{
+			kcp_ptr->rcv_wnd = std::min((uint32_t)(inbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_rto / 1000), max_window_size.load());
+			if (kcp_ptr->rcv_wnd < 32)
+				kcp_ptr->rcv_wnd = 32;
+		}
 	}
-
-	//int64_t KCP::RightNowInSeconds()
-	//{
-	//	auto right_now = std::chrono::system_clock::now();
-	//	return std::chrono::duration_cast<std::chrono::seconds>(right_now.time_since_epoch()).count();
-	//}
 
 	void KCP::SetOutput(std::function<int(const char *, int, void *)> output_func)
 	{
@@ -98,7 +114,7 @@ namespace KCP
 	void KCP::Update()
 	{
 		std::scoped_lock locker{ mtx };
-		ikcp_update((ikcpcb *)ikcp_ptr, time_now_for_kcp());
+		ikcp_update((ikcpcb *)ikcp_ptr, TimeNowForKCP());
 	}
 
 	uint32_t KCP::Check(uint32_t current)
@@ -110,15 +126,16 @@ namespace KCP
 	uint32_t KCP::Check()
 	{
 		std::shared_lock locker{ mtx };
-		return ikcp_check((ikcpcb *)ikcp_ptr, time_now_for_kcp());
+		return ikcp_check((ikcpcb *)ikcp_ptr, TimeNowForKCP());
 	}
 
 	// when you received a low level packet (eg. UDP packet), call it
 	int KCP::Input(const char *data, long size)
 	{
-		std::scoped_lock locker{ mtx };
+		std::unique_lock locker{ mtx };
 		auto ret = ikcp_input((ikcpcb *)ikcp_ptr, data, size);
 		ResetWindowValues();
+		locker.unlock();
 		last_input_time.store(right_now());
 		return ret;
 	}
@@ -219,18 +236,6 @@ namespace KCP
 	{
 		return last_input_time.load();
 	}
-
-	//int64_t KCP::SecondsSinceLastReceiveTime()
-	//{
-	//	int64_t current_time = RightNowInSeconds();
-	//	return std::abs(current_time - last_receive_time.load());
-	//}
-
-	//int64_t KCP::SecondsSinceLastSendTime()
-	//{
-	//	int64_t current_time = RightNowInSeconds();
-	//	return std::abs(current_time - last_send_time.load());
-	//}
 
 	int proxy_output(KCP *kcp, const char *buf, int len)
 	{

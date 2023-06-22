@@ -24,3 +24,7 @@
 
 ## 参数介绍
 请前往[参数列表](parameters_zh-hans.md)
+
+## 配置文件生成器
+
+若需要配置文件生成器，请前往此处：[KCPTube Generator](https://github.com/cnbatch/KCPTubeGenerator)

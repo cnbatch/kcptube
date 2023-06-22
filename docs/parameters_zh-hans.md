@@ -2,6 +2,7 @@
 
 |  名称   | 可设置值  | 必填 |备注|
 |  ----  | ----  | :----: | ---- |
+| listen_on | 域名或 IP 地址 |否|只能填写域名或 IP 地址|
 | mode  | client<br>server<br>relay |是|客户端<br>服务端<br>中继节点|
 | listen_port | 1 - 65535 |是|以服务端运行时可以指定端口范围|
 | destination_port | 1 - 65535 |是|以客户端运行时可以指定端口范围|
@@ -27,6 +28,8 @@
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|若系统禁用了 IPv6，须启用该选项并设为 yes 或 true 或 1|
 | [listener] | N/A |是<br>(仅限中继模式)|中继模式的标签，用于指定监听模式的 KCP 设置<br>该标签表示与客户端交互数据|
 | [forwarder] | N/A  |是<br>(仅限中继模式)|中继模式的标签，用于指定转运模式的 KCP 设置<br>该标签表示与服务端交互数据|
+
+其中，`encryption_algorithm` 以及 `encryption_password` 在通讯的两端必须保持一致。
 
 ## outbound_bandwidth 与 inbound_bandwidth
 可用后缀：K / M / G

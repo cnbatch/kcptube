@@ -23,7 +23,9 @@ Currently 3 modes are supported:
 
 ## Usage
 ### All Usage
-Please refer [Wiki Page](https://github.com/cnbatch/kcptube/wiki), or [Document Page](docs/README_EN.md)。
+Please refer [Wiki Page](https://github.com/cnbatch/kcptube/wiki), or [Document Page](docs/README_EN.md)
+
+You can generate a configuration file by using [KCPTube Generator](https://github.com/cnbatch/KCPTubeGenerator)
 
 ### Basic Usage
 `kcptube config.conf`
@@ -143,6 +145,7 @@ encryption_algorithm=AES-GCM
 
 |  Name   | Value  | Require |Note|
 |  ----  | ----  | :----: | ---- |
+| listen_on | domain name or IP address |No|domain name / IP address only|
 | listen_port | 1 - 65535 |Yes|Port ranges can be specified when running as a server mode|
 | destination_port | 1 - 65535 |Yes|Port ranges can be specified when running as a client mode|
 | destination_address  | IP address, domain name |Yes|Brackets are not required when filling in an IPv6 address|
@@ -167,6 +170,8 @@ encryption_algorithm=AES-GCM
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |No|If the system disables IPv6, this option must be enabled and set to yes or true or 1|
 | [listener] | N/A |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the listening mode<br>This tag represents data exchanged with the client|
 | [forwarder] | N/A  |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the forwarding mode<br>This tag represents data exchanged with the server|
+
+Note: `encryption_algorithm` and `encryption_password` must be consistent at both ends of the communication.
 
 #### outbound_bandwidth and inbound_bandwidth
 Available suffixes: K / M / G

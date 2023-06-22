@@ -24,3 +24,7 @@ Please refer [Relay Mode Configuration](relay_mode_en.md) introduction page
 
 ## Parameters
 Please refer [parameter list](parameters_en.md)
+
+## Configuration File Generator
+
+You can generate a configuration file by using [KCPTube Generator](https://github.com/cnbatch/KCPTubeGenerator)

@@ -40,17 +40,16 @@ class client_mode
 	std::shared_mutex mutex_kcp_keepalive;
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive;
 
-
 	std::shared_mutex mutex_id_map_to_mux_records;
 	std::map<uint64_t, std::shared_ptr<mux_records>> id_map_to_mux_records;	// (KCP conv << 32) + connection uid
 	std::shared_mutex mutex_udp_map_to_mux_records;
 	std::map<udp::endpoint, std::weak_ptr<mux_records>> udp_map_to_mux_records;
 
-	std::shared_mutex mutex_expiring_mux_records;
-	std::map<uint64_t, std::shared_ptr<mux_records>> expiring_mux_records;	// (KCP conv << 32) + connection uid
-	std::shared_mutex mutex_expiring_udp_mux_records;
-	std::map<udp::endpoint, std::weak_ptr<mux_records>> expiring_udp_mux_records;
+	std::shared_mutex mutex_mux_tcp_cache;
+	std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> mux_tcp_cache;
 
+	std::shared_mutex mutex_mux_udp_cache;
+	std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> mux_udp_cache;
 
 	asio::steady_timer timer_find_expires;
 	asio::steady_timer timer_expiring_kcp;
@@ -72,6 +71,9 @@ class client_mode
 
 	void mux_transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
 	void mux_cancel_channel(protocol_type prtcl, kcp_mappings *kcp_mappings_ptr, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
+	void mux_move_cached_to_tunnel();
+	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, size_t one_x);
+	void refresh_mux_queue(std::weak_ptr<KCP::KCP> kcp_ptr_weak);
 
 	std::shared_ptr<KCP::KCP> pick_one_from_kcp_channels();
 	int kcp_sender(const char *buf, int len, void *user);
@@ -82,6 +84,7 @@ class client_mode
 	void process_disconnect(uint32_t conv);
 	void process_disconnect(uint32_t conv, tcp_session *session);
 	void change_new_port(kcp_mappings *kcp_mappings_ptr);
+	bool handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr);
 
 	void delete_mux_records(uint32_t conv);
 	void cleanup_expiring_forwarders();

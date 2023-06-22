@@ -7,6 +7,7 @@
 #include <random>
 #include <set>
 #include <string>
+#include <memory>
 #include <vector>
 #include <filesystem>
 
@@ -30,18 +31,18 @@ namespace constant_values
 template<typename T>
 T generate_random_number()
 {
-	thread_local std::random_device rd;
-	thread_local std::mt19937 mt(rd());
-	thread_local std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
+	std::random_device rd;
+	std::mt19937 mt(rd());
+	std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
 	return uniform_dist(mt);
 }
 
 template<typename T>
 T generate_random_number(T start_num, T end_num)
 {
-	thread_local std::random_device rd;
-	thread_local std::mt19937 mt(rd());
-	thread_local std::uniform_int_distribution<T> uniform_dist(start_num, end_num);
+	std::random_device rd;
+	std::mt19937 mt(rd());
+	std::uniform_int_distribution<T> uniform_dist(start_num, end_num);
 	return uniform_dist(mt);
 }
 

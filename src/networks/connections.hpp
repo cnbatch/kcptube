@@ -13,6 +13,8 @@
 #include <iomanip>
 #include <sstream>
 #include <tuple>
+#include <vector>
+#include <deque>
 #include <asio.hpp>
 
 #include "../shares/share_defines.hpp"
@@ -29,6 +31,8 @@ constexpr size_t CLEANUP_WAITS = 15;	// second
 constexpr size_t KCP_CLEANUP_WAITS = 4;	// second
 constexpr size_t RECEIVER_CLEANUP_WAITS = KCP_CLEANUP_WAITS * 2;	// second
 constexpr size_t MUX_CHANNELS_CLEANUP = TIME_GAP >> 3;	//seconds
+constexpr size_t HANDSHAKE_TIMEOUT = 30;	//seconds
+constexpr size_t KCP_DEFAULT_WINDOW = 32;
 constexpr auto EXPRING_UPDATE_INTERVAL = std::chrono::seconds(1);
 constexpr auto KEEPALIVE_UPDATE_INTERVAL = std::chrono::seconds(1);
 constexpr auto STUN_RESEND = std::chrono::seconds(30);
@@ -52,6 +56,7 @@ std::string_view feature_to_string(feature ftr);
 std::string protocol_type_to_string(protocol_type prtcl);
 std::string debug_data_to_string(const uint8_t *data, size_t len);
 void debug_print_data(const uint8_t *data, size_t len);
+size_t max_capacity_size_by_mtu(size_t mtu_value);
 
 namespace packet
 {
@@ -141,19 +146,19 @@ public:
 		: network_io(net_io), connection_socket(network_io), task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0),
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false) {}
+		paused(false), stopped(false), session_ending(false) {}
 	
 	tcp_session(asio::io_context &net_io, ttp::task_group_pool &task_groups, size_t task_count_limit, tcp_callback_t callback_func)
 		: network_io(net_io), connection_socket(network_io), task_assigner(nullptr), sequence_task_pool(&task_groups), task_limit(task_count_limit),
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false) {}
+		paused(false), stopped(false), session_ending(false) {}
 	
 	tcp_session(asio::io_context &net_io, ttp::task_thread_pool &task_pool, size_t task_count_limit, tcp_callback_t callback_func)
 		: network_io(net_io), connection_socket(network_io), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit),
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false) {}
+		paused(false), stopped(false), session_ending(false) {}
 
 	void start();
 
@@ -481,6 +486,7 @@ struct kcp_mappings
 	std::shared_ptr<tcp_session> local_tcp;
 	std::shared_ptr<udp_client> local_udp;
 	std::atomic<int64_t> changeport_timestamp;
+	std::atomic<int64_t> handshake_setup_time;
 	std::atomic<int64_t> last_data_transfer_time;
 };
 
@@ -492,6 +498,13 @@ struct mux_records
 	std::shared_ptr<udp_client> local_udp;
 	udp::endpoint source_endpoint;
 	std::atomic<int64_t> last_data_transfer_time;
+};
+
+struct mux_data_cache
+{
+	std::unique_ptr<uint8_t[]> data;
+	uint8_t *sending_ptr;
+	size_t data_size;
 };
 
 std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);

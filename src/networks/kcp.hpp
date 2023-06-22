@@ -16,8 +16,7 @@ namespace KCP
 	int proxy_output(KCP *kcp, const char *buf, int len);
 	void proxy_writelog(KCP *kcp, const char *buf);
 
-	uint32_t time_now_for_kcp();
-
+	uint32_t TimeNowForKCP();
 	//---------------------------------------------------------------------
 	// KCP wrapper
 	//---------------------------------------------------------------------
@@ -33,6 +32,7 @@ namespace KCP
 		uint64_t outbound_bandwidth = 0;
 		uint64_t inbound_bandwidth = 0;
 		std::atomic<int64_t> last_input_time{0};
+		std::atomic<uint32_t> max_window_size;
 		mutable std::shared_mutex mtx;
 		std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
 		std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
@@ -128,6 +128,7 @@ namespace KCP
 		int32_t& RxMinRTO();
 		void SetBandwidth(uint64_t out_bw, uint64_t in_bw);
 		int64_t LastInputTime();
+		void SetMaxWindowSize(uint32_t value) { max_window_size.store(value); }
 	};
 }
 
