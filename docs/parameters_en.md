@@ -2,6 +2,7 @@
 
 |  Name   | Value  | Require |Note|
 |  ----  | ----  | :----: | ---- |
+| mode  | client<br>server<br>relay |Yes|Client Mode<br>Server Mode<br>Relay Node Mode|
 | listen_on | domain name or IP address |No|domain name / IP address only|
 | listen_port | 1 - 65535 |Yes|Port ranges can be specified when running as a server mode|
 | destination_port | 1 - 65535 |Yes|Port ranges can be specified when running as a client mode|

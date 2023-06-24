@@ -62,12 +62,12 @@ struct user_settings
 	running_mode mode = running_mode::unknow;
 	kcp_mode kcp_setting = kcp_mode::unknow;
 	int kcp_mtu = -1;
-	int kcp_sndwnd = -1;
-	int kcp_rcvwnd = -1;
 	int kcp_nodelay = -1;
 	int kcp_interval = -1;
 	int kcp_resend = -1;
 	int kcp_nc = -1;
+	uint32_t kcp_sndwnd = 0;
+	uint32_t kcp_rcvwnd = 0;
 	uint64_t outbound_bandwidth = 0;
 	uint64_t inbound_bandwidth = 0;
 	bool ipv4_only = false;

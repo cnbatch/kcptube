@@ -34,9 +34,6 @@ namespace KCP
 		uint64_t outbound_bandwidth = 0;
 		uint64_t inbound_bandwidth = 0;
 		std::atomic<int64_t> last_input_time{0};
-		std::atomic<uint32_t> max_window_size;
-		std::deque<int> rx_srtt_5_minutes;
-		std::deque<uint32_t> rx_srtt_timestamps;
 		mutable std::shared_mutex mtx;
 		std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
 		std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
@@ -44,7 +41,6 @@ namespace KCP
 		void Initialise(uint32_t conv);
 		void MoveKCP(KCP &other) noexcept;
 		void ResetWindowValues();
-		int AvergeSrtt(int current);
 
 	public:
 
@@ -108,11 +104,12 @@ namespace KCP
 		int GetMTU();
 
 		// set maximum window size: sndwnd=32, rcvwnd=32 by default
-		void SetWindowSize(int sndwnd, int rcvwnd);
-		void GetWindowSize(int &sndwnd, int &rcvwnd);
-		std::pair<int, int> GetWindowSize();
-		int GetSendWindowSize();
-		int GetReceiveWindowSize();
+		void SetWindowSize(uint32_t sndwnd, uint32_t rcvwnd);
+		void GetWindowSize(uint32_t &sndwnd, uint32_t &rcvwnd);
+		std::pair<uint32_t, uint32_t> GetWindowSizes();
+		uint32_t GetSendWindowSize();
+		uint32_t GetReceiveWindowSize();
+		uint32_t GetRemoteWindowSize();
 
 		// get how many packet is waiting to be sent
 		int WaitingForSend();
@@ -133,7 +130,6 @@ namespace KCP
 		int32_t& RxMinRTO();
 		void SetBandwidth(uint64_t out_bw, uint64_t in_bw);
 		int64_t LastInputTime();
-		void SetMaxWindowSize(uint32_t value) { max_window_size.store(value); }
 	};
 }
 

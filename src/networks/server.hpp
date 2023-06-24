@@ -42,11 +42,11 @@ class server_mode
 
 	std::shared_mutex mutex_mux_tcp_cache;
 	std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> mux_tcp_cache;
-	std::map<std::weak_ptr<KCP::KCP>, int, std::owner_less<>> mux_tcp_cache_max_size;
+	std::map<std::weak_ptr<KCP::KCP>, uint32_t, std::owner_less<>> mux_tcp_cache_max_size;
 
 	std::shared_mutex mutex_mux_udp_cache;
 	std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> mux_udp_cache;
-	std::map<std::weak_ptr<KCP::KCP>, int, std::owner_less<>> mux_udp_cache_max_size;
+	std::map<std::weak_ptr<KCP::KCP>, uint32_t, std::owner_less<>> mux_udp_cache_max_size;
 
 	asio::steady_timer timer_find_expires;
 	asio::steady_timer timer_expiring_kcp;

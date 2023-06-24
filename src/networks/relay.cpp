@@ -901,8 +901,6 @@ void relay_mode::loop_find_expires()
 		std::shared_ptr<kcp_mappings> kcp_mappings_ptr = iter->second;
 		std::shared_ptr<KCP::KCP> kcp_ptr_ingress = kcp_mappings_ptr->ingress_kcp;
 		std::shared_ptr<KCP::KCP> kcp_ptr_egress = kcp_mappings_ptr->egress_kcp;
-		kcp_ptr_ingress->SetMaxWindowSize(max_window_size);
-		kcp_ptr_egress->SetMaxWindowSize(max_window_size);
 
 		if (calculate_difference(time_right_now, kcp_mappings_ptr->last_data_transfer_time.load()) > current_settings.egress->udp_timeout &&
 			calculate_difference(time_right_now, kcp_ptr_ingress->LastInputTime()) > current_settings.egress->udp_timeout &&

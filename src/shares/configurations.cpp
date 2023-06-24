@@ -276,14 +276,6 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				current_settings->kcp_mtu = std::stoi(value);
 				break;
 
-			case strhash("kcp_sndwnd"):
-				current_settings->kcp_sndwnd = std::stoi(value);
-				break;
-
-			case strhash("kcp_rcvwnd"):
-				current_settings->kcp_rcvwnd = std::stoi(value);
-				break;
-
 			case strhash("kcp_nodelay"):
 				current_settings->kcp_nodelay = std::stoi(value);
 				break;
@@ -302,6 +294,20 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				current_settings->kcp_nc = yes;
 				break;
 			}
+
+			case strhash("kcp_sndwnd"):
+				if (auto wnd = std::stoi(value); wnd >= 0)
+					current_settings->kcp_sndwnd = static_cast<uint32_t>(wnd);
+				else
+					error_msg.emplace_back("invalid kcp_sndwnd value: " + value);
+				break;
+
+			case strhash("kcp_rcvwnd"):
+				if (auto wnd = std::stoi(value); wnd >= 0)
+					current_settings->kcp_rcvwnd = static_cast<uint32_t>(wnd);
+				else
+					error_msg.emplace_back("invalid kcp_rcvwnd value: " + value);
+				break;
 
 			case strhash("udp_timeout"):
 				if (auto time_interval = std::stoi(value); time_interval <= 0 || time_interval > USHRT_MAX)
@@ -546,10 +552,10 @@ void copy_settings(user_settings &inner, user_settings &outter)
 	if (outter.kcp_setting != kcp_mode::unknow)
 		inner.kcp_setting = outter.kcp_setting;
 
-	if (outter.kcp_rcvwnd > -1)
+	if (outter.kcp_rcvwnd > 0)
 		inner.kcp_rcvwnd = outter.kcp_rcvwnd;
 
-	if (outter.kcp_sndwnd > -1)
+	if (outter.kcp_sndwnd > 0)
 		inner.kcp_sndwnd = outter.kcp_sndwnd;
 
 	if (outter.outbound_bandwidth > 0)
@@ -594,10 +600,10 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		if (current_user_settings.kcp_nc < 0)
 			error_msg.emplace_back("kcp_nc not set");
 
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
 
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 
 		break;
@@ -609,9 +615,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 		break;
 	}
@@ -622,9 +628,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 		break;
 	}
@@ -635,9 +641,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 		break;
 	}
@@ -648,9 +654,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 		break;
 	}
@@ -661,9 +667,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 4;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 		break;
 	}
@@ -674,9 +680,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 4;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window * 2;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window * 2;
 		break;
 	}
@@ -687,9 +693,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 5;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 		break;
 	}
@@ -700,9 +706,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 5;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 		break;
 	}
@@ -713,9 +719,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 		break;
 	}
@@ -726,9 +732,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 3;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 		break;
 	}
@@ -742,9 +748,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 0;
 		current_user_settings.kcp_nc = 1;
-		if (current_user_settings.kcp_sndwnd < 0)
+		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
-		if (current_user_settings.kcp_rcvwnd < 0)
+		if (current_user_settings.kcp_rcvwnd == 0)
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 		break;
 	}

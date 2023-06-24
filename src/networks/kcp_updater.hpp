@@ -148,7 +148,8 @@ namespace KCP
 				uint32_t kcp_refresh_time = TimeNowForKCP();
 				uint32_t smallest_refresh_time = std::numeric_limits<uint32_t>::max();
 				int64_t wait_time = std::abs((int64_t)(kcp_refresh_time) - (int64_t)(nearest_update_time.load()));
-				task_queue kcp_task_without_lock;
+				thread_local task_queue kcp_task_without_lock;
+				kcp_task_without_lock.clear();
 				{
 					std::unique_lock tasks_lock(tasks_mutex);
 					task_available_cv.wait_for(tasks_lock, std::chrono::milliseconds{wait_time});

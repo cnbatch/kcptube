@@ -43,7 +43,6 @@ namespace KCP
 		ikcp_ptr = ikcp_create(conv, this);
 		custom_data.store(nullptr);
 		last_input_time.store(right_now());
-		max_window_size.store(std::numeric_limits<uint32_t>::max());
 	}
 
 	void KCP::MoveKCP(KCP &other) noexcept
@@ -54,7 +53,6 @@ namespace KCP
 		other.ikcp_ptr = nullptr;
 		other.custom_data.store(nullptr);
 		last_input_time.store(other.last_input_time.load());
-		max_window_size.store(other.max_window_size.load());
 	}
 
 	KCP::KCP(const KCP &other) noexcept
@@ -63,7 +61,6 @@ namespace KCP
 		((ikcpcb *)ikcp_ptr)->user = this;
 		custom_data.store(other.custom_data.load());
 		last_input_time.store(other.last_input_time.load());
-		max_window_size.store(other.max_window_size.load());
 	}
 
 	KCP::~KCP()
@@ -74,41 +71,21 @@ namespace KCP
 
 	void KCP::ResetWindowValues()
 	{
+		if (outbound_bandwidth == 0 && inbound_bandwidth == 0)
+			return;
 		ikcpcb *kcp_ptr = (ikcpcb *)ikcp_ptr;
-		int rx_one_way_avg = AvergeSrtt(kcp_ptr->rx_srtt) / 2;
 		if (outbound_bandwidth > 0)
 		{
-			kcp_ptr->snd_wnd = std::min((uint32_t)(outbound_bandwidth / kcp_ptr->mtu * rx_one_way_avg / 1000), max_window_size.load());
+			kcp_ptr->snd_wnd = (uint32_t)(outbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_srtt / 1000);
 			if (kcp_ptr->snd_wnd < 32)
 				kcp_ptr->snd_wnd = 32;
 		}
 		if (inbound_bandwidth > 0)
 		{
-			kcp_ptr->rcv_wnd = std::min((uint32_t)(inbound_bandwidth / kcp_ptr->mtu * rx_one_way_avg / 1000), max_window_size.load());
+			kcp_ptr->rcv_wnd = (uint32_t)(inbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_srtt / 1000);
 			if (kcp_ptr->rcv_wnd < 32)
 				kcp_ptr->rcv_wnd = 32;
 		}
-	}
-
-	int KCP::AvergeSrtt(int current)
-	{
-		uint32_t now_timestamp = TimeNowForKCP();
-		rx_srtt_5_minutes.emplace_back(current);
-		rx_srtt_timestamps.emplace_back(now_timestamp);
-		while (true)
-		{
-			if (now_timestamp - rx_srtt_timestamps.front() > five_minutes_in_ms)
-			{
-				rx_srtt_timestamps.pop_front();
-				rx_srtt_5_minutes.pop_front();
-			}
-			else
-			{
-				break;
-			}
-		}
-		int deque_size = (int)rx_srtt_5_minutes.size();
-		return std::reduce(PAR rx_srtt_5_minutes.begin(), rx_srtt_5_minutes.end()) / deque_size;
 	}
 
 	void KCP::SetOutput(std::function<int(const char *, int, void *)> output_func)
@@ -195,29 +172,34 @@ namespace KCP
 	}
 
 	// set maximum window size: sndwnd=32, rcvwnd=32 by default
-	void KCP::SetWindowSize(int sndwnd, int rcvwnd)
+	void KCP::SetWindowSize(uint32_t sndwnd, uint32_t rcvwnd)
 	{
 		ikcp_wndsize((ikcpcb *)ikcp_ptr, sndwnd, rcvwnd);
 	}
 
-	void KCP::GetWindowSize(int &sndwnd, int &rcvwnd)
+	void KCP::GetWindowSize(uint32_t &sndwnd, uint32_t &rcvwnd)
 	{
 		sndwnd = ((ikcpcb *)ikcp_ptr)->snd_wnd;
 		rcvwnd = ((ikcpcb *)ikcp_ptr)->rcv_wnd;
 	}
-	std::pair<int, int> KCP::GetWindowSize()
+	std::pair<uint32_t, uint32_t> KCP::GetWindowSizes()
 	{
-		return std::pair<int, int>{ ((ikcpcb *)ikcp_ptr)->snd_wnd, ((ikcpcb *)ikcp_ptr)->rcv_wnd };
+		return std::pair<uint32_t, uint32_t>{ ((ikcpcb *)ikcp_ptr)->snd_wnd, ((ikcpcb *)ikcp_ptr)->rcv_wnd };
 	}
 
-	int KCP::GetSendWindowSize()
+	uint32_t KCP::GetSendWindowSize()
 	{
 		return ((ikcpcb *)ikcp_ptr)->snd_wnd;
 	}
 
-	int KCP::GetReceiveWindowSize()
+	uint32_t KCP::GetReceiveWindowSize()
 	{
 		return ((ikcpcb *)ikcp_ptr)->rcv_wnd;
+	}
+
+	uint32_t KCP::GetRemoteWindowSize()
+	{
+		return ((ikcpcb *)ikcp_ptr)->rmt_wnd;
 	}
 
 	// get how many packet is waiting to be sent
