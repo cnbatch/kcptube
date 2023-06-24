@@ -4,6 +4,14 @@
 #include <cstdlib>
 #include <chrono>
 #include <limits>
+#include <numeric>
+
+#if __cpp_lib_execution
+#include <execution>
+#define PAR std::execution::par,
+#else
+#define PAR
+#endif
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -67,18 +75,40 @@ namespace KCP
 	void KCP::ResetWindowValues()
 	{
 		ikcpcb *kcp_ptr = (ikcpcb *)ikcp_ptr;
+		int rx_one_way_avg = AvergeSrtt(kcp_ptr->rx_srtt) / 2;
 		if (outbound_bandwidth > 0)
 		{
-			kcp_ptr->snd_wnd = std::min((uint32_t)(outbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_rto / 1000), max_window_size.load());
+			kcp_ptr->snd_wnd = std::min((uint32_t)(outbound_bandwidth / kcp_ptr->mtu * rx_one_way_avg / 1000), max_window_size.load());
 			if (kcp_ptr->snd_wnd < 32)
 				kcp_ptr->snd_wnd = 32;
 		}
 		if (inbound_bandwidth > 0)
 		{
-			kcp_ptr->rcv_wnd = std::min((uint32_t)(inbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_rto / 1000), max_window_size.load());
+			kcp_ptr->rcv_wnd = std::min((uint32_t)(inbound_bandwidth / kcp_ptr->mtu * rx_one_way_avg / 1000), max_window_size.load());
 			if (kcp_ptr->rcv_wnd < 32)
 				kcp_ptr->rcv_wnd = 32;
 		}
+	}
+
+	int KCP::AvergeSrtt(int current)
+	{
+		uint32_t now_timestamp = TimeNowForKCP();
+		rx_srtt_5_minutes.emplace_back(current);
+		rx_srtt_timestamps.emplace_back(now_timestamp);
+		while (true)
+		{
+			if (now_timestamp - rx_srtt_timestamps.front() > five_minutes_in_ms)
+			{
+				rx_srtt_timestamps.pop_front();
+				rx_srtt_5_minutes.pop_front();
+			}
+			else
+			{
+				break;
+			}
+		}
+		int deque_size = (int)rx_srtt_5_minutes.size();
+		return std::reduce(PAR rx_srtt_5_minutes.begin(), rx_srtt_5_minutes.end()) / deque_size;
 	}
 
 	void KCP::SetOutput(std::function<int(const char *, int, void *)> output_func)

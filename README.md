@@ -191,6 +191,8 @@ encryption_algorithm=AES-GCM
 
 注意，是 bps (Bits Per Second)，不是 Bps (Bytes Per Second)。
 
+需要提醒的是，填写的带宽值不应超出实际带宽，以免造成发送窗口拥堵导致阻塞。
+
 #### KCP 模式预设值
 | 快速模式      | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |

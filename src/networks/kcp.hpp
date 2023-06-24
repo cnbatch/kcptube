@@ -9,12 +9,14 @@
 #include <shared_mutex>
 #include <utility>
 #include <vector>
+#include <deque>
 
 namespace KCP
 {
 	class KCP;
 	int proxy_output(KCP *kcp, const char *buf, int len);
 	void proxy_writelog(KCP *kcp, const char *buf);
+	constexpr uint32_t five_minutes_in_ms = 5 * 60 * 1000;
 
 	uint32_t TimeNowForKCP();
 	//---------------------------------------------------------------------
@@ -33,6 +35,8 @@ namespace KCP
 		uint64_t inbound_bandwidth = 0;
 		std::atomic<int64_t> last_input_time{0};
 		std::atomic<uint32_t> max_window_size;
+		std::deque<int> rx_srtt_5_minutes;
+		std::deque<uint32_t> rx_srtt_timestamps;
 		mutable std::shared_mutex mtx;
 		std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
 		std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
@@ -40,6 +44,7 @@ namespace KCP
 		void Initialise(uint32_t conv);
 		void MoveKCP(KCP &other) noexcept;
 		void ResetWindowValues();
+		int AvergeSrtt(int current);
 
 	public:
 

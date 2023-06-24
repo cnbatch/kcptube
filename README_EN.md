@@ -190,6 +190,8 @@ The suffix is case-sensitive, uppercase is calculated as binary (1024), lowercas
 
 Please note that it is bps (Bits Per Second), not Bps (Bytes Per Second).
 
+This bandwidth values should not larger than your actual bandwidth, otherwise this will cause the sending window to be congested and cause blocking.
+
 #### KCP Mode Default Values
 | Fast Mode    | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |

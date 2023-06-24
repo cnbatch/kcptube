@@ -47,9 +47,11 @@ class client_mode
 
 	std::shared_mutex mutex_mux_tcp_cache;
 	std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> mux_tcp_cache;
+	std::map<std::weak_ptr<KCP::KCP>, int, std::owner_less<>> mux_tcp_cache_max_size;
 
 	std::shared_mutex mutex_mux_udp_cache;
 	std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> mux_udp_cache;
+	std::map<std::weak_ptr<KCP::KCP>, int, std::owner_less<>> mux_udp_cache_max_size;
 
 	asio::steady_timer timer_find_expires;
 	asio::steady_timer timer_expiring_kcp;
@@ -72,7 +74,7 @@ class client_mode
 	void mux_transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
 	void mux_cancel_channel(protocol_type prtcl, kcp_mappings *kcp_mappings_ptr, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
 	void mux_move_cached_to_tunnel();
-	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, size_t one_x);
+	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, int one_x);
 	void refresh_mux_queue(std::weak_ptr<KCP::KCP> kcp_ptr_weak);
 
 	std::shared_ptr<KCP::KCP> pick_one_from_kcp_channels();
