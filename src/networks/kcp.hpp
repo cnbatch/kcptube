@@ -28,6 +28,8 @@ namespace KCP
 		friend void proxy_writelog(KCP *kcp, const char *buf);
 	public:
 		std::atomic<void *> custom_data;
+		std::atomic<int64_t> keep_alive_send_time;
+		std::atomic<int64_t> keep_alive_response_time;
 
 	private:
 		void *ikcp_ptr;
@@ -109,7 +111,7 @@ namespace KCP
 		std::pair<uint32_t, uint32_t> GetWindowSizes();
 		uint32_t GetSendWindowSize();
 		uint32_t GetReceiveWindowSize();
-		uint32_t GetRemoteWindowSize();
+		//uint32_t GetRemoteWindowSize();
 
 		// get how many packet is waiting to be sent
 		int WaitingForSend();

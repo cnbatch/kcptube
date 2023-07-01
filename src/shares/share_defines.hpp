@@ -4,6 +4,7 @@
 #define _SHARE_DEFINES_
 
 #include <cstdint>
+#include <cstdlib>
 #include <random>
 #include <set>
 #include <string>
@@ -46,6 +47,12 @@ T generate_random_number(T start_num, T end_num)
 	return uniform_dist(mt);
 }
 
+template<typename T>
+T calculate_difference(T number_left, T number_right)
+{
+	return std::abs(number_left - number_right);
+}
+
 struct user_settings
 {
 	uint16_t listen_port = 0;
@@ -71,6 +78,7 @@ struct user_settings
 	uint64_t outbound_bandwidth = 0;
 	uint64_t inbound_bandwidth = 0;
 	bool ipv4_only = false;
+	bool test_only = false;
 	std::string listen_on;
 	std::string destination_address;
 	std::string encryption_password;
@@ -83,7 +91,6 @@ struct user_settings
 };
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
-int64_t calculate_difference(int64_t number1_left, int64_t number_right);
 std::set<uint16_t> convert_to_port_list(const user_settings &current_settings);
 
 std::string time_to_string();

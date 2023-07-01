@@ -76,13 +76,13 @@ namespace KCP
 		ikcpcb *kcp_ptr = (ikcpcb *)ikcp_ptr;
 		if (outbound_bandwidth > 0)
 		{
-			kcp_ptr->snd_wnd = (uint32_t)(outbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_srtt / 1000);
+			kcp_ptr->snd_wnd = (uint32_t)(outbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_srtt / 1000 * 1.2);
 			if (kcp_ptr->snd_wnd < 32)
 				kcp_ptr->snd_wnd = 32;
 		}
 		if (inbound_bandwidth > 0)
 		{
-			kcp_ptr->rcv_wnd = (uint32_t)(inbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_srtt / 1000);
+			kcp_ptr->rcv_wnd = (uint32_t)(inbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_srtt / 1000 * 1.2);
 			if (kcp_ptr->rcv_wnd < 32)
 				kcp_ptr->rcv_wnd = 32;
 		}
@@ -197,10 +197,10 @@ namespace KCP
 		return ((ikcpcb *)ikcp_ptr)->rcv_wnd;
 	}
 
-	uint32_t KCP::GetRemoteWindowSize()
-	{
-		return ((ikcpcb *)ikcp_ptr)->rmt_wnd;
-	}
+	//uint32_t KCP::GetRemoteWindowSize()
+	//{
+	//	return ((ikcpcb *)ikcp_ptr)->rmt_wnd;
+	//}
 
 	// get how many packet is waiting to be sent
 	int KCP::WaitingForSend()

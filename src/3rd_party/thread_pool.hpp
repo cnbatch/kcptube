@@ -26,6 +26,7 @@ namespace ttp
 	using concurrency_t = std::invoke_result_t<decltype(std::thread::hardware_concurrency)>;
 
 	using task_callback = std::function<void(std::unique_ptr<uint8_t[]>)>;
+	using task_void_callback = std::function<void()>;
 
 	using task_queue = std::list<std::tuple<task_callback, std::unique_ptr<uint8_t[]>>>;
 
@@ -398,24 +399,22 @@ namespace ttp
 		}
 
 		/**
-		* @brief Push a function with zero or more arguments, but no return value, into the task queue. Does not return a future, so the user must use wait_for_tasks() or some other method to ensure that the task finishes executing, otherwise bad things will happen.
+		* @brief Push a function with no parameters, and no return value, into the task queue. Does not return a future, so the user must use wait_for_tasks() or some other method to ensure that the task finishes executing, otherwise bad things will happen.
 		*
-		* @tparam F The type of the function.
-		* @tparam A The types of the arguments.
-		* @param task The function to push.
-		* @param args The zero or more arguments to pass to the function. Note that if the task is a class member function, the first argument must be a pointer to the object, i.e. &object (or this), followed by the actual arguments.
+		* @param task_function The function to push.
 		*/
-		//template <typename F, typename... A>
-		//void push_task(F&& task, A&&... args)
-		//{
-		//    std::function<void()> task_function = std::bind(std::forward<F>(task), std::forward<A>(args)...);
-		//    {
-		//        const std::scoped_lock tasks_lock(tasks_mutex);
-		//        tasks.push(task_function);
-		//    }
-		//    ++tasks_total;
-		//    task_available_cv.notify_one();
-		//}
+		void push_task(size_t number, task_void_callback void_task_function)
+		{
+			std::unique_ptr<uint8_t[]> data = nullptr;
+			size_t thread_number = number % thread_count;
+			{
+				std::scoped_lock tasks_lock(tasks_mutex_of_threads[thread_number]);
+				auto task_function = [void_task_function](std::unique_ptr<uint8_t[]> data) { void_task_function(); };
+				task_queue_of_threads[thread_number].push_back({ task_function, std::move(data) });
+				++tasks_total_of_threads[thread_number];
+			}
+			task_available_cv[thread_number].notify_one();
+		}
 
 		/**
 		* @brief Push a function with no parameters, and no return value, into the task queue. Does not return a future, so the user must use wait_for_tasks() or some other method to ensure that the task finishes executing, otherwise bad things will happen.

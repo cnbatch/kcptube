@@ -16,6 +16,16 @@ or
 `kcptube config1.conf config2.conf`
 If there are multiple files, you can then add them.
 
+If you want to test connectivity before establish connection, just add ``--try`` option
+
+```
+kcptube --try config1.conf
+```
+or
+```
+kcptube config1.conf --try
+```
+
 #### Examples of Client and Server Mode
 Please refer [General Configuration](client_server_en.md) introduction page
 

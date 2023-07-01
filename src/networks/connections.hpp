@@ -22,20 +22,20 @@
 #include "stun.hpp"
 #include "kcp.hpp"
 
-constexpr size_t TIME_GAP = std::numeric_limits<uint8_t>::max();	//seconds
-constexpr size_t BUFFER_SIZE = 2048u;
-constexpr size_t BUFFER_EXPAND_SIZE = 128u;
-constexpr size_t RETRY_TIMES = 30u;
-constexpr size_t RETRY_WAITS = 2u;
-constexpr size_t CLEANUP_WAITS = 15;	// second
-constexpr size_t KCP_CLEANUP_WAITS = 4;	// second
-constexpr size_t RECEIVER_CLEANUP_WAITS = KCP_CLEANUP_WAITS * 2;	// second
-constexpr size_t MUX_CHANNELS_CLEANUP = TIME_GAP >> 3;	//seconds
-constexpr size_t HANDSHAKE_TIMEOUT = 30;	//seconds
-constexpr size_t KCP_DEFAULT_WINDOW = 32;
-constexpr auto EXPRING_UPDATE_INTERVAL = std::chrono::seconds(1);
-constexpr auto KEEPALIVE_UPDATE_INTERVAL = std::chrono::seconds(1);
-constexpr auto STUN_RESEND = std::chrono::seconds(30);
+constexpr int32_t gbv_time_gap_seconds = std::numeric_limits<uint8_t>::max();	//seconds
+constexpr int32_t gbv_mux_channels_cleanup = gbv_time_gap_seconds >> 3;	//seconds
+constexpr int32_t gbv_keepalive_timeout = gbv_time_gap_seconds >> 3;	//seconds
+constexpr size_t gbv_buffer_size = 2048u;
+constexpr size_t gbv_buffer_expand_size = 128u;
+constexpr size_t gbv_retry_times = 30u;
+constexpr size_t gbv_retry_waits = 2u;
+constexpr size_t gbv_cleanup_waits = 15;	// second
+constexpr size_t gbv_kcp_cleanup_waits = 4;	// second
+constexpr size_t gbv_receiver_cleanup_waits = gbv_kcp_cleanup_waits * 2;	// second
+constexpr size_t gbv_handshake_timeout = 30;	//seconds
+constexpr auto gbv_expring_update_interval = std::chrono::seconds(1);
+constexpr auto gbv_keepalive_update_interval = std::chrono::seconds(1);
+constexpr auto gbv_stun_resend = std::chrono::seconds(30);
 const asio::ip::udp::endpoint local_empty_target_v4(asio::ip::make_address_v4("127.0.0.1"), 70);
 const asio::ip::udp::endpoint local_empty_target_v6(asio::ip::make_address_v6("::1"), 70);
 
@@ -45,6 +45,8 @@ enum class feature : uint8_t
 	failure,
 	disconnect,
 	keep_alive,
+	test_connection = keep_alive,
+	keep_alive_response,
 	raw_data,
 	mux_transfer,
 	mux_cancel
@@ -56,16 +58,15 @@ std::string_view feature_to_string(feature ftr);
 std::string protocol_type_to_string(protocol_type prtcl);
 std::string debug_data_to_string(const uint8_t *data, size_t len);
 void debug_print_data(const uint8_t *data, size_t len);
-size_t max_capacity_size_by_mtu(size_t mtu_value);
 
 namespace packet
 {
 #pragma pack (push, 1)
 	struct upper_layer
 	{
-		int64_t timestamp;
-		uint8_t feature_value;
-		uint8_t protocol_value;
+		int32_t timestamp;
+		feature feature_value : 4;
+		protocol_type protocol_value : 4;
 		uint8_t data[1];
 	};
 	
@@ -74,6 +75,8 @@ namespace packet
 		uint32_t uid;
 		uint16_t port_start;
 		uint16_t port_end;
+		uint64_t outbound_bandwidth;
+		uint64_t inbound_bandwidth;
 	};
 	
 	struct mux_data_wrapper
@@ -83,24 +86,27 @@ namespace packet
 	};
 #pragma pack(pop)
 
-	constexpr size_t empty_data_size = sizeof(upper_layer) + 1;
+	constexpr size_t empty_data_size = sizeof(upper_layer);
 
 	int64_t right_now();
 
 	std::vector<uint8_t> create_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data);
+	std::vector<uint8_t> create_packet(feature ftr, protocol_type prtcl, const uint8_t *input_data, size_t data_size);
 	size_t create_packet(feature ftr, protocol_type prtcl, uint8_t *input_data, size_t data_size);
 
-	std::tuple<int64_t, feature, protocol_type, std::vector<uint8_t>> unpack(const std::vector<uint8_t> &data);
-	std::tuple<int64_t, feature, protocol_type, uint8_t*, size_t> unpack(uint8_t *data, size_t length);
+	std::tuple<int32_t, feature, protocol_type, std::vector<uint8_t>> unpack(const std::vector<uint8_t> &data);
+	std::tuple<int32_t, feature, protocol_type, uint8_t*, size_t> unpack(uint8_t *data, size_t length);
 
-	std::tuple<uint32_t, uint16_t, uint16_t> get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data);
-	std::tuple<uint32_t, uint16_t, uint16_t> get_initialise_details_from_unpacked_data(const uint8_t *data);
+	settings_wrapper get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data);
+	settings_wrapper get_initialise_details_from_unpacked_data(const uint8_t *data);
 
-	void modify_initialise_details_of_unpacked_data(uint8_t *data, uint16_t start_port, uint16_t end_port);
+	void modify_initialise_details_of_unpacked_data(uint8_t *data, const settings_wrapper &settings);
 
-	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl);
+	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl, uint64_t outbound_bandwidth, uint64_t inbound_bandwidth);
 
-	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, uint32_t uid, uint16_t port_start, uint16_t port_end);
+	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, const settings_wrapper &settings);
+
+	std::vector<uint8_t> create_test_connection_packet();
 
 	std::vector<uint8_t> inform_disconnect_packet(protocol_type prtcl);
 
@@ -110,6 +116,7 @@ namespace packet
 	size_t create_data_packet(protocol_type prtcl, uint8_t *custom_data, size_t length);
 
 	std::vector<uint8_t> create_keep_alive_packet(protocol_type prtcl);
+	std::vector<uint8_t> create_keep_alive_response_packet(protocol_type prtcl);
 
 	std::vector<uint8_t> create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, const std::vector<uint8_t> &custom_data);
 	size_t create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, uint8_t *input_data, size_t data_size);

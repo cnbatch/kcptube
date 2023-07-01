@@ -16,6 +16,16 @@
 `kcptube config1.conf config2.conf`
 如果有多个文件，可以接着补充。
 
+如果想在连接前测试一下连接是否畅通，可以加上 ``--try`` 选项
+
+```
+kcptube --try config1.conf
+```
+或
+```
+kcptube config1.conf --try
+```
+
 #### 客户端与服务端模式示例
 请前往[常规配置](client_server_zh-hans.md)介绍页面
 

@@ -520,8 +520,24 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		{
 			if (std::filesystem::is_directory(current_user_settings.log_directory))
 			{
+				std::string filename;
+				switch (current_user_settings.mode)
+				{
+				case running_mode::client:
+					filename = "client_output.log";
+					break;
+				case running_mode::server:
+					filename = "server_output.log";
+					break;
+				case running_mode::relay:
+					filename = "relay_output.log";
+					break;
+				default:
+					filename = "log_output.log";
+					break;
+				}
 				current_user_settings.log_ip_address = current_user_settings.log_directory / "ip_address.log";
-				current_user_settings.log_messages = current_user_settings.log_directory / "log_output.log";
+				current_user_settings.log_messages = current_user_settings.log_directory / filename;
 			}
 			else
 				error_msg.emplace_back("Log Path is not directory");

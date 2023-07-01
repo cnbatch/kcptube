@@ -1,5 +1,4 @@
 #include <cmath>
-#include <cstdlib>
 #include <iterator>
 #include <stdexcept>
 #include <fstream>
@@ -37,12 +36,6 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 	check_settings(current_user_settings, error_msg);
 
 	return current_user_settings;
-}
-
-
-int64_t calculate_difference(int64_t number_left, int64_t number_right)
-{
-	return std::abs(number_left - number_right);
 }
 
 std::set<uint16_t> convert_to_port_list(const user_settings &current_settings)

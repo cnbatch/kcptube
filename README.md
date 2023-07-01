@@ -71,6 +71,16 @@ listen_on=192.168.1.1
 kcptube config1.conf config2.conf
 ```
 
+如果想在连接前测试一下连接是否畅通，可以加上 ``--try`` 选项
+
+```
+kcptube --try config1.conf
+```
+或
+```
+kcptube config1.conf --try
+```
+
 ### 更灵活用法——服务端模式动态端口
 
 客户端模式示例：
@@ -154,7 +164,7 @@ encryption_algorithm=AES-GCM
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>不加密 |
 | encryption_password  | 任意字符 |视情况|设置了 encryption_algorithm 且不为 none 时必填|
 | udp_timeout  | 0 - 65535 |否|单位“秒”。预设值 180 秒，设为 0 则使用预设值<br>该选项表示的是，UDP 应用程序 ↔ kcptube 之间的超时设置|
-| keep_alive  | 0 - 65535 |否 |单位“秒”。预设值为 0，等于停用 Keep Alive<br>该选项是指两个KCP端之间的Keep Alive<br>仅单向发送，对方收到后并不回应，可单方面启用|
+| keep_alive  | 0 - 65535 |否 |单位“秒”。预设值为 0，等于停用 Keep Alive<br>该选项是指两个KCP端之间的Keep Alive<br>可单方面启用，用于检测通道是否停止响应。若超过30秒仍未有回应，就关闭通道。|
 | mux_tunnels  | 0 - 65535 |否 | 预设值为 0，等于不使用多路复用通道<br>该选项是指两个KCP端之间的多路复用通道数<br>仅限客户端启用|
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|

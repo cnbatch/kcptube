@@ -101,23 +101,23 @@ public:
 		zero_value_array{},
 		current_settings(settings) {}
 
-	relay_mode(relay_mode &&existing_server) noexcept
-		: io_context(existing_server.io_context),
-		kcp_updater(existing_server.kcp_updater),
-		timer_find_expires(std::move(existing_server.timer_find_expires)),
-		timer_expiring_kcp(std::move(existing_server.timer_expiring_kcp)),
-		timer_stun(std::move(existing_server.timer_stun)),
-		timer_keep_alive_ingress(std::move(existing_server.timer_keep_alive_ingress)),
-		timer_keep_alive_egress(std::move(existing_server.timer_keep_alive_egress)),
-		sequence_task_pool_local(existing_server.sequence_task_pool_local),
-		sequence_task_pool_peer(existing_server.sequence_task_pool_peer),
-		task_limit(existing_server.task_limit),
-		external_ipv4_port(existing_server.external_ipv4_port.load()),
-		external_ipv4_address(existing_server.external_ipv4_address.load()),
-		external_ipv6_port(existing_server.external_ipv6_port.load()),
-		external_ipv6_address{ existing_server.external_ipv6_address },
+	relay_mode(relay_mode &&existing_relay) noexcept
+		: io_context(existing_relay.io_context),
+		kcp_updater(existing_relay.kcp_updater),
+		timer_find_expires(std::move(existing_relay.timer_find_expires)),
+		timer_expiring_kcp(std::move(existing_relay.timer_expiring_kcp)),
+		timer_stun(std::move(existing_relay.timer_stun)),
+		timer_keep_alive_ingress(std::move(existing_relay.timer_keep_alive_ingress)),
+		timer_keep_alive_egress(std::move(existing_relay.timer_keep_alive_egress)),
+		sequence_task_pool_local(existing_relay.sequence_task_pool_local),
+		sequence_task_pool_peer(existing_relay.sequence_task_pool_peer),
+		task_limit(existing_relay.task_limit),
+		external_ipv4_port(existing_relay.external_ipv4_port.load()),
+		external_ipv4_address(existing_relay.external_ipv4_address.load()),
+		external_ipv6_port(existing_relay.external_ipv6_port.load()),
+		external_ipv6_address{ existing_relay.external_ipv6_address },
 		zero_value_array{},
-		current_settings(std::move(existing_server.current_settings)) {}
+		current_settings(std::move(existing_relay.current_settings)) {}
 
 	~relay_mode();
 

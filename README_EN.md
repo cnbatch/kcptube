@@ -71,6 +71,16 @@ If you want to listen to multiple ports and multiple NICs, just run kcptube with
 kcptube config1.conf config2.conf
 ```
 
+If you want to test connectivity before establish connection, just add ``--try`` option
+
+```
+kcptube --try config1.conf
+```
+or
+```
+kcptube config1.conf --try
+```
+
 ### More flexible usage - Server Mode dynamic port
 
 Example of client mode:
@@ -154,7 +164,7 @@ encryption_algorithm=AES-GCM
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |No    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>No Encryption |
 | encryption_password  | Any character |Depends…|…on the setting of encryption_algorithm, if the value is set and it is not none, it is required|
 | udp_timeout  | 0 - 65535 |No|The unit is ‘second’. The default value is 180 seconds, set to 0 to use the default value<br>This option represents the timeout setting between UDP application ↔ kcptube|
-| keep_alive  | 0 - 65535 |No | The unit is ‘second’. The default value is 0, which means that Keep Alive is disabled. This option refers to Keep Alive between two KCP endpoints.<br>One way only. Peer will not response any packet. This option can be used only by one side or the other, or both.|
+| keep_alive  | 0 - 65535 |No | The unit is ‘second’. The default value is 0, which means that Keep Alive is disabled. This option refers to Keep Alive between two KCP endpoints.<br>Can be enabled on any side. If no response is received after 30 seconds, the channel will be closed.|
 | mux_tunnels  | 0 - 65535 |No | The default value is 0, which means that multiplexing is disabled. This option means how many multiplexing tunnels between two KCP endpoints.<br>Client Mode only.|
 | stun_server  | STUN Server's address |No| Cannot be used if listen_port option is port range mode|
 | log_path  | The directory where the Logs are stored |No|Cannot point to the file itself|

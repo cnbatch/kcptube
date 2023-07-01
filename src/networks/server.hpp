@@ -96,16 +96,7 @@ class server_mode
 	void send_stun_request(const asio::error_code &e);
 	void find_expires(const asio::error_code &e);
 	void expiring_kcp_loops(const asio::error_code &e);
-	void time_counting(const asio::error_code &e);
 	void keep_alive(const asio::error_code &e);
-
-	asio::steady_timer timer_speed_count;
-	std::atomic<int64_t> input_count;
-	std::atomic<int64_t> output_count;
-	std::atomic<int64_t> input_count2;
-	std::atomic<int64_t> output_count2;
-	std::atomic<int64_t> input_count_before_kcp{};
-	std::atomic<int64_t> output_count_before_kcp{};
 
 public:
 	server_mode() = delete;
@@ -125,7 +116,7 @@ public:
 		external_ipv6_port(0),
 		external_ipv6_address{},
 		zero_value_array{},
-		current_settings(settings), timer_speed_count(io_context), input_count(0), output_count(0), input_count2(0), output_count2(0) {}
+		current_settings(settings) {}
 
 	server_mode(server_mode &&existing_server) noexcept
 		: io_context(existing_server.io_context),
@@ -142,7 +133,7 @@ public:
 		external_ipv6_port(existing_server.external_ipv6_port.load()),
 		external_ipv6_address{ existing_server.external_ipv6_address },
 		zero_value_array{},
-		current_settings(std::move(existing_server.current_settings)), timer_speed_count(io_context), input_count(0), output_count(0), input_count2(0), output_count2(0) {}
+		current_settings(std::move(existing_server.current_settings)) {}
 
 	~server_mode();
 

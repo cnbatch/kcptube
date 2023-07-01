@@ -60,6 +60,8 @@ class client_mode
 	ttp::task_group_pool &sequence_task_pool_peer;
 	const size_t task_limit;
 
+	bool start_test_only();
+	bool normal_start();
 	void tcp_listener_accept_incoming(std::shared_ptr<tcp_session> incoming_session);
 	void tcp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::weak_ptr<KCP::KCP> kcp_ptr_weak);
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
@@ -97,23 +99,19 @@ class client_mode
 	void loop_keep_alive();
 	void expiring_connection_loops(const asio::error_code &e);
 	void find_expires(const asio::error_code &e);
-	void time_counting(const asio::error_code &e);
 	void keep_alive(const asio::error_code &e);
 
 	std::shared_ptr<kcp_mappings> create_handshake(std::shared_ptr<tcp_session> local_tcp);
 	std::shared_ptr<kcp_mappings> create_handshake(udp::endpoint local_endpoint);
-	std::shared_ptr<kcp_mappings> create_handshake(protocol_type prtcl);
+	std::shared_ptr<kcp_mappings> create_handshake(feature ftr, protocol_type prtcl);
 	void setup_mux_kcp(std::shared_ptr<KCP::KCP> kcp_ptr);
 	void establish_mux_channels(uint16_t counts);
-	void on_handshake_success(kcp_mappings *handshake_ptr, uint32_t conv, uint16_t start_port, uint16_t end_port);
+	void on_handshake_success(kcp_mappings *handshake_ptr, const packet::settings_wrapper &basic_settings);
 	void on_handshake_failure(kcp_mappings *handshake_ptr, const std::string &error_message);
+	void on_handshake_test_success(kcp_mappings *handshake_ptr);
+	void handshake_test_failure(kcp_mappings *handshake_ptr);
+	void handshake_test_cleanup(kcp_mappings *handshake_ptr);
 	void handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
-
-	asio::steady_timer timer_speed_count;
-	std::atomic<int64_t> input_count;
-	std::atomic<int64_t> output_count;
-	std::atomic<int64_t> input_count2;
-	std::atomic<int64_t> output_count2;
 
 public:
 	client_mode() = delete;
@@ -121,8 +119,7 @@ public:
 	client_mode& operator=(const client_mode &) = delete;
 
 	client_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref,
-		ttp::task_group_pool &seq_task_pool_local, ttp::task_group_pool &seq_task_pool_peer,
-		size_t task_count_limit, const user_settings &settings) :
+		ttp::task_group_pool &seq_task_pool_local, ttp::task_group_pool &seq_task_pool_peer, size_t task_count_limit, const user_settings &settings) :
 		io_context(io_context_ref),
 		kcp_updater(kcp_updater_ref),
 		timer_find_expires(io_context),
@@ -131,10 +128,7 @@ public:
 		sequence_task_pool_local(seq_task_pool_local),
 		sequence_task_pool_peer(seq_task_pool_peer),
 		task_limit(task_count_limit),
-		current_settings(settings),
-		timer_speed_count(io_context), input_count(0), output_count(0)
-	{
-	}
+		current_settings(settings) {}
 
 	client_mode(client_mode &&existing_client) noexcept :
 		io_context(existing_client.io_context),
@@ -145,9 +139,7 @@ public:
 		sequence_task_pool_local(existing_client.sequence_task_pool_local),
 		sequence_task_pool_peer(existing_client.sequence_task_pool_peer),
 		task_limit(existing_client.task_limit),
-		current_settings(std::move(existing_client.current_settings)), timer_speed_count(io_context), input_count(0), output_count(0)
-	{
-	}
+		current_settings(std::move(existing_client.current_settings)) {}
 
 	~client_mode();
 

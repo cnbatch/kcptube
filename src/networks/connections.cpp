@@ -197,24 +197,6 @@ void debug_print_data(const uint8_t *data, size_t len)
 	std::cout << ss.str();
 }
 
-size_t max_capacity_size_by_mtu(size_t mtu_value)
-{
-	if (mtu_value == 0)
-		return 0;
-#ifdef ASIO_HAS_UNISTD_H
-	static const long pages = sysconf(_SC_PHYS_PAGES);
-	static const long page_size = sysconf(_SC_PAGE_SIZE);
-	return pages * page_size / 2 / mtu_value;
-#endif
-#ifdef ASIO_WINDOWS
-	MEMORYSTATUSEX status = {};
-	status.dwLength = sizeof(status);
-	GlobalMemoryStatusEx(&status);
-	return status.ullAvailPhys / mtu_value;
-#endif
-	return 0;
-}
-
 namespace packet
 {
 	int64_t right_now()
@@ -225,14 +207,14 @@ namespace packet
 
 	std::vector<uint8_t> create_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data)
 	{
-		auto timestamp = right_now();
-		auto new_data_size = sizeof(timestamp) + sizeof(upper_layer::feature_value) + sizeof(upper_layer::protocol_value) + data.size();
+		int64_t timestamp = right_now();
+		auto new_data_size = sizeof(upper_layer) - 1 + data.size();
 
 		std::vector<uint8_t> new_data(new_data_size);
 		upper_layer *ptr = (upper_layer *)new_data.data();
-		ptr->timestamp = timestamp;
-		ptr->feature_value = static_cast<uint8_t>(ftr);
-		ptr->protocol_value = static_cast<uint8_t>(prtcl);
+		ptr->timestamp = (int32_t)timestamp;
+		ptr->feature_value = ftr;
+		ptr->protocol_value = prtcl;
 		uint8_t *data_ptr = ptr->data;
 		if (data.size() > 0)
 			std::copy(data.begin(), data.end(), data_ptr);
@@ -240,17 +222,34 @@ namespace packet
 		return new_data;
 	}
 
+	std::vector<uint8_t> create_packet(feature ftr, protocol_type prtcl, const uint8_t *input_data, size_t data_size)
+	{
+		int64_t timestamp = right_now();
+		auto new_data_size = sizeof(upper_layer) - 1 + data_size;
+
+		std::vector<uint8_t> new_data(new_data_size);
+		upper_layer *ptr = (upper_layer *)new_data.data();
+		ptr->timestamp = (int32_t)timestamp;
+		ptr->feature_value = ftr;
+		ptr->protocol_value = prtcl;
+		uint8_t *data_ptr = ptr->data;
+		if (data_size > 0)
+			std::copy_n(input_data, data_size, data_ptr);
+
+		return new_data;
+	}
+
 	size_t create_packet(feature ftr, protocol_type prtcl, uint8_t *input_data, size_t data_size)
 	{
-		auto timestamp = right_now();
+		int64_t timestamp = right_now();
 
-		size_t new_size = sizeof(timestamp) + sizeof(upper_layer::feature_value) + sizeof(upper_layer::protocol_value) + data_size;
-		uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
+		size_t new_size = sizeof(upper_layer) - 1 + data_size;
+		uint8_t new_data[gbv_buffer_size + gbv_buffer_expand_size] = {};
 
 		upper_layer *ptr = (upper_layer *)new_data;
-		ptr->timestamp = timestamp;
-		ptr->feature_value = static_cast<uint8_t>(ftr);
-		ptr->protocol_value = static_cast<uint8_t>(prtcl);
+		ptr->timestamp = (int32_t)timestamp;
+		ptr->feature_value = ftr;
+		ptr->protocol_value = prtcl;
 
 		uint8_t *data_ptr = ptr->data;
 		if (data_size > 0)
@@ -261,10 +260,10 @@ namespace packet
 		return new_size;
 	}
 
-	std::tuple<int64_t, feature, protocol_type, std::vector<uint8_t>> unpack(const std::vector<uint8_t> &data)
+	std::tuple<int32_t, feature, protocol_type, std::vector<uint8_t>> unpack(const std::vector<uint8_t> &data)
 	{
 		const upper_layer *ptr = (const upper_layer *)data.data();
-		int64_t timestamp = ptr->timestamp;
+		int32_t timestamp = ptr->timestamp;
 		feature ftr = (feature)ptr->feature_value;
 		protocol_type prtcl = (protocol_type)ptr->protocol_value;
 		const uint8_t *data_ptr = ptr->data;
@@ -274,10 +273,10 @@ namespace packet
 		return { timestamp, ftr, prtcl, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
 	}
 
-	std::tuple<int64_t, feature, protocol_type, uint8_t*, size_t> unpack(uint8_t *data, size_t length)
+	std::tuple<int32_t, feature, protocol_type, uint8_t*, size_t> unpack(uint8_t *data, size_t length)
 	{
 		upper_layer *ptr = (upper_layer *)data;
-		int64_t timestamp = ptr->timestamp;
+		int32_t timestamp = ptr->timestamp;
 		feature ftr = (feature)ptr->feature_value;
 		protocol_type prtcl = (protocol_type)ptr->protocol_value;
 		uint8_t *data_ptr = ptr->data;
@@ -286,47 +285,46 @@ namespace packet
 		return { timestamp, ftr, prtcl, data_ptr, data_size };
 	}
 
-	std::tuple<uint32_t, uint16_t, uint16_t> get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data)
+	settings_wrapper get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data)
 	{
-		const settings_wrapper *ptr = (const settings_wrapper *)data.data();
-		uint32_t uid = ptr->uid;
-		uint16_t port_start = ptr->port_start;
-		uint16_t port_end = ptr->port_end;
-
-		return { uid, port_start, port_end };
+		settings_wrapper settings = *(const settings_wrapper *)data.data();
+		return settings;
 	}
 
-	std::tuple<uint32_t, uint16_t, uint16_t> get_initialise_details_from_unpacked_data(const uint8_t *data)
+	settings_wrapper get_initialise_details_from_unpacked_data(const uint8_t *data)
 	{
-		const settings_wrapper *ptr = (const settings_wrapper *)data;
-		uint32_t uid = ptr->uid;
-		uint16_t port_start = ptr->port_start;
-		uint16_t port_end = ptr->port_end;
-
-		return { uid, port_start, port_end };
+		settings_wrapper settings = *(const settings_wrapper *)data;
+		return settings;
 	}
 
-	void modify_initialise_details_of_unpacked_data(uint8_t *data, uint16_t start_port, uint16_t end_port)
+	void modify_initialise_details_of_unpacked_data(uint8_t *data, const settings_wrapper &settings)
 	{
 		settings_wrapper *ptr = (settings_wrapper *)data;
-		ptr->port_start = start_port;
-		ptr->port_end = start_port;
+		ptr->port_start = settings.port_start;
+		ptr->port_end = settings.port_end;
+		ptr->outbound_bandwidth = settings.outbound_bandwidth;
+		ptr->inbound_bandwidth = settings.inbound_bandwidth;
 	}
 
-	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl)
+	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl, uint64_t outbound_bandwidth, uint64_t inbound_bandwidth)
 	{
-		return create_packet(feature::initialise, prtcl, std::vector<uint8_t>(empty_data_size));
-	}
-
-	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, uint32_t uid, uint16_t port_start, uint16_t port_end)
-	{
-		std::vector<uint8_t> data(sizeof(uid) + sizeof(port_start) + sizeof(port_end));
+		std::vector<uint8_t> data(sizeof(settings_wrapper));
 		settings_wrapper *ptr = (settings_wrapper *)data.data();
-		ptr->uid = uid;
-		ptr->port_start = port_start;
-		ptr->port_end = port_end;
+		ptr->outbound_bandwidth = outbound_bandwidth;
+		ptr->inbound_bandwidth = inbound_bandwidth;
 
 		return create_packet(feature::initialise, prtcl, data);
+	}
+
+	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, const settings_wrapper &settings)
+	{
+		const uint8_t *data_ptr = (const uint8_t *)&settings;
+		return create_packet(feature::initialise, prtcl, data_ptr, sizeof settings);
+	}
+
+	std::vector<uint8_t> create_test_connection_packet()
+	{
+		return create_keep_alive_packet(protocol_type::not_care);
 	}
 
 	std::vector<uint8_t> inform_disconnect_packet(protocol_type prtcl)
@@ -356,16 +354,21 @@ namespace packet
 		return create_packet(feature::keep_alive, prtcl, std::vector<uint8_t>(empty_data_size));
 	}
 
+	std::vector<uint8_t> create_keep_alive_response_packet(protocol_type prtcl)
+	{
+		return create_packet(feature::keep_alive_response, prtcl, std::vector<uint8_t>(empty_data_size));
+	}
+
 	std::vector<uint8_t> create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, const std::vector<uint8_t> &custom_data)
 	{
-		auto timestamp = right_now();
-		auto new_data_size = sizeof(timestamp) + sizeof(upper_layer::feature_value) + sizeof(upper_layer::protocol_value) + sizeof(mux_data_wrapper::connection_id) + custom_data.size();
+		int64_t timestamp = right_now();
+		const auto new_data_size = sizeof(upper_layer) - 1 + sizeof(mux_data_wrapper) - 1 + custom_data.size();
 		std::vector<uint8_t> new_data(new_data_size);
 
 		upper_layer *ptr = (upper_layer *)new_data.data();
-		ptr->timestamp = timestamp;
-		ptr->feature_value = static_cast<uint8_t>(feature::mux_transfer);
-		ptr->protocol_value = static_cast<uint8_t>(prtcl);
+		ptr->timestamp = (int32_t)timestamp;
+		ptr->feature_value = feature::mux_transfer;
+		ptr->protocol_value = prtcl;
 
 		mux_data_wrapper *mux_data_ptr = (mux_data_wrapper *)ptr->data;
 		mux_data_ptr->connection_id = connection_id;
@@ -378,14 +381,14 @@ namespace packet
 
 	size_t create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, uint8_t *input_data, size_t data_size)
 	{
-		auto timestamp = right_now();
-		auto new_size = sizeof(timestamp) + sizeof(upper_layer::feature_value) + sizeof(upper_layer::protocol_value) + sizeof(mux_data_wrapper::connection_id) + data_size;
-		uint8_t new_data[BUFFER_SIZE + BUFFER_EXPAND_SIZE] = {};
+		int64_t timestamp = right_now();
+		const auto new_size = sizeof(upper_layer) - 1 + sizeof(mux_data_wrapper) - 1 + data_size;
+		uint8_t new_data[gbv_buffer_size + gbv_buffer_expand_size] = {};
 
 		upper_layer *ptr = (upper_layer *)new_data;
-		ptr->timestamp = timestamp;
-		ptr->feature_value = static_cast<uint8_t>(feature::mux_transfer);
-		ptr->protocol_value = static_cast<uint8_t>(prtcl);
+		ptr->timestamp = (int32_t)timestamp;
+		ptr->feature_value = feature::mux_transfer;
+		ptr->protocol_value = prtcl;
 
 		mux_data_wrapper *mux_data_ptr = (mux_data_wrapper *)ptr->data;
 		mux_data_ptr->connection_id = connection_id;
@@ -409,14 +412,14 @@ namespace packet
 
 	std::vector<uint8_t> inform_mux_cancel_packet(protocol_type prtcl, uint32_t connection_id)
 	{
-		auto timestamp = right_now();
-		auto new_data_size = sizeof(upper_layer) + sizeof(mux_data_wrapper);
+		int64_t timestamp = right_now();
+		const auto new_data_size = sizeof(upper_layer) - 1 + sizeof(mux_data_wrapper);
 		std::vector<uint8_t> new_data(new_data_size);
 
 		upper_layer *ptr = (upper_layer *)new_data.data();
-		ptr->timestamp = timestamp;
-		ptr->feature_value = static_cast<uint8_t>(feature::mux_cancel);
-		ptr->protocol_value = static_cast<uint8_t>(prtcl);
+		ptr->timestamp = (int32_t)timestamp;
+		ptr->feature_value = feature::mux_cancel;
+		ptr->protocol_value = prtcl;
 
 		mux_data_wrapper *mux_data_ptr = (mux_data_wrapper *)ptr->data;
 		mux_data_ptr->connection_id = connection_id;
@@ -430,8 +433,6 @@ namespace packet
 		return connection_id;
 	}
 
-
-
 	std::string get_error_message_from_unpacked_data(const std::vector<uint8_t> &data)
 	{
 		return std::string((const char *)data.data(), data.size());
@@ -441,7 +442,6 @@ namespace packet
 	{
 		return std::string((const char *)data, length);
 	}
-
 }	// namespace packet
 
 
@@ -507,8 +507,8 @@ void tcp_session::async_read_data()
 	if (paused.load() || stopped.load())
 		return;
 
-	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(BUFFER_SIZE);
-	auto asio_buffer = asio::buffer(buffer_cache.get(), BUFFER_SIZE);
+	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(gbv_buffer_size);
+	auto asio_buffer = asio::buffer(buffer_cache.get(), gbv_buffer_size);
 	asio::async_read(connection_socket, asio_buffer, asio::transfer_at_least(1),
 		[data = std::move(buffer_cache), this, sptr = shared_from_this()](const asio::error_code &error, std::size_t bytes_transferred) mutable
 		{
@@ -656,9 +656,9 @@ void tcp_session::transfer_data_to_next_function(std::unique_ptr<uint8_t[]> buff
 	if (buffer_cache == nullptr || bytes_transferred == 0)
 		return;
 
-	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
+	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)
 	{
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE + BUFFER_EXPAND_SIZE);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
 		std::copy_n(buffer_cache.get(), bytes_transferred, new_buffer.get());
 		buffer_cache.swap(new_buffer);
 	}
@@ -824,8 +824,8 @@ void udp_server::initialise(const udp::endpoint &ep)
 
 void udp_server::start_receive()
 {
-	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(BUFFER_SIZE);
-	auto asio_buffer = asio::buffer(buffer_cache.get(), BUFFER_SIZE);
+	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(gbv_buffer_size);
+	auto asio_buffer = asio::buffer(buffer_cache.get(), gbv_buffer_size);
 	connection_socket.async_receive_from(asio_buffer, incoming_endpoint,
 		[buffer_ptr = std::move(buffer_cache), this](const asio::error_code &error, std::size_t bytes_transferred) mutable
 		{
@@ -847,9 +847,9 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	if (buffer_cache == nullptr || bytes_transferred == 0)
 		return;
 
-	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
+	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)
 	{
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE + BUFFER_EXPAND_SIZE);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
 		std::copy_n(buffer_cache.get(), bytes_transferred, new_buffer.get());
 		buffer_cache.swap(new_buffer);
 	}
@@ -1032,9 +1032,9 @@ void udp_client::start_receive()
 	if (paused.load() || stopped.load())
 		return;
 
-	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(BUFFER_SIZE);
+	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(gbv_buffer_size);
 	uint8_t *buffer_cache_ptr = buffer_cache.get();
-	auto asio_buffer = asio::buffer(buffer_cache_ptr, BUFFER_SIZE);
+	auto asio_buffer = asio::buffer(buffer_cache_ptr, gbv_buffer_size);
 	connection_socket.async_receive_from(asio_buffer, incoming_endpoint,
 		[buffer_ptr = std::move(buffer_cache), this, sptr = shared_from_this()](const asio::error_code &error, std::size_t bytes_transferred) mutable
 		{
@@ -1063,9 +1063,9 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	if (buffer_cache == nullptr || bytes_transferred == 0)
 		return;
 
-	if (BUFFER_SIZE - bytes_transferred < BUFFER_EXPAND_SIZE)
+	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)
 	{
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(BUFFER_SIZE + BUFFER_EXPAND_SIZE);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
 		std::copy_n(buffer_cache.get(), bytes_transferred, new_buffer.get());
 		buffer_cache.swap(new_buffer);
 	}
