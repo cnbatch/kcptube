@@ -1,6 +1,6 @@
 # Specific Examples
 
-Here is an example usage in different scenarios. Please adjust the settings and add or delete options according to the actual situation.
+Here are examples usage in different scenarios. Please adjust the settings and add or delete options according to the actual situation.
 
 ## Speed Up OpenVPN
 Please configure OpenVPN in advance to ensure that the configuration is working.
