@@ -28,7 +28,7 @@ encryption_password=qwerty1234
 encryption_algorithm=AES-GCM
 
 [forwarder]
-kcp=regular4
+kcp=regular2
 inbound_bandwidth=300M
 outbound_bandwidth=300MM
 destination_port=13000-13010
@@ -41,7 +41,7 @@ udp_timeout=10
 服务端模式示例：
 ```
 mode=server
-kcp=regular4
+kcp=regular2
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=13000-13010
@@ -95,6 +95,7 @@ sequenceDiagram
 - udp_timeout
 - keep_alive
 - ipv4_only=1
+- blast
 
 若出现在节点标签外，就会覆盖所有节点标签内的对应值。其中`ipv4_only=1`是特例，只有`ipv4_only=1`时才覆盖，`ipv4_only=0`时并不会覆盖。
 

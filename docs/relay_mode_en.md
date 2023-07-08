@@ -28,7 +28,7 @@ encryption_password=qwerty1234
 encryption_algorithm=AES-GCM
 
 [forwarder]
-kcp=regular4
+kcp=regular2
 inbound_bandwidth=300M
 outbound_bandwidth=300MM
 destination_port=13000-13010
@@ -41,7 +41,7 @@ udp_timeout=10
 Example of server mode:
 ```
 mode=server
-kcp=regular4
+kcp=regular2
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=13000-13010
@@ -93,6 +93,7 @@ The following configuration options can be used outside `[listener]` and `[forwa
 - udp_timeout
 - keep_alive
 - ipv4_only=1
+- blast
 
 If these options appear outside of sections label, they override all corresponding values inside the section label. Among them, `ipv4_only=1` is a special case, it is only covered when `ipv4_only=1`, and it is not covered when `ipv4_only=0`.
 

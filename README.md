@@ -33,7 +33,7 @@
 客户端模式示例：
 ```
 mode=client
-kcp=regular4
+kcp=regular3
 inbound_bandwidth=500M
 outbound_bandwidth=50M
 listen_port=59000
@@ -46,7 +46,7 @@ encryption_algorithm=AES-GCM
 服务端模式示例：
 ```
 mode=server
-kcp=regular4
+kcp=regular3
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000
@@ -86,7 +86,7 @@ kcptube config1.conf --try
 客户端模式示例：
 ```
 mode=client
-kcp=regular4
+kcp=regular3
 inbound_bandwidth=500M
 outbound_bandwidth=50M
 listen_port=6000
@@ -100,7 +100,7 @@ encryption_algorithm=AES-GCM
 服务端模式示例：
 ```
 mode=server
-kcp=regular4
+kcp=regular3
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000-4000

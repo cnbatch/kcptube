@@ -8,7 +8,7 @@ In this mode, the server only provides a single port connection. However, in ord
 Example of client mode:
 ```
 mode=client
-kcp=regular4
+kcp=regular3
 inbound_bandwidth=500M
 outbound_bandwidth=50M
 listen_port=59000
@@ -21,7 +21,7 @@ encryption_algorithm=AES-GCM
 Example of server mode:
 ```
 mode=server
-kcp=regular4
+kcp=regular3
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000
@@ -54,7 +54,7 @@ n this mode, the server specifies a continuous port range, and the client random
 Example of client mode:
 ```
 mode=client
-kcp=regular4
+kcp=regular3
 inbound_bandwidth=500M
 outbound_bandwidth=50M
 listen_port=6000
@@ -68,7 +68,7 @@ encryption_algorithm=AES-GCM
 Example of server mode:
 ```
 mode=server
-kcp=regular4
+kcp=regular3
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000-4000
@@ -88,7 +88,7 @@ If the server is behind NAT, you can fill in the STUN server address in the conf
 
 ```
 mode=server
-kcp=regular4
+kcp=regular3
 inbound_bandwidth=1G
 outbound_bandwidth=1G
 listen_port=3000

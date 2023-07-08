@@ -38,3 +38,6 @@ kcptube config1.conf --try
 ## 配置文件生成器
 
 若需要配置文件生成器，请前往此处：[KCPTube Generator](https://github.com/cnbatch/KCPTubeGenerator)
+
+## 更多具体示例
+请前往[具体示例](specific_examples_zh-hans.md)
