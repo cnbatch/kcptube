@@ -5,9 +5,11 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 #include <random>
 #include <set>
 #include <string>
+#include <numeric>
 #include <memory>
 #include <vector>
 #include <filesystem>
@@ -79,6 +81,7 @@ struct user_settings
 	uint64_t inbound_bandwidth = 0;
 	bool ipv4_only = false;
 	bool test_only = false;
+	bool blast = false;
 	std::string listen_on;
 	std::string destination_address;
 	std::string encryption_password;

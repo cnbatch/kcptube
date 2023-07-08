@@ -25,6 +25,11 @@
 constexpr int32_t gbv_time_gap_seconds = std::numeric_limits<uint8_t>::max();	//seconds
 constexpr int32_t gbv_mux_channels_cleanup = gbv_time_gap_seconds >> 3;	//seconds
 constexpr int32_t gbv_keepalive_timeout = gbv_time_gap_seconds >> 3;	//seconds
+constexpr uint32_t gbv_mux_min_cache_size = 128u;
+constexpr uint32_t gbv_mux_min_cache_available = 16u;
+constexpr uint32_t gbv_mux_min_cache_slice = 8u;
+constexpr uint32_t gbv_tcp_slice = 2u;
+constexpr uint32_t gbv_half_time = 2u;
 constexpr size_t gbv_buffer_size = 2048u;
 constexpr size_t gbv_buffer_expand_size = 128u;
 constexpr size_t gbv_retry_times = 30u;
@@ -62,9 +67,14 @@ void debug_print_data(const uint8_t *data, size_t len);
 namespace packet
 {
 #pragma pack (push, 1)
-	struct upper_layer
+	struct packet_layer
 	{
 		int32_t timestamp;
+		uint8_t data[1];
+	};
+
+	struct data_layer
+	{
 		feature feature_value : 4;
 		protocol_type protocol_value : 4;
 		uint8_t data[1];
@@ -86,16 +96,18 @@ namespace packet
 	};
 #pragma pack(pop)
 
-	constexpr size_t empty_data_size = sizeof(upper_layer);
+	constexpr size_t empty_data_size = sizeof(data_layer);
 
 	int64_t right_now();
 
-	std::vector<uint8_t> create_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data);
-	std::vector<uint8_t> create_packet(feature ftr, protocol_type prtcl, const uint8_t *input_data, size_t data_size);
-	size_t create_packet(feature ftr, protocol_type prtcl, uint8_t *input_data, size_t data_size);
+	std::unique_ptr<uint8_t[]> create_packet(const uint8_t *input_data, int data_size, int &new_size);
+	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data);
+	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const uint8_t *input_data, size_t data_size);
+	size_t create_inner_packet(feature ftr, protocol_type prtcl, uint8_t *input_data, size_t data_size);
 
-	std::tuple<int32_t, feature, protocol_type, std::vector<uint8_t>> unpack(const std::vector<uint8_t> &data);
-	std::tuple<int32_t, feature, protocol_type, uint8_t*, size_t> unpack(uint8_t *data, size_t length);
+	std::tuple<int32_t, uint8_t*, size_t> unpack(uint8_t *data, size_t length);
+	std::tuple<feature, protocol_type, std::vector<uint8_t>> unpack_inner(const std::vector<uint8_t> &data);
+	std::tuple<feature, protocol_type, uint8_t*, size_t> unpack_inner(uint8_t *data, size_t length);
 
 	settings_wrapper get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data);
 	settings_wrapper get_initialise_details_from_unpacked_data(const uint8_t *data);
@@ -495,6 +507,7 @@ struct kcp_mappings
 	std::atomic<int64_t> changeport_timestamp;
 	std::atomic<int64_t> handshake_setup_time;
 	std::atomic<int64_t> last_data_transfer_time;
+	std::function<void()> mapping_function = []() {};
 };
 
 struct mux_records

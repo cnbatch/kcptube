@@ -10,6 +10,7 @@ class relay_mode
 {
 	asio::io_context &io_context;
 	KCP::KCPUpdater &kcp_updater;
+	const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender;
 	user_settings current_settings;
 	std::unique_ptr<rfc8489::stun_header> stun_header;
 	std::atomic<uint16_t> external_ipv4_port;
@@ -59,7 +60,6 @@ class relay_mode
 	void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void change_new_port(kcp_mappings *kcp_mappings_ptr);
 	void create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshake_kcp_mappings_ptr);
-	std::unique_ptr<uint8_t[]> kcp_sender_prepare(const char *buf, int len, const std::string &encryption_password, encryption_mode encryption, size_t &new_data_size);
 	int kcp_sender_via_listener(const char *buf, int len, void *user);
 	int kcp_sender_via_forwarder(const char *buf, int len, void *user);
 
@@ -85,9 +85,10 @@ public:
 	relay_mode(const relay_mode &) = delete;
 	relay_mode& operator=(const relay_mode &) = delete;
 
-	relay_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref,
+	relay_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender_ref,
 		ttp::task_group_pool &seq_task_pool_local, ttp::task_group_pool &seq_task_pool_peer, size_t task_count_limit, const user_settings &settings)
 		: io_context(io_context_ref), kcp_updater(kcp_updater_ref),
+		kcp_data_sender(kcp_data_sender_ref),
 		timer_find_expires(io_context), timer_expiring_kcp(io_context),
 		timer_stun(io_context),
 		timer_keep_alive_ingress(io_context),timer_keep_alive_egress(io_context),
@@ -104,6 +105,7 @@ public:
 	relay_mode(relay_mode &&existing_relay) noexcept
 		: io_context(existing_relay.io_context),
 		kcp_updater(existing_relay.kcp_updater),
+		kcp_data_sender(existing_relay.kcp_data_sender),
 		timer_find_expires(std::move(existing_relay.timer_find_expires)),
 		timer_expiring_kcp(std::move(existing_relay.timer_expiring_kcp)),
 		timer_stun(std::move(existing_relay.timer_stun)),

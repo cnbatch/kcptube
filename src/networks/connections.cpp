@@ -205,14 +205,27 @@ namespace packet
 		return duration_cast<seconds>(right_now.time_since_epoch()).count();
 	}
 
-	std::vector<uint8_t> create_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data)
+	std::unique_ptr<uint8_t[]> create_packet(const uint8_t *input_data, int data_size, int &new_size)
 	{
 		int64_t timestamp = right_now();
-		auto new_data_size = sizeof(upper_layer) - 1 + data.size();
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + gbv_buffer_expand_size);
+		packet_layer *ptr = (packet_layer *)new_buffer.get();
+		ptr->timestamp = (int32_t)timestamp;
+		uint8_t *data_ptr = ptr->data;
+		if (data_size > 0)
+			std::copy_n(input_data, data_size, data_ptr);
+
+		new_size = sizeof(packet_layer) - 1 + data_size;
+		return new_buffer;
+	}
+
+	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data)
+	{
+		int64_t timestamp = right_now();
+		auto new_data_size = sizeof(data_layer) - 1 + data.size();
 
 		std::vector<uint8_t> new_data(new_data_size);
-		upper_layer *ptr = (upper_layer *)new_data.data();
-		ptr->timestamp = (int32_t)timestamp;
+		data_layer *ptr = (data_layer *)new_data.data();
 		ptr->feature_value = ftr;
 		ptr->protocol_value = prtcl;
 		uint8_t *data_ptr = ptr->data;
@@ -222,14 +235,11 @@ namespace packet
 		return new_data;
 	}
 
-	std::vector<uint8_t> create_packet(feature ftr, protocol_type prtcl, const uint8_t *input_data, size_t data_size)
+	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const uint8_t *input_data, size_t data_size)
 	{
-		int64_t timestamp = right_now();
-		auto new_data_size = sizeof(upper_layer) - 1 + data_size;
-
+		auto new_data_size = sizeof(data_layer) - 1 + data_size;
 		std::vector<uint8_t> new_data(new_data_size);
-		upper_layer *ptr = (upper_layer *)new_data.data();
-		ptr->timestamp = (int32_t)timestamp;
+		data_layer *ptr = (data_layer *)new_data.data();
 		ptr->feature_value = ftr;
 		ptr->protocol_value = prtcl;
 		uint8_t *data_ptr = ptr->data;
@@ -239,15 +249,12 @@ namespace packet
 		return new_data;
 	}
 
-	size_t create_packet(feature ftr, protocol_type prtcl, uint8_t *input_data, size_t data_size)
+	size_t create_inner_packet(feature ftr, protocol_type prtcl, uint8_t *input_data, size_t data_size)
 	{
-		int64_t timestamp = right_now();
-
-		size_t new_size = sizeof(upper_layer) - 1 + data_size;
+		size_t new_size = sizeof(data_layer) - 1 + data_size;
 		uint8_t new_data[gbv_buffer_size + gbv_buffer_expand_size] = {};
 
-		upper_layer *ptr = (upper_layer *)new_data;
-		ptr->timestamp = (int32_t)timestamp;
+		data_layer *ptr = (data_layer *)new_data;
 		ptr->feature_value = ftr;
 		ptr->protocol_value = prtcl;
 
@@ -260,29 +267,36 @@ namespace packet
 		return new_size;
 	}
 
-	std::tuple<int32_t, feature, protocol_type, std::vector<uint8_t>> unpack(const std::vector<uint8_t> &data)
+	std::tuple<int32_t, uint8_t*, size_t> unpack(uint8_t *data, size_t length)
 	{
-		const upper_layer *ptr = (const upper_layer *)data.data();
+		packet_layer *ptr = (packet_layer *)data;
 		int32_t timestamp = ptr->timestamp;
+		uint8_t *data_ptr = ptr->data;
+		size_t data_size = length - (data_ptr - data);
+		return { timestamp , data_ptr, data_size };
+	}
+
+	std::tuple<feature, protocol_type, std::vector<uint8_t>> unpack_inner(const std::vector<uint8_t> &data)
+	{
+		const data_layer *ptr = (const data_layer *)data.data();
 		feature ftr = (feature)ptr->feature_value;
 		protocol_type prtcl = (protocol_type)ptr->protocol_value;
 		const uint8_t *data_ptr = ptr->data;
 
 		size_t data_size = data.size() - (data_ptr - data.data());
 
-		return { timestamp, ftr, prtcl, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
+		return { ftr, prtcl, std::vector<uint8_t>(data_ptr, data_ptr + data_size) };
 	}
 
-	std::tuple<int32_t, feature, protocol_type, uint8_t*, size_t> unpack(uint8_t *data, size_t length)
+	std::tuple<feature, protocol_type, uint8_t*, size_t> unpack_inner(uint8_t *data, size_t length)
 	{
-		upper_layer *ptr = (upper_layer *)data;
-		int32_t timestamp = ptr->timestamp;
+		data_layer *ptr = (data_layer *)data;
 		feature ftr = (feature)ptr->feature_value;
 		protocol_type prtcl = (protocol_type)ptr->protocol_value;
 		uint8_t *data_ptr = ptr->data;
 		size_t data_size = length - (data_ptr - data);
 
-		return { timestamp, ftr, prtcl, data_ptr, data_size };
+		return { ftr, prtcl, data_ptr, data_size };
 	}
 
 	settings_wrapper get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data)
@@ -313,13 +327,13 @@ namespace packet
 		ptr->outbound_bandwidth = outbound_bandwidth;
 		ptr->inbound_bandwidth = inbound_bandwidth;
 
-		return create_packet(feature::initialise, prtcl, data);
+		return create_inner_packet(feature::initialise, prtcl, data);
 	}
 
 	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, const settings_wrapper &settings)
 	{
 		const uint8_t *data_ptr = (const uint8_t *)&settings;
-		return create_packet(feature::initialise, prtcl, data_ptr, sizeof settings);
+		return create_inner_packet(feature::initialise, prtcl, data_ptr, sizeof settings);
 	}
 
 	std::vector<uint8_t> create_test_connection_packet()
@@ -329,44 +343,42 @@ namespace packet
 
 	std::vector<uint8_t> inform_disconnect_packet(protocol_type prtcl)
 	{
-		return create_packet(feature::disconnect, prtcl, std::vector<uint8_t>(empty_data_size));
+		return create_inner_packet(feature::disconnect, prtcl, std::vector<uint8_t>(empty_data_size));
 	}
 
 	std::vector<uint8_t> inform_error_packet(protocol_type prtcl, const std::string &error_msg)
 	{
 		std::vector<uint8_t> message(error_msg.size() + 1);
 		std::copy(error_msg.begin(), error_msg.end(), message.begin());
-		return create_packet(feature::failure, prtcl, message);
+		return create_inner_packet(feature::failure, prtcl, message);
 	}
 
 	std::vector<uint8_t> create_data_packet(protocol_type prtcl, const std::vector<uint8_t> &custom_data)
 	{
-		return create_packet(feature::raw_data, prtcl, custom_data);
+		return create_inner_packet(feature::raw_data, prtcl, custom_data);
 	}
 
 	size_t create_data_packet(protocol_type prtcl, uint8_t *custom_data, size_t length)
 	{
-		return create_packet(feature::raw_data, prtcl, custom_data, length);
+		return create_inner_packet(feature::raw_data, prtcl, custom_data, length);
 	}
 
 	std::vector<uint8_t> create_keep_alive_packet(protocol_type prtcl)
 	{
-		return create_packet(feature::keep_alive, prtcl, std::vector<uint8_t>(empty_data_size));
+		return create_inner_packet(feature::keep_alive, prtcl, std::vector<uint8_t>(empty_data_size));
 	}
 
 	std::vector<uint8_t> create_keep_alive_response_packet(protocol_type prtcl)
 	{
-		return create_packet(feature::keep_alive_response, prtcl, std::vector<uint8_t>(empty_data_size));
+		return create_inner_packet(feature::keep_alive_response, prtcl, std::vector<uint8_t>(empty_data_size));
 	}
 
 	std::vector<uint8_t> create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, const std::vector<uint8_t> &custom_data)
 	{
-		int64_t timestamp = right_now();
-		const auto new_data_size = sizeof(upper_layer) - 1 + sizeof(mux_data_wrapper) - 1 + custom_data.size();
+		const auto new_data_size = sizeof(data_layer) - 1 + sizeof(mux_data_wrapper) - 1 + custom_data.size();
 		std::vector<uint8_t> new_data(new_data_size);
 
-		upper_layer *ptr = (upper_layer *)new_data.data();
-		ptr->timestamp = (int32_t)timestamp;
+		data_layer *ptr = (data_layer *)new_data.data();
 		ptr->feature_value = feature::mux_transfer;
 		ptr->protocol_value = prtcl;
 
@@ -381,12 +393,10 @@ namespace packet
 
 	size_t create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, uint8_t *input_data, size_t data_size)
 	{
-		int64_t timestamp = right_now();
-		const auto new_size = sizeof(upper_layer) - 1 + sizeof(mux_data_wrapper) - 1 + data_size;
+		const auto new_size = sizeof(data_layer) - 1 + sizeof(mux_data_wrapper) - 1 + data_size;
 		uint8_t new_data[gbv_buffer_size + gbv_buffer_expand_size] = {};
 
-		upper_layer *ptr = (upper_layer *)new_data;
-		ptr->timestamp = (int32_t)timestamp;
+		data_layer *ptr = (data_layer *)new_data;
 		ptr->feature_value = feature::mux_transfer;
 		ptr->protocol_value = prtcl;
 
@@ -412,12 +422,10 @@ namespace packet
 
 	std::vector<uint8_t> inform_mux_cancel_packet(protocol_type prtcl, uint32_t connection_id)
 	{
-		int64_t timestamp = right_now();
-		const auto new_data_size = sizeof(upper_layer) - 1 + sizeof(mux_data_wrapper);
+		const auto new_data_size = sizeof(data_layer) - 1 + sizeof(mux_data_wrapper);
 		std::vector<uint8_t> new_data(new_data_size);
 
-		upper_layer *ptr = (upper_layer *)new_data.data();
-		ptr->timestamp = (int32_t)timestamp;
+		data_layer *ptr = (data_layer *)new_data.data();
 		ptr->feature_value = feature::mux_cancel;
 		ptr->protocol_value = prtcl;
 

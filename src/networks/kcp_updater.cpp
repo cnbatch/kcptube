@@ -54,7 +54,9 @@ namespace KCP
 		{
 			uint32_t kcp_refresh_time = TimeNowForKCP();
 			uint32_t smallest_refresh_time = std::numeric_limits<uint32_t>::max();
-			int64_t wait_time = std::abs((int64_t)(kcp_refresh_time)-(int64_t)(nearest_update_time.load()));
+			int64_t wait_time = (int64_t)(kcp_refresh_time)-(int64_t)(nearest_update_time.load());
+			if (wait_time <= 0)
+				wait_time = 1;
 			thread_local std::list<std::pair<std::weak_ptr<KCP>, uint32_t>> kcp_task_without_lock;
 			kcp_task_without_lock.clear();
 			{
@@ -62,7 +64,6 @@ namespace KCP
 				kcp_pile_available_cv.wait_for(tasks_lock, std::chrono::milliseconds{wait_time});
 				if (running)
 				{
-					kcp_refresh_time = TimeNowForKCP();
 					for (auto iter = pile_of_kcp.begin(), next_iter = iter; iter != pile_of_kcp.end(); iter = next_iter)
 					{
 						++next_iter;
@@ -74,6 +75,7 @@ namespace KCP
 							continue;
 						}
 
+						kcp_refresh_time = TimeNowForKCP();
 						uint32_t &kcp_update_time = iter->second;
 						if (kcp_refresh_time >= kcp_update_time)
 						{

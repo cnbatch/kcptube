@@ -357,6 +357,13 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				break;
 			}
 
+			case strhash("blast"):
+			{
+				bool yes = value == "yes" || value == "true" || value == "1";
+				current_settings->blast = yes;
+				break;
+			}
+
 			case strhash("[listener]"):
 			{
 				if (current_user_settings.mode == running_mode::relay)
@@ -596,6 +603,9 @@ void copy_settings(user_settings &inner, user_settings &outter)
 
 	if (outter.ipv4_only)
 		inner.ipv4_only = outter.ipv4_only;
+
+	if (outter.blast)
+		inner.blast = outter.blast;
 }
 
 void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::string> &error_msg)

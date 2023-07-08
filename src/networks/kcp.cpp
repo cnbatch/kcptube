@@ -5,6 +5,7 @@
 #include <chrono>
 #include <limits>
 #include <numeric>
+#include <iostream>
 
 #if __cpp_lib_execution
 #include <execution>
@@ -38,11 +39,14 @@ namespace KCP
 		return static_cast<uint32_t>((duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()) & 0xFFFF'FFFFul);
 	}
 
+	void empty_function(void *) {}
+
 	void KCP::Initialise(uint32_t conv)
 	{
 		ikcp_ptr = ikcp_create(conv, this);
 		custom_data.store(nullptr);
 		last_input_time.store(right_now());
+		post_update = empty_function;
 	}
 
 	void KCP::MoveKCP(KCP &other) noexcept
@@ -53,6 +57,7 @@ namespace KCP
 		other.ikcp_ptr = nullptr;
 		other.custom_data.store(nullptr);
 		last_input_time.store(other.last_input_time.load());
+		post_update = other.post_update;
 	}
 
 	KCP::KCP(const KCP &other) noexcept
@@ -61,37 +66,56 @@ namespace KCP
 		((ikcpcb *)ikcp_ptr)->user = this;
 		custom_data.store(other.custom_data.load());
 		last_input_time.store(other.last_input_time.load());
+		post_update = other.post_update;
 	}
 
 	KCP::~KCP()
 	{
 		ikcp_release((ikcpcb *)ikcp_ptr);
 		custom_data.store(nullptr);
+		post_update = empty_function;
 	}
 
-	void KCP::ResetWindowValues()
+	void KCP::ResetWindowValues(int32_t srtt)
 	{
 		if (outbound_bandwidth == 0 && inbound_bandwidth == 0)
 			return;
 		ikcpcb *kcp_ptr = (ikcpcb *)ikcp_ptr;
+		int32_t max_srtt = std::max(kcp_ptr->rx_srtt, srtt);
+		int32_t min_srtt = std::min(kcp_ptr->rx_srtt, srtt);
+		srtt = min_srtt <= 0 ? max_srtt : min_srtt;
+
+		if (srtt <= 0)
+			return;
+		std::scoped_lock locker{ mtx };
 		if (outbound_bandwidth > 0)
 		{
-			kcp_ptr->snd_wnd = (uint32_t)(outbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_srtt / 1000 * 1.2);
+			kcp_ptr->snd_wnd = (uint32_t)(outbound_bandwidth / kcp_ptr->mtu * srtt / 1000 * 1.2);
 			if (kcp_ptr->snd_wnd < 32)
 				kcp_ptr->snd_wnd = 32;
 		}
 		if (inbound_bandwidth > 0)
 		{
-			kcp_ptr->rcv_wnd = (uint32_t)(inbound_bandwidth / kcp_ptr->mtu * kcp_ptr->rx_srtt / 1000 * 1.2);
+			kcp_ptr->rcv_wnd = (uint32_t)(inbound_bandwidth / kcp_ptr->mtu * srtt / 1000 * 1.2);
 			if (kcp_ptr->rcv_wnd < 32)
 				kcp_ptr->rcv_wnd = 32;
 		}
+	}
+
+	int32_t KCP::GetRxSRTT()
+	{
+		return ((ikcpcb *)ikcp_ptr)->rx_srtt;
 	}
 
 	void KCP::SetOutput(std::function<int(const char *, int, void *)> output_func)
 	{
 		this->output = output_func;
 		((ikcpcb *)ikcp_ptr)->output = middle_layer_output;
+	}
+
+	void KCP::SetPostUpdate(std::function<void(void *)> post_update_func)
+	{
+		post_update = post_update_func;
 	}
 
 	int KCP::Receive(char *buffer, int len)
@@ -114,14 +138,18 @@ namespace KCP
 
 	void KCP::Update(uint32_t current)
 	{
-		std::scoped_lock locker{ mtx };
+		std::unique_lock locker{ mtx };
 		ikcp_update((ikcpcb *)ikcp_ptr, current);
+		locker.unlock();
+		post_update(custom_data.load());
 	}
 
 	void KCP::Update()
 	{
-		std::scoped_lock locker{ mtx };
+		std::unique_lock locker{ mtx };
 		ikcp_update((ikcpcb *)ikcp_ptr, TimeNowForKCP());
+		locker.unlock();
+		post_update(custom_data.load());
 	}
 
 	uint32_t KCP::Check(uint32_t current)
@@ -136,12 +164,18 @@ namespace KCP
 		return ikcp_check((ikcpcb *)ikcp_ptr, TimeNowForKCP());
 	}
 
+	uint32_t KCP::Refresh()
+	{
+		std::unique_lock unique_locker{ mtx };
+		ikcp_flush((ikcpcb *)ikcp_ptr);
+		return ikcp_check((ikcpcb *)ikcp_ptr, TimeNowForKCP());
+	}
+
 	// when you received a low level packet (eg. UDP packet), call it
 	int KCP::Input(const char *data, long size)
 	{
 		std::unique_lock locker{ mtx };
 		auto ret = ikcp_input((ikcpcb *)ikcp_ptr, data, size);
-		ResetWindowValues();
 		locker.unlock();
 		last_input_time.store(right_now());
 		return ret;

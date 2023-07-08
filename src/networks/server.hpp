@@ -10,6 +10,7 @@ class server_mode
 {
 	asio::io_context &io_context;
 	KCP::KCPUpdater &kcp_updater;
+	const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender;
 	user_settings current_settings;
 	std::unique_ptr<rfc8489::stun_header> stun_header;
 	std::atomic<uint16_t> external_ipv4_port;
@@ -72,10 +73,12 @@ class server_mode
 
 	bool create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp);
 	bool create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const udp::endpoint &peer);
+	void resume_tcp(kcp_mappings* kcp_mappings_ptr);
+	void set_kcp_windows(std::weak_ptr<KCP::KCP> handshake_kcp, std::weak_ptr<KCP::KCP> data_ptr_weak);
 	void setup_mux_kcp(std::shared_ptr<KCP::KCP> data_kcp);
 	std::shared_ptr<mux_records> create_mux_data_tcp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak);
 	std::shared_ptr<mux_records> create_mux_data_udp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak);
-	void mux_move_cached_to_tunnel();
+	void mux_move_cached_to_tunnel(bool skip_kcp_update = false);
 	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, int one_x);
 	void refresh_mux_queue(std::weak_ptr<KCP::KCP> kcp_ptr_weak);
 
@@ -103,9 +106,10 @@ public:
 	server_mode(const server_mode &) = delete;
 	server_mode& operator=(const server_mode &) = delete;
 
-	server_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref,
+	server_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender_ref,
 		ttp::task_group_pool &seq_task_pool_local,ttp::task_group_pool &seq_task_pool_peer, size_t task_count_limit, const user_settings &settings)
 		: io_context(io_context_ref), kcp_updater(kcp_updater_ref),
+		kcp_data_sender(kcp_data_sender_ref),
 		timer_find_expires(io_context), timer_expiring_kcp(io_context),
 		timer_stun(io_context), timer_keep_alive(io_context),
 		sequence_task_pool_local(seq_task_pool_local),
@@ -121,6 +125,7 @@ public:
 	server_mode(server_mode &&existing_server) noexcept
 		: io_context(existing_server.io_context),
 		kcp_updater(existing_server.kcp_updater),
+		kcp_data_sender(existing_server.kcp_data_sender),
 		timer_find_expires(std::move(existing_server.timer_find_expires)),
 		timer_expiring_kcp(std::move(existing_server.timer_expiring_kcp)),
 		timer_stun(std::move(existing_server.timer_stun)),

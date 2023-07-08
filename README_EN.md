@@ -179,6 +179,7 @@ encryption_algorithm=AES-GCM
 | outbound_bandwidth | Positive Integer |No|Outbound bandwidth, used to dynamically update the value of kcp_sndwnd during communication|
 | inbound_bandwidth | Positive Integer |No|Inbound bandwidth, used to dynamically update the value of kcp_rcvwnd during communication|
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |No|If the system disables IPv6, this option must be enabled and set to yes or true or 1|
+| blast | yes<br>true<br>1<br>no<br>false<br>0 |No|Packets are forwarded as quickly as possible regardless of KCP flow control settings. May lead to overload.|
 | [listener] | N/A |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the listening mode<br>This tag represents data exchanged with the client|
 | [forwarder] | N/A  |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the forwarding mode<br>This tag represents data exchanged with the server|
 
@@ -223,7 +224,7 @@ This bandwidth values should not larger than your actual bandwidth, otherwise th
 
 Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency smoother.
 
-If you want to reduce traffic waste and also accept a little bit more latency increase, please try choosing regular3, regular4 or regular5.
+If you want to reduce traffic waste and also accept a little bit more latency increase, please try choosing regular modes. However, using regular 4 or regular 5 in the envirnment of high latency with packet loss rate high than 4% may encounter the situation of TCP disconnection. 
 
 ### Log File
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.

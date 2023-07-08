@@ -19,12 +19,13 @@
 int main(int argc, char *argv[])
 {
 	char app_name[] = "kcptube";
-	printf("%s version 20230702\n", app_name);
+	printf("%s version 20230708\n", app_name);
 
 	if (argc <= 1)
 	{
 		printf("Usage: %s config1.conf\n", app_name);
 		printf("       %s config1.conf config2.conf...\n", app_name);
+		printf("Connectivity Testing:\n");
 		printf("       %s --try config1.conf\n", app_name);
 		printf("       %s --try config1.conf config2.conf...\n", app_name);
 		printf("       %s config1.conf --try\n", app_name);
@@ -45,8 +46,12 @@ int main(int argc, char *argv[])
 	asio::io_context ioc{ io_thread_count };
 
 	KCP::KCPUpdater kcp_updater;
+	std::unique_ptr<ttp::task_group_pool> kcp_data_sender;
 	ttp::task_group_pool task_groups_local{ thread_group_count };
 	ttp::task_group_pool task_groups_peer{ thread_group_count };
+
+	if (std::thread::hardware_concurrency() > 3)
+		kcp_data_sender = std::make_unique<ttp::task_group_pool>(std::thread::hardware_concurrency());
 
 	std::vector<client_mode> clients;
 	std::vector<relay_mode> relays;
@@ -88,10 +93,6 @@ int main(int argc, char *argv[])
 	}
 
 	std::cout << "Error Found in Configuration File(s): " << (error_found ? "Yes" : "No") << "\n";
-	std::cout << "Servers: " << servers.size() << "\n";
-	std::cout << "Relays: " << relays.size() << "\n";
-	std::cout << "Clients: " << clients.size() << "\n";
-
 	if (error_found)
 		return 0;
 
@@ -101,18 +102,22 @@ int main(int argc, char *argv[])
 		{
 		case running_mode::client:
 			settings.test_only = test_connection;
-			clients.emplace_back(client_mode(ioc, kcp_updater, task_groups_local, task_groups_peer, task_count_limit, settings));
+			clients.emplace_back(client_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
 		case running_mode::relay:
-			relays.emplace_back(relay_mode(ioc, kcp_updater, task_groups_local, task_groups_peer, task_count_limit, settings));
+			relays.emplace_back(relay_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
 		case running_mode::server:
-			servers.emplace_back(server_mode(ioc, kcp_updater, task_groups_local, task_groups_peer, task_count_limit, settings));
+			servers.emplace_back(server_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
 		default:
 			break;
 		}
 	}
+
+	std::cout << "Servers: " << servers.size() << "\n";
+	std::cout << "Relays: " << relays.size() << "\n";
+	std::cout << "Clients: " << clients.size() << "\n";
 
 	bool started_up = !servers.empty() || !relays.empty() || !clients.empty();
 

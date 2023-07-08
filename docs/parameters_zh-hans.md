@@ -26,6 +26,7 @@
 | outbound_bandwidth | 正整数 |否|出站带宽，用于通讯过程中动态更新 kcp_sndwnd 的值|
 | inbound_bandwidth | 正整数 |否|入站带宽，用于通讯过程中动态更新 kcp_rcvwnd 的值|
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|若系统禁用了 IPv6，须启用该选项并设为 yes 或 true 或 1|
+| blast | yes<br>true<br>1<br>no<br>false<br>0 |否|尝试忽略 KCP 流控设置，尽可能迅速地转发数据包。可能会导致负载过大|
 | [listener] | N/A |是<br>(仅限中继模式)|中继模式的标签，用于指定监听模式的 KCP 设置<br>该标签表示与客户端交互数据|
 | [forwarder] | N/A  |是<br>(仅限中继模式)|中继模式的标签，用于指定转运模式的 KCP 设置<br>该标签表示与服务端交互数据|
 
@@ -70,7 +71,7 @@
 
 其中，丢包率越高（高于 10%），kcp_nodelay=1 就比 kcp_nodelay=2 越有优势。在丢包率不特别高的情况下，kcp_nodelay=2 可使延迟抖动更为平滑。
 
-如果想减少流量浪费、不介意延迟稍微增加，可以选择 regular3、regular4 或 regular5。
+如果想减少流量浪费、不介意延迟稍微增加，可以选择 regular 模式。需要注意的是，高延迟并且丢包率高于 4% 的环境下使用 regular4 或 regular5 可能会遇到 TCP 断流的情况。
 
 # Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。

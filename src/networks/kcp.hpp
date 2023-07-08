@@ -39,10 +39,10 @@ namespace KCP
 		mutable std::shared_mutex mtx;
 		std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
 		std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
+		std::function<void(void *)> post_update;
 
 		void Initialise(uint32_t conv);
 		void MoveKCP(KCP &other) noexcept;
-		void ResetWindowValues();
 
 	public:
 
@@ -69,6 +69,8 @@ namespace KCP
 		// int(*output)(const char *buf, int len, void *user)
 		void SetOutput(std::function<int(const char *, int, void *)> output_func);
 
+		void SetPostUpdate(std::function<void(void *)> post_update_func);
+
 		// user/upper level recv: returns size, returns below zero for EAGAIN
 		int Receive(char *buffer, int len);
 		int Receive(std::vector<char> &buffer);
@@ -91,6 +93,9 @@ namespace KCP
 		// or optimize Update when handling massive kcp connections)
 		uint32_t Check(uint32_t current);
 		uint32_t Check();
+		
+		// Flush() & Check()
+		uint32_t Refresh();
 
 		// when you received a low level packet (eg. UDP packet), call it
 		int Input(const char *data, long size);
@@ -112,6 +117,8 @@ namespace KCP
 		uint32_t GetSendWindowSize();
 		uint32_t GetReceiveWindowSize();
 		//uint32_t GetRemoteWindowSize();
+		void ResetWindowValues(int32_t srtt);
+		int32_t GetRxSRTT();
 
 		// get how many packet is waiting to be sent
 		int WaitingForSend();
