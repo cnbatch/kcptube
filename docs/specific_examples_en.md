@@ -160,3 +160,7 @@ For this method of reaching the target server, you can set the `destination_addr
 The `mux_tunnels` option on the client side is optional. You can choose whether or not to include it based on actual game testing results.
 
 Similarly, for encryption options, choose whether or not to encrypt based on device performance.
+
+### Advise
+
+It is more appropriate and flexible to use a soft router to do this. The soft router does not require modifying your PC's host file, only adding custom DNS entries for easy management.
