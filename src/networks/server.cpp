@@ -235,8 +235,8 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 			if (prtcl == protocol_type::udp)
 			{
 				std::shared_ptr<udp_client> &udp_channel = kcp_mappings_ptr->local_udp;
-				udp_channel->stop();
 				udp_channel->disconnect();
+				udp_channel->stop();
 			}
 			if (prtcl == protocol_type::mux)
 			{
@@ -666,15 +666,15 @@ void server_mode::mux_cancel_channel(protocol_type prtcl, std::shared_ptr<kcp_ma
 		session->when_disconnect(empty_tcp_disconnect);
 		session->session_is_ending(true);
 		session->pause(false);
-		session->stop();
 		session->disconnect();
+		session->stop();
 	}
 
 	if (prtcl == protocol_type::udp)
 	{
 		std::shared_ptr<udp_client> &udp_channel = mux_records_ptr->local_udp;
-		udp_channel->stop();
 		udp_channel->disconnect();
+		udp_channel->stop();
 	}
 }
 
@@ -1077,8 +1077,8 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP
 		session->when_disconnect(empty_tcp_disconnect);
 		session->session_is_ending(true);
 		session->pause(false);
-		session->stop();
 		session->disconnect();
+		session->stop();
 		std::vector<uint8_t> data = packet::inform_disconnect_packet(protocol_type::tcp);
 		kcp_ptr->Send((const char *)data.data(), data.size());
 		uint32_t next_update_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
@@ -1126,8 +1126,8 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP
 	session->when_disconnect(empty_tcp_disconnect);
 	session->session_is_ending(true);
 	session->pause(false);
-	session->stop();
 	session->disconnect();
+	session->stop();
 
 	std::scoped_lock lockers{mutex_id_map_to_mux_records, mutex_expiring_mux_records};
 	id_map_to_mux_records.erase(complete_connection_id);
@@ -1222,15 +1222,15 @@ void server_mode::delete_mux_records(uint32_t conv)
 		if (mux_records_ptr->local_tcp != nullptr)
 		{
 			mux_records_ptr->local_tcp->when_disconnect(empty_tcp_disconnect);
-			mux_records_ptr->local_tcp->stop();
 			mux_records_ptr->local_tcp->disconnect();
+			mux_records_ptr->local_tcp->stop();
 			mux_records_ptr->local_tcp = nullptr;
 		}
 
 		if (mux_records_ptr->local_udp != nullptr)
 		{
-			mux_records_ptr->local_udp->stop();
 			mux_records_ptr->local_udp->disconnect();
+			mux_records_ptr->local_udp->stop();
 			mux_records_ptr->local_udp = nullptr;
 		}
 
@@ -1328,8 +1328,8 @@ void server_mode::cleanup_expiring_data_connections()
 			std::shared_ptr<udp_client> current_session = kcp_mappings_ptr->local_udp;
 			if (current_session != nullptr)
 			{
-				current_session->stop();
 				current_session->disconnect();
+				current_session->stop();
 			}
 			break;
 		}
@@ -1365,8 +1365,8 @@ void server_mode::cleanup_expiring_mux_records()
 				if (calculate_difference(mux_records_ptr->last_data_transfer_time.load(), time_right_now) < current_settings.udp_timeout)
 					continue;
 
-				local_udp->stop();
 				local_udp->disconnect();
+				local_udp->stop();
 
 				std::vector<uint8_t> data = packet::inform_mux_cancel_packet(protocol_type::udp, mux_records_ptr->connection_id);
 				waiting_for_inform[mux_records_ptr->kcp_conv].emplace_back(std::move(data));

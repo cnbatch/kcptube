@@ -507,7 +507,6 @@ void tcp_session::disconnect()
 {
 	asio::error_code ec;
 	connection_socket.shutdown(asio::socket_base::shutdown_both, ec);
-	connection_socket.close(ec);
 }
 
 void tcp_session::async_read_data()
