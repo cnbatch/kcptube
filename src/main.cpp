@@ -19,7 +19,7 @@
 int main(int argc, char *argv[])
 {
 	char app_name[] = "kcptube";
-	printf("%s version 20230916\n", app_name);
+	printf("%s version 20230924\n", app_name);
 
 	if (argc <= 1)
 	{

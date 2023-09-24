@@ -288,6 +288,7 @@ ikcpcb* ikcp_create(IUINT32 conv, void *user)
 	kcp->nocwnd = 0;
 	kcp->xmit = 0;
 	kcp->dead_link = IKCP_DEADLINK;
+	kcp->min_resendts = 0;
 	kcp->output = NULL;
 	kcp->writelog = NULL;
 
@@ -947,6 +948,7 @@ void ikcp_flush(ikcpcb *kcp)
 	int change = 0;
 	int lost = 0;
 	IKCPSEG seg;
+	kcp->min_resendts = 0xFFFFFFFF;
 
 	// 'ikcp_update' haven't been called. 
 	if (kcp->updated == 0) return;
@@ -1024,30 +1026,6 @@ void ikcp_flush(ikcpcb *kcp)
 	cwnd = _imin_(kcp->snd_wnd, kcp->rmt_wnd);
 	if (kcp->nocwnd == 0) cwnd = _imin_(kcp->cwnd, cwnd);
 
-	// move data from snd_queue to snd_buf
-	while (_itimediff(kcp->snd_nxt, kcp->snd_una + cwnd) < 0) {
-		IKCPSEG *newseg;
-		if (iqueue_is_empty(&kcp->snd_queue)) break;
-
-		newseg = iqueue_entry(kcp->snd_queue.next, IKCPSEG, node);
-
-		iqueue_del(&newseg->node);
-		iqueue_add_tail(&newseg->node, &kcp->snd_buf);
-		kcp->nsnd_que--;
-		kcp->nsnd_buf++;
-
-		newseg->conv = kcp->conv;
-		newseg->cmd = IKCP_CMD_PUSH;
-		newseg->wnd = seg.wnd;
-		newseg->ts = current;
-		newseg->sn = kcp->snd_nxt++;
-		newseg->una = kcp->rcv_nxt;
-		newseg->resendts = current;
-		newseg->rto = kcp->rx_rto;
-		newseg->fastack = 0;
-		newseg->xmit = 0;
-	}
-
 	// calculate resent
 	resent = (kcp->fastresend > 0)? (IUINT32)kcp->fastresend : 0xffffffff;
 	rtomin = (kcp->nodelay == 0)? (kcp->rx_rto >> 3) : 0;
@@ -1056,13 +1034,7 @@ void ikcp_flush(ikcpcb *kcp)
 	for (p = kcp->snd_buf.next; p != &kcp->snd_buf; p = p->next) {
 		IKCPSEG *segment = iqueue_entry(p, IKCPSEG, node);
 		int needsend = 0;
-		if (segment->xmit == 0) {
-			needsend = 1;
-			segment->xmit++;
-			segment->rto = kcp->rx_rto;
-			segment->resendts = current + segment->rto + rtomin;
-		}
-		else if (_itimediff(current, segment->resendts) >= 0) {
+		if (_itimediff(current, segment->resendts) >= 0) {
 			needsend = 1;
 			segment->xmit++;
 			kcp->xmit++;
@@ -1075,6 +1047,7 @@ void ikcp_flush(ikcpcb *kcp)
 			}
 			segment->resendts = current + segment->rto;
 			lost = 1;
+			kcp->min_resendts = _imin_(kcp->min_resendts, segment->resendts);
 		}
 		else if (segment->fastack >= resent) {
 			if ((int)segment->xmit <= kcp->fastlimit || 
@@ -1084,6 +1057,7 @@ void ikcp_flush(ikcpcb *kcp)
 				segment->fastack = 0;
 				segment->resendts = current + segment->rto;
 				change++;
+				kcp->min_resendts = _imin_(kcp->min_resendts, segment->resendts);
 			}
 		}
 
@@ -1111,6 +1085,47 @@ void ikcp_flush(ikcpcb *kcp)
 			if (segment->xmit >= kcp->dead_link) {
 				kcp->state = (IUINT32)-1;
 			}
+		}
+	}
+
+	// move data from snd_queue to snd_buf
+	while (_itimediff(kcp->snd_nxt, kcp->snd_una + cwnd) < 0) {
+		IKCPSEG *newseg;
+		if (iqueue_is_empty(&kcp->snd_queue)) break;
+
+		newseg = iqueue_entry(kcp->snd_queue.next, IKCPSEG, node);
+
+		iqueue_del(&newseg->node);
+		iqueue_add_tail(&newseg->node, &kcp->snd_buf);
+		kcp->nsnd_que--;
+		kcp->nsnd_buf++;
+
+		newseg->conv = kcp->conv;
+		newseg->cmd = IKCP_CMD_PUSH;
+		newseg->wnd = seg.wnd;
+		newseg->ts = current;
+		newseg->sn = kcp->snd_nxt++;
+		newseg->una = kcp->rcv_nxt;
+		newseg->resendts = current + kcp->rx_rto + rtomin;
+		newseg->rto = kcp->rx_rto;
+		newseg->fastack = 0;
+		newseg->xmit = 1;
+
+		kcp->min_resendts = _imin_(kcp->min_resendts, newseg->resendts);
+
+		size = (int)(ptr - buffer);
+		int need = IKCP_OVERHEAD + newseg->len;
+
+		if (size + need > (int)kcp->mtu) {
+			ikcp_output(kcp, buffer, size);
+			ptr = buffer;
+		}
+
+		ptr = ikcp_encode_seg(ptr, newseg);
+
+		if (newseg->len > 0) {
+			memcpy(ptr, newseg->data, newseg->len);
+			ptr += newseg->len;
 		}
 	}
 
@@ -1193,7 +1208,6 @@ IUINT32 ikcp_check(const ikcpcb *kcp, IUINT32 current)
 	IINT32 tm_flush = 0x7fffffff;
 	IINT32 tm_packet = 0x7fffffff;
 	IUINT32 minimal = 0;
-	struct IQUEUEHEAD *p;
 
 	if (kcp->updated == 0) {
 		return current;
@@ -1210,9 +1224,8 @@ IUINT32 ikcp_check(const ikcpcb *kcp, IUINT32 current)
 
 	tm_flush = _itimediff(ts_flush, current);
 
-	for (p = kcp->snd_buf.next; p != &kcp->snd_buf; p = p->next) {
-		const IKCPSEG *seg = iqueue_entry(p, const IKCPSEG, node);
-		IINT32 diff = _itimediff(seg->resendts, current);
+	if (!iqueue_is_empty(&kcp->snd_buf)) {
+		IINT32 diff = _itimediff(kcp->min_resendts, current);
 		if (diff <= 0) {
 			return current;
 		}
@@ -1245,7 +1258,7 @@ int ikcp_setmtu(ikcpcb *kcp, int mtu)
 int ikcp_interval(ikcpcb *kcp, int interval)
 {
 	if (interval > 5000) interval = 5000;
-	else if (interval < 1) interval = 1;
+	else if (interval < 10) interval = 10;
 	kcp->interval = interval;
 	return 0;
 }
@@ -1263,7 +1276,7 @@ int ikcp_nodelay(ikcpcb *kcp, int nodelay, int interval, int resend, int nc)
 	}
 	if (interval >= 0) {
 		if (interval > 5000) interval = 5000;
-		else if (interval < 1) interval = 1;
+		else if (interval < 10) interval = 10;
 		kcp->interval = interval;
 	}
 	if (resend >= 0) {

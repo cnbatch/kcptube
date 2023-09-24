@@ -771,7 +771,6 @@ void client_mode::mux_cancel_channel(protocol_type prtcl, kcp_mappings *kcp_mapp
 		session->when_disconnect(empty_tcp_disconnect);
 		session->session_is_ending(true);
 		session->pause(false);
-		session->disconnect();
 		session->stop();
 	}
 
@@ -1114,7 +1113,6 @@ void client_mode::process_disconnect(uint32_t conv, tcp_session *session)
 	session->when_disconnect(empty_tcp_disconnect);
 	session->session_is_ending(true);
 	session->pause(false);
-	session->disconnect();
 	session->stop();
 
 	kcp_channels.erase(kcp_channel_iter);
@@ -1228,7 +1226,6 @@ void client_mode::delete_mux_records(uint32_t conv)
 		if (mux_records_ptr->local_tcp != nullptr)
 		{
 			mux_records_ptr->local_tcp->when_disconnect(empty_tcp_disconnect);
-			mux_records_ptr->local_tcp->disconnect();
 			mux_records_ptr->local_tcp->stop();
 			mux_records_ptr->local_tcp = nullptr;
 		}
@@ -1339,7 +1336,6 @@ void client_mode::cleanup_expiring_handshake_connections()
 		if (kcp_mappings_ptr->egress_forwarder != nullptr)
 		{
 			kcp_mappings_ptr->egress_forwarder->remove_callback();
-			kcp_mappings_ptr->egress_forwarder->disconnect();
 			kcp_mappings_ptr->egress_forwarder->stop();
 		}
 
@@ -1426,7 +1422,6 @@ void client_mode::loop_find_expires()
 				if (expiring_kcp.find(kcp_mappings_ptr) == expiring_kcp.end())
 				{
 					tcp_channel->when_disconnect(empty_tcp_disconnect);
-					tcp_channel->disconnect();
 					tcp_channel->stop();
 					expiring_kcp.insert({ kcp_mappings_ptr, time_right_now });
 				}
@@ -1888,7 +1883,6 @@ void client_mode::handshake_test_failure(kcp_mappings *handshake_ptr)
 void client_mode::handshake_test_cleanup(kcp_mappings *handshake_ptr)
 {
 	handshake_ptr->egress_forwarder->remove_callback();
-	handshake_ptr->egress_forwarder->disconnect();
 	handshake_ptr->egress_forwarder->stop();
 
 	std::scoped_lock lock_handshake{ mutex_handshakes, mutex_expiring_handshakes };

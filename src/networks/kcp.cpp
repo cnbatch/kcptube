@@ -249,7 +249,9 @@ namespace KCP
 	// nc: 0:normal congestion control(default), 1:disable congestion control
 	int KCP::NoDelay(int nodelay, int interval, int resend, bool nc)
 	{
-		return ikcp_nodelay((ikcpcb *)ikcp_ptr, nodelay, interval, resend, nc);
+		int ret = ikcp_nodelay((ikcpcb *)ikcp_ptr, nodelay, interval, resend, nc);
+		((ikcpcb *)ikcp_ptr)->interval = interval;
+		return ret;
 	}
 
 	uint32_t KCP::GetConv(const void *ptr)

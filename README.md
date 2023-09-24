@@ -450,7 +450,12 @@ KCP Tube 虽然有“多路复用”的功能，但默认并不主动打开。�
 为了降低延迟，kcptube 启用了 TCP_NODELAY 选项。对于某些大流量应用场景，可能会造成 TCP 数据传输量减少。
 
 ### KCP
-kcptube 用的是原版 [KCP](https://github.com/skywind3000/kcp)，除了 interval 最小值从 10 改成 1 之外，其它部份未经修改。换句话说，原版的存在“bug”，kcptube 也会有。例如：
+kcptube 用的是原版 [KCP](https://github.com/skywind3000/kcp)，作了些许修改：
+
+1. 原版的 `flush()` 是先把待发送数据转移到发送队列后，在同一个循环重做完“发送新数据包”、“数据包重发”、“ACK包发送”三件事。修改后的版本变为先做“数据包重发”、“ACK包发送”，然后再做“待发送数据转移到发送队列”，在转移期间顺便发送。
+2. 原版的 `check()` 每次都会重新遍历一遍发送队列，查找已到点的重传时间戳。修改后的版本变为直接在KCP结构体中新增 `min_resendts` 变量，该变量在 `flush()` 的发送循环当中顺便找出最小的时间戳，`check()` 就不再需要每次都重新遍历，直接读取 `min_resendts` 变量的值即可。
+
+除此之外，原版的存在“bug”，kcptube 也会有。例如：
 
 * [如何避免缓存积累延迟的问题](https://github.com/skywind3000/kcp/issues/175)
 * [求助：一些压测出现的问题， 发大包后不断累积](https://github.com/skywind3000/kcp/issues/243)

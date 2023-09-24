@@ -452,7 +452,12 @@ The timeout period for KCP channel is 30 seconds after enabling the multiplexing
 To reduce latency, kcptube has enabled the TCP_NODELAY option. For some high-traffic application scenarios, this may result in a reduction in the amount of TCP data transmitted.
 
 ### KCP
-KCP Tube uses the original version of the [KCP](https://github.com/skywind3000/kcp), with the exception that the minimum value of the interval has been changed from 10 to 1, and other parts have not been modified. In other words, if there are ‘bugs’ in the original version, they will also exist in kcptube. For example:
+KCP Tube uses the original version of the [KCP](https://github.com/skywind3000/kcp), with some modifications:
+
+1. The original `flush()` function first moves the data to be sent to the sending queue, and then completes ‘sending new packet’, ‘packet retransmission’, and ‘ACK packet sending’ in the same loop. In the modified version, ‘packet retransmission’ and ‘ACK packet sending’ are done first, and then ‘move the data to be sent to the sending queue’ is done, sending it during the transfer.
+2. The original `check()` function would traverse the sending queue every time to find the retransmission timestamp for packets that have reached their timeout. In the modified version, a new variable `min_resendts` is added to the KCP struct. During the `flush()` sending loop, the minimum timestamp is found and stored in min_resendts. `check()` no longer needs to traverse the queue every time. It can directly read the value of `min_resendts`.
+
+And other ‘bugs’ in the original version, will also exist in kcptube. For example:
 
 * [如何避免缓存积累延迟的问题](https://github.com/skywind3000/kcp/issues/175)
 * [求助：一些压测出现的问题， 发大包后不断累积](https://github.com/skywind3000/kcp/issues/243)

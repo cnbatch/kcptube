@@ -186,9 +186,9 @@ public:
 
 	void pause(bool set_as_pause);
 	void stop();
-	bool is_pause();
-	bool is_stop();
-	bool is_open();
+	bool is_pause() const;
+	bool is_stop() const;
+	bool is_open() const;
 
 	void disconnect();
 
@@ -401,8 +401,8 @@ public:
 
 	void pause(bool set_as_pause);
 	void stop();
-	bool is_pause();
-	bool is_stop();
+	bool is_pause() const;
+	bool is_stop() const;
 
 	udp::resolver::results_type get_remote_hostname(const std::string &remote_address, asio::ip::port_type port_num, asio::error_code &ec);
 	udp::resolver::results_type get_remote_hostname(const std::string &remote_address, const std::string &port_num, asio::error_code &ec);
