@@ -2,6 +2,7 @@
 #include <array>
 #include <functional>
 #include <iostream>
+#include <random>
 #include <botan/gcm.h>
 #include <botan/ocb.h>
 #include <botan/sha3.h>
@@ -46,6 +47,9 @@ protected:
 	}
 
 public:
+	virtual std::array<uint8_t, 2> change_iv() = 0;
+	virtual void change_iv(std::array<uint8_t, 2> iv_raw) = 0;
+
 	template<typename T>
 	T encrypt(const T &input_plain_data, std::string &error_message)
 	{
@@ -175,7 +179,7 @@ public:
 			output_length = 0;
 			return empty_error_message;
 		}
-		
+
 		std::string error_message;
 		try
 		{
@@ -204,7 +208,7 @@ public:
 		{
 			return empty_error_message;
 		}
-		
+
 		std::string error_message;
 		try
 		{
@@ -284,6 +288,24 @@ public:
 		decoder = std::move(other.decoder);
 		return *this;
 	}
+
+	std::array<uint8_t, 2> change_iv() override
+	{
+		std::array<uint8_t, 2> iv_raw{};
+		thread_local std::mt19937 mt(std::random_device{}());
+		std::uniform_int_distribution<uint32_t> uniform_dist(0, std::numeric_limits<uint8_t>::max());
+		iv_raw[0] = uniform_dist(mt);
+		iv_raw[1] = uniform_dist(mt);
+		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv[12] = iv[14] = iv_raw[0];
+		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv[13] = iv[15] = iv_raw[1];
+		return iv_raw;
+	}
+
+	void change_iv(std::array<uint8_t, 2> iv_raw) override
+	{
+		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv[12] = iv[14] = iv_raw[0];
+		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv[13] = iv[15] = iv_raw[1];
+	}
 };
 
 class aes_256_ocb : public encryption_base
@@ -350,6 +372,24 @@ public:
 		decoder = std::move(other.decoder);
 		return *this;
 	}
+
+	std::array<uint8_t, 2> change_iv() override
+	{
+		std::array<uint8_t, 2> iv_raw{};
+		thread_local std::mt19937 mt(std::random_device{}());
+		std::uniform_int_distribution<uint32_t> uniform_dist(0, std::numeric_limits<uint8_t>::max());
+		iv_raw[0] = uniform_dist(mt);
+		iv_raw[1] = uniform_dist(mt);
+		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv_raw[0];
+		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv_raw[1];
+		return iv_raw;
+	}
+
+	void change_iv(std::array<uint8_t, 2> iv_raw) override
+	{
+		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv_raw[0];
+		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv_raw[1];
+	}
 };
 
 class chacha20 : public encryption_base
@@ -413,6 +453,24 @@ public:
 		decoder = std::move(other.decoder);
 		return *this;
 	}
+
+	std::array<uint8_t, 2> change_iv() override
+	{
+		std::array<uint8_t, 2> iv_raw{};
+		thread_local std::mt19937 mt(std::random_device{}());
+		std::uniform_int_distribution<uint32_t> uniform_dist(0, std::numeric_limits<uint8_t>::max());
+		iv_raw[0] = uniform_dist(mt);
+		iv_raw[1] = uniform_dist(mt);
+		iv[0] = iv[2] = iv[4] = iv[6] = iv_raw[0];
+		iv[1] = iv[3] = iv[5] = iv[7] = iv_raw[1];
+		return iv_raw;
+	}
+
+	void change_iv(std::array<uint8_t, 2> iv_raw) override
+	{
+		iv[0] = iv[2] = iv[4] = iv[6] = iv_raw[0];
+		iv[1] = iv[3] = iv[5] = iv[7] = iv_raw[1];
+	}
 };
 
 class xchacha20 : public encryption_base
@@ -470,6 +528,24 @@ public:
 		encoder = std::move(other.encoder);
 		decoder = std::move(other.decoder);
 		return *this;
+	}
+
+	std::array<uint8_t, 2> change_iv() override
+	{
+		std::array<uint8_t, 2> iv_raw{};
+		thread_local std::mt19937 mt(std::random_device{}());
+		std::uniform_int_distribution<uint32_t> uniform_dist(0, std::numeric_limits<uint8_t>::max());
+		iv_raw[0] = uniform_dist(mt);
+		iv_raw[1] = uniform_dist(mt);
+		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv[12] = iv[14] = iv[16] = iv[18] = iv[20] = iv[22] = iv_raw[0];
+		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv[13] = iv[15] = iv[17] = iv[19] = iv[21] = iv[23] = iv_raw[1];
+		return iv_raw;
+	}
+
+	void change_iv(std::array<uint8_t, 2> iv_raw) override
+	{
+		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv[12] = iv[14] = iv[16] = iv[18] = iv[20] = iv[22] = iv_raw[0];
+		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv[13] = iv[15] = iv[17] = iv[19] = iv[21] = iv[23] = iv_raw[1];
 	}
 };
 

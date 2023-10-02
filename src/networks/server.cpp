@@ -12,8 +12,7 @@ using namespace std::literals;
 
 uint32_t server_mode::generate_token_number()
 {
-	std::random_device rd;
-	std::mt19937 mt(rd());
+	thread_local std::mt19937 mt(std::random_device{}());
 	std::uniform_int_distribution<uint32_t> uniform_dist(32, std::numeric_limits<uint32_t>::max() - 1);
 	return uniform_dist(mt);
 }
@@ -420,7 +419,7 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 			handshake_kcp_mappings_ptr->ingress_kcp = handshake_kcp;
 			handshake_kcp_mappings_ptr->ingress_source_endpoint = peer;
 			handshake_kcp_mappings_ptr->ingress_listener.store(udp_servers[port_number].get());
-			handshake_kcp->custom_data.store(handshake_kcp_mappings_ptr);
+			handshake_kcp->SetUserData(handshake_kcp_mappings_ptr);
 			handshake_kcp->SetMTU(current_settings.kcp_mtu);
 			handshake_kcp->NoDelay(1, 1, 3, 1);
 			handshake_kcp->Update();
@@ -468,7 +467,7 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				data_kcp_mappings_ptr->ingress_kcp = data_kcp;
 				data_kcp_mappings_ptr->connection_protocol = prtcl;
 				data_kcp_mappings_ptr->ingress_listener.store(udp_servers[port_number].get());
-				data_kcp->custom_data.store(data_kcp_mappings_ptr);
+				data_kcp->SetUserData(data_kcp_mappings_ptr);
 				data_kcp->keep_alive_send_time.store(timestamp);
 				data_kcp->keep_alive_response_time.store(timestamp);
 				data_kcp->SetMTU(current_settings.kcp_mtu);
@@ -477,6 +476,7 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				data_kcp->Update();
 				data_kcp->RxMinRTO() = 10;
 				data_kcp->SetBandwidth(outbound_bandwidth, current_settings.inbound_bandwidth);
+				data_kcp->SetAsConserve(current_settings.kcp_conserve);
 
 				bool connect_success = false;
 
@@ -704,7 +704,7 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 		data_kcp->SetOutput([this](const char *buf, int len, void *user) -> int { return kcp_sender(buf, len, user); });
 		data_kcp->SetPostUpdate([this](void *user) { resume_tcp((kcp_mappings*)user); });
 
-		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->custom_data.load();
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->GetUserData();
 		kcp_mappings_ptr->local_tcp = local_session;
 		local_session->async_read_data();
 	}
@@ -772,7 +772,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	if (udp_target != nullptr || update_local_udp_target(target_connector))
 	{
 		target_connector->async_receive();
-		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->custom_data.load();
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->GetUserData();
 		kcp_mappings_ptr->ingress_source_endpoint = peer;
 		kcp_mappings_ptr->local_udp = target_connector;
 		data_kcp->Flush();
@@ -1486,7 +1486,7 @@ void server_mode::loop_keep_alive()
 			continue;
 		timestamp += current_settings.keep_alive;
 
-		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 		protocol_type ptype = kcp_mappings_ptr->connection_protocol;
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(ptype);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());

@@ -26,16 +26,17 @@ namespace constant_values
 	constexpr int16_t dport_refresh_minimal = 20;
 	constexpr int kcp_send_window = 1024;
 	constexpr int kcp_receive_window = 1024;
-	constexpr int kcp_mtu = 1420;
-	constexpr int checksum_block_size = 2;
+	constexpr int packet_length = 1420;
+	constexpr int iv_checksum_block_size = 2;
+	constexpr int kcp_mtu = packet_length - iv_checksum_block_size;
+	constexpr int encryption_block_reserve = 48;
 };
 
 
 template<typename T>
 T generate_random_number()
 {
-	std::random_device rd;
-	std::mt19937 mt(rd());
+	thread_local std::mt19937 mt(std::random_device{}());
 	std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
 	return uniform_dist(mt);
 }
@@ -43,8 +44,7 @@ T generate_random_number()
 template<typename T>
 T generate_random_number(T start_num, T end_num)
 {
-	std::random_device rd;
-	std::mt19937 mt(rd());
+	thread_local std::mt19937 mt(std::random_device{}());
 	std::uniform_int_distribution<T> uniform_dist(start_num, end_num);
 	return uniform_dist(mt);
 }
@@ -79,6 +79,7 @@ struct user_settings
 	uint32_t kcp_rcvwnd = 0;
 	uint64_t outbound_bandwidth = 0;
 	uint64_t inbound_bandwidth = 0;
+	bool kcp_conserve = false;
 	bool ipv4_only = false;
 	bool test_only = false;
 	bool blast = false;

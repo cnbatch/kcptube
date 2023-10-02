@@ -113,8 +113,7 @@ void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, 
 
 uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num)
 {
-	std::random_device rd;
-	std::mt19937 mt(rd());
+	thread_local std::mt19937 mt(std::random_device{}());
 	std::uniform_int_distribution<uint16_t> uniform_dist(start_port_num, end_port_num);
 	return uniform_dist(mt);
 }
@@ -483,7 +482,8 @@ void tcp_session::stop()
 {
 	stopped.store(true);
 	callback = empty_tcp_callback;
-	disconnect();
+	if (is_open())
+		disconnect();
 }
 
 bool tcp_session::is_pause() const
@@ -525,7 +525,7 @@ void tcp_session::async_read_data()
 
 size_t tcp_session::send_data(const std::vector<uint8_t> &buffer_data)
 {
-	if (stopped.load())
+	if (stopped.load() || !connection_socket.is_open() || buffer_data.empty())
 		return 0;
 
 	size_t sent_size = connection_socket.send(asio::buffer(buffer_data));
@@ -535,7 +535,7 @@ size_t tcp_session::send_data(const std::vector<uint8_t> &buffer_data)
 
 size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr)
+	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || size_in_bytes == 0)
 		return 0;
 
 	size_t sent_size = connection_socket.send(asio::buffer(buffer_data, size_in_bytes));
@@ -545,7 +545,7 @@ size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes)
 
 size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes, asio::error_code &ec)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr)
+	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || size_in_bytes == 0)
 		return 0;
 
 	size_t sent_size = connection_socket.send(asio::buffer(buffer_data, size_in_bytes), 0, ec);
@@ -555,7 +555,7 @@ size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes, 
 
 void tcp_session::async_send_data(std::unique_ptr<std::vector<uint8_t>> data)
 {
-	if (stopped.load() || !connection_socket.is_open() || data == nullptr)
+	if (stopped.load() || !connection_socket.is_open() || data == nullptr || data->empty())
 		return;
 
 	auto asio_buffer = asio::buffer(*data);
@@ -568,7 +568,7 @@ void tcp_session::async_send_data(std::unique_ptr<std::vector<uint8_t>> data)
 
 void tcp_session::async_send_data(std::vector<uint8_t> &&data)
 {
-	if (stopped.load() || !connection_socket.is_open())
+	if (stopped.load() || !connection_socket.is_open() || data.empty())
 		return;
 
 	auto asio_buffer = asio::buffer(data);
@@ -579,7 +579,7 @@ void tcp_session::async_send_data(std::vector<uint8_t> &&data)
 
 void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, size_t size_in_bytes)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr)
+	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || size_in_bytes == 0)
 		return;
 
 	auto asio_buffer = asio::buffer(buffer_data.get(), size_in_bytes);
@@ -590,7 +590,7 @@ void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, size_t
 
 void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, uint8_t *start_pos, size_t size_in_bytes)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || start_pos == nullptr)
+	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || start_pos == nullptr || size_in_bytes == 0)
 		return;
 
 	asio::async_write(connection_socket, asio::buffer(start_pos, size_in_bytes),
@@ -600,7 +600,7 @@ void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, uint8_
 
 void tcp_session::async_send_data(const uint8_t *buffer_data, size_t size_in_bytes)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr)
+	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || size_in_bytes == 0)
 		return;
 
 	asio::async_write(connection_socket, asio::buffer(buffer_data, size_in_bytes),
@@ -949,7 +949,7 @@ void udp_client::async_receive()
 
 size_t udp_client::send_out(const std::vector<uint8_t> &data, const udp::endpoint &peer_endpoint, asio::error_code &ec)
 {
-	if (stopped.load())
+	if (stopped.load() || data.empty())
 		return 0;
 
 	size_t sent_size = connection_socket.send_to(asio::buffer(data), peer_endpoint, 0, ec);
@@ -959,7 +959,7 @@ size_t udp_client::send_out(const std::vector<uint8_t> &data, const udp::endpoin
 
 size_t udp_client::send_out(const uint8_t *data, size_t size, const udp::endpoint &peer_endpoint, asio::error_code &ec)
 {
-	if (stopped.load() || data == nullptr)
+	if (stopped.load() || data == nullptr || size == 0)
 		return 0;
 
 	size_t sent_size = connection_socket.send_to(asio::buffer(data, size), peer_endpoint, 0, ec);
@@ -969,7 +969,7 @@ size_t udp_client::send_out(const uint8_t *data, size_t size, const udp::endpoin
 
 void udp_client::async_send_out(std::unique_ptr<std::vector<uint8_t>> data, const udp::endpoint &peer_endpoint)
 {
-	if (stopped.load() || data == nullptr)
+	if (stopped.load() || data == nullptr || data->empty())
 		return;
 
 	auto asio_buffer = asio::buffer(*data);
@@ -980,7 +980,7 @@ void udp_client::async_send_out(std::unique_ptr<std::vector<uint8_t>> data, cons
 
 void udp_client::async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer_endpoint)
 {
-	if (stopped.load() || data == nullptr)
+	if (stopped.load() || data == nullptr || data_size == 0)
 		return;
 
 	auto asio_buffer = asio::buffer(data.get(), data_size);
@@ -991,7 +991,7 @@ void udp_client::async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_siz
 
 void udp_client::async_send_out(std::unique_ptr<uint8_t[]> data, uint8_t *start_pos, size_t data_size, const udp::endpoint &peer_endpoint)
 {
-	if (stopped.load() || data == nullptr)
+	if (stopped.load() || data == nullptr || data_size == 0)
 		return;
 
 	connection_socket.async_send_to(asio::buffer(start_pos, data_size), peer_endpoint,
@@ -1001,7 +1001,7 @@ void udp_client::async_send_out(std::unique_ptr<uint8_t[]> data, uint8_t *start_
 
 void udp_client::async_send_out(std::vector<uint8_t> &&data, const udp::endpoint &peer_endpoint)
 {
-	if (stopped.load())
+	if (stopped.load() || data.empty())
 		return;
 
 	auto asio_buffer = asio::buffer(data);
@@ -1067,7 +1067,7 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 
 	start_receive();
 
-	if (buffer_cache == nullptr || bytes_transferred == 0)
+	if (bytes_transferred == 0)
 		return;
 
 	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)

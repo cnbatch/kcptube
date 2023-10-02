@@ -5,17 +5,20 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <utility>
 #include <vector>
 #include <deque>
 
+#include "../3rd_party/ikcp.hpp"
+
 namespace KCP
 {
-	class KCP;
-	int proxy_output(KCP *kcp, const char *buf, int len);
-	void proxy_writelog(KCP *kcp, const char *buf);
+	//class KCP;
+	//int proxy_output(KCP *kcp, const char *buf, int len);
+	//void proxy_writelog(KCP *kcp, const char *buf);
 	constexpr uint32_t five_minutes_in_ms = 5 * 60 * 1000;
 
 	uint32_t TimeNowForKCP();
@@ -24,31 +27,30 @@ namespace KCP
 	//---------------------------------------------------------------------
 	class KCP
 	{
-		friend int proxy_output(KCP *kcp, const char *buf, int len);
-		friend void proxy_writelog(KCP *kcp, const char *buf);
+		//friend int proxy_output(KCP *kcp, const char *buf, int len);
+		//friend void proxy_writelog(KCP *kcp, const char *buf);
 	public:
-		std::atomic<void *> custom_data;
+		//std::atomic<void *> custom_data;
 		std::atomic<int64_t> keep_alive_send_time;
 		std::atomic<int64_t> keep_alive_response_time;
 
 	private:
-		void *ikcp_ptr;
+		std::unique_ptr<kcp_core> kcp_ptr;
 		uint64_t outbound_bandwidth = 0;
 		uint64_t inbound_bandwidth = 0;
 		std::atomic<int64_t> last_input_time{0};
 		mutable std::shared_mutex mtx;
-		std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
-		std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
+		//std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
+		//std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
 		std::function<void(void *)> post_update;
 
 		void Initialise(uint32_t conv);
 		void MoveKCP(KCP &other) noexcept;
 
 	public:
-
 		KCP() { Initialise(0); }
 
-		KCP(const KCP &other) noexcept;
+		KCP(const KCP &other) = delete;
 
 		KCP(KCP &&other) noexcept { MoveKCP(other); }
 
@@ -139,6 +141,11 @@ namespace KCP
 		int32_t& RxMinRTO();
 		void SetBandwidth(uint64_t out_bw, uint64_t in_bw);
 		int64_t LastInputTime();
+
+		void* GetUserData();
+		void SetUserData(void *user_data);
+
+		void SetAsConserve(bool conserve);
 	};
 }
 

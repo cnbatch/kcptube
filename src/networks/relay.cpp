@@ -308,7 +308,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 
 				handshake_kcp_mappings->ingress_kcp = handshake_kcp_ingress;
 				handshake_kcp_mappings->connection_protocol = prtcl;
-				handshake_kcp_ingress->custom_data.store(handshake_kcp_mappings);
+				handshake_kcp_ingress->SetUserData(handshake_kcp_mappings);
 
 				std::shared_ptr<KCP::KCP> handshake_kcp_egress = std::make_shared<KCP::KCP>(0);
 				auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
@@ -321,7 +321,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 				handshake_kcp_mappings->egress_kcp = handshake_kcp_egress;
 				handshake_kcp_mappings->egress_forwarder = udp_forwarder;
 				handshake_kcp_mappings->changeport_timestamp.store(LLONG_MAX);
-				handshake_kcp_egress->custom_data.store(handshake_kcp_mappings);
+				handshake_kcp_egress->SetUserData(handshake_kcp_mappings);
 
 				handshake_kcp_egress->SetMTU(current_settings.egress->kcp_mtu);
 				handshake_kcp_egress->NoDelay(0, 2, 0, 1);
@@ -444,7 +444,7 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
 		return;
 
-	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 
 	while (true)
 	{
@@ -612,7 +612,7 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 		{
 			return kcp_sender_via_listener(buf, len, user);
 		});
-	kcp_ptr_ingress->custom_data.store(kcp_mappings_ptr);
+	kcp_ptr_ingress->SetUserData(kcp_mappings_ptr);
 	kcp_ptr_ingress->keep_alive_send_time.store(timestamp);
 	kcp_ptr_ingress->keep_alive_response_time.store(timestamp);
 
@@ -646,7 +646,7 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 			return kcp_sender_via_forwarder(buf, len, user);
 		});
 	kcp_ptr_egress->Update();
-	kcp_ptr_egress->custom_data.store(kcp_mappings_ptr);
+	kcp_ptr_egress->SetUserData(kcp_mappings_ptr);
 	kcp_ptr_ingress->keep_alive_send_time.store(timestamp);
 	kcp_ptr_ingress->keep_alive_response_time.store(timestamp);
 
@@ -1041,7 +1041,7 @@ void relay_mode::loop_keep_alive_ingress()
 			continue;
 		timestamp += current_settings.ingress->keep_alive;
 
-		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 		protocol_type ptype = kcp_mappings_ptr->connection_protocol;
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(ptype);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
@@ -1067,7 +1067,7 @@ void relay_mode::loop_keep_alive_egress()
 			continue;
 		timestamp += current_settings.egress->keep_alive;
 
-		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 		protocol_type ptype = kcp_mappings_ptr->connection_protocol;
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(ptype);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());

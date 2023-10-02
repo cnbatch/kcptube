@@ -27,7 +27,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\src\3rd_party\ikcp.c" />
+    <ClCompile Include="..\..\src\3rd_party\ikcp.cpp" />
     <ClCompile Include="..\..\src\main.cpp" />
     <ClCompile Include="..\..\src\networks\client.cpp" />
     <ClCompile Include="..\..\src\networks\connections.cpp" />
@@ -41,7 +41,7 @@
     <ClCompile Include="..\..\src\shares\share_defines.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\src\3rd_party\ikcp.h" />
+    <ClInclude Include="..\..\src\3rd_party\ikcp.hpp" />
     <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp" />
     <ClInclude Include="..\..\src\networks\client.hpp" />
     <ClInclude Include="..\..\src\networks\connections.hpp" />

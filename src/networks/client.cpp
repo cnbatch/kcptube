@@ -258,7 +258,7 @@ void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 	uint32_t next_refresh_time = current_settings.blast ? kcp_session->Refresh() : kcp_session->Check();
 	kcp_updater.submit(kcp_session, next_refresh_time);
 
-	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_session->custom_data.load();
+	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_session->GetUserData();
 	kcp_mappings_ptr->last_data_transfer_time.store(packet::right_now());
 }
 
@@ -305,7 +305,7 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
 		return;
 
-	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 	if (kcp_mappings_ptr == nullptr)
 		return;
 
@@ -462,7 +462,7 @@ void client_mode::udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> k
 			continue;
 		}
 
-		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 		tcp_session *tcp_channel = kcp_mappings_ptr->local_tcp.get();
 
 		switch (ftr)
@@ -1200,7 +1200,7 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 		handshakes[new_kcp_mappings_ptr.get()] = new_kcp_mappings_ptr;
 		locker.unlock();
 
-		kcp_mappings_ptr->egress_kcp->custom_data.store(nullptr);
+		kcp_mappings_ptr->egress_kcp->SetUserData(nullptr);
 		kcp_updater.remove(kcp_mappings_ptr->egress_kcp);
 		uint32_t next_update_time = new_kcp_mappings_ptr->egress_kcp->Check();
 		kcp_updater.submit(new_kcp_mappings_ptr->egress_kcp, next_update_time);
@@ -1497,7 +1497,7 @@ void client_mode::loop_keep_alive()
 			continue;
 		timestamp += current_settings.keep_alive;
 
-		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(kcp_mappings_ptr->connection_protocol);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
 
@@ -1563,7 +1563,7 @@ std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protoco
 {
 	std::shared_ptr<KCP::KCP> handshake_kcp = std::make_shared<KCP::KCP>();
 	std::shared_ptr<kcp_mappings> handshake_kcp_mappings = std::make_shared<kcp_mappings>();
-	handshake_kcp->custom_data.store(handshake_kcp_mappings.get());
+	handshake_kcp->SetUserData(handshake_kcp_mappings.get());
 	handshake_kcp_mappings->egress_kcp = handshake_kcp;
 	handshake_kcp_mappings->connection_protocol = prtcl;
 	handshake_kcp_mappings->changeport_timestamp.store(LLONG_MAX);
@@ -1722,7 +1722,7 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 		return;
 	udp_forwarder->async_receive();
 
-	kcp_ptr->custom_data.store(kcp_mappings_ptr.get());
+	kcp_ptr->SetUserData(kcp_mappings_ptr.get());
 	kcp_ptr->keep_alive_send_time.store(timestamp);
 	kcp_ptr->keep_alive_response_time.store(timestamp);
 	kcp_ptr->SetMTU(current_settings.kcp_mtu);
@@ -1730,6 +1730,7 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 	kcp_ptr->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
 	kcp_ptr->RxMinRTO() = 10;
 	kcp_ptr->SetBandwidth(outbound_bandwidth, current_settings.inbound_bandwidth);
+	kcp_ptr->SetAsConserve(current_settings.kcp_conserve);
 	std::weak_ptr handshake_kcp_weak = handshake_ptr->egress_kcp;
 	std::weak_ptr data_ptr_weak = kcp_ptr;
 	handshake_ptr->mapping_function = [this, handshake_kcp_weak, data_ptr_weak]() { set_kcp_windows(handshake_kcp_weak, data_ptr_weak); };
@@ -1920,7 +1921,7 @@ void client_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::uniqu
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
 		return;
 
-	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->custom_data.load();
+	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 	if (kcp_mappings_ptr == nullptr)
 		return;
 

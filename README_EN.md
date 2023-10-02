@@ -169,6 +169,7 @@ encryption_algorithm=AES-GCM
 | stun_server  | STUN Server's address |No| Cannot be used if listen_port option is port range mode|
 | log_path  | The directory where the Logs are stored |No|Cannot point to the file itself|
 | kcp_mtu  | Positive Integer |No|Default value is 1440|
+| kcp_conserve  | yes<br>true<br>1<br>no<br>false<br>0 |No|Ease up on the 'fast ACK' a little bit.|
 | kcp  | manual<br>fast1 - 6<br>regular1 - 5<br> &nbsp; |Yes|Setup Manually<br>Fast Modes<br>Regular Speeds<br>(the number at the end: the smaller the value, the faster the speed)|
 | kcp_sndwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
 | kcp_rcvwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
@@ -218,13 +219,15 @@ This bandwidth values should not larger than your actual bandwidth, otherwise th
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
 | regular1     | 1024       |   1024    |      1    |   1        |   5      |   1   |
 | regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
-| regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
-| regular4     | 1024       |   1024    |      0    |   1        |   3      |   1   |
-| regular5     | 1024       |   1024    |      0    |   1        |   0      |   1   |
+| regular3*    | 1024       |   1024    |      1    |   1        |   5      |   1   |
+| regular4*    | 1024       |   1024    |      2    |   1        |   5      |   1   |
+| regular5*    | 1024       |   1024    |      0    |   1        |   3      |   1   |
 
 Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency smoother.
 
-If you want to reduce traffic waste and also accept a little bit more latency increase, please try choosing regular modes. However, using regular 4 or regular 5 in the envirnment of high latency with packet loss rate high than 4% may encounter the situation of TCP disconnection. 
+If you want to reduce traffic waste and also accept a little bit more latency increase, please try choosing regular modes.<br /> 
+The star-marked modes (regular3 ~ 5) have enabled the kcp_conserve option, which leads to slightly higher latency caused by packet loss, but reduces wastage of traffic to some extent.
+
 
 ### Log File
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.
@@ -398,6 +401,36 @@ As kcptube uses IPv6 single-stack + enabled IPv4 mapped addresses (IPv4-mapped I
 If the system does not support IPv6 or IPv6 is disabled, please set ipv4_only=true in the configuration file, so that kcptube will fall back to using IPv4 single-stack mode.
 
 ## Other Considerations
+### ‘Too Many Open Files’ of multiple Operation Systems
+#### GhostBSD
+In general, most BSD systems will not encounter this issue, only GhostBSD updated in the second half of 2023 will encounter it.
+
+This is because GhostBSD has added this line in `/etc/sysctl.conf`:
+```
+kern.maxfiles=100000
+```
+This line reduces the upper limit, far below the corresponding value of the original FreeBSD.
+
+The solution is simple, just delete or comment out this line.<br />
+Alternatively, use the command `sysctl kern.maxfiles=300000` to temporarily change the limit value.
+
+#### Linux
+Since the Open Files limit for Linux systems is 1024, it's easy to encounter such problems.
+
+Temporary solution:
+1. Run the command `ulimit -n` to check the output value.
+2. If the value is indeed only 1024, run the command `ulimit -n 300000`.
+
+Permanent solution:<br />
+Edit /etc/security/limits.conf and add at the end:
+
+```
+*         hard    nofile       300000
+*         soft    nofile       300000
+root      hard    nofile       300000
+root      soft    nofile       300000
+```
+
 ### NetBSD
 After running command
 ```
@@ -410,17 +443,19 @@ However, for unknown reasons, it may not be possible to actively connect to an I
 ### OpenBSD
 OpenBSD completely blocks IPv4-mapped IPv6, if you use dual-stack on the OpenBSD platform, you need to save the configuration file as two files, one of which enables ipv4_only=1, and then load both configuration files when using kcptube.
 
-## Data verification
+## Encryption and Data verification
 Since TCP data transmission is required, data verification cannot be ignored, just like TCP itself.
 
-If the encryption option has been used, then the content of this section can be ignored. The encryption algorithm selected by kcptube has verification capabilities built in, which can also ensure that the transmitted content is error-free.
+Regardless of whether encryption is enabled or not, this program will reduce the MTU by 2 bytes and append 2-byte data at the end.
 
-If the encryption function is not used, kcptube will reduce the MTU by 2 bytes so that a 2-byte checksum can be attached to the end.
+If the encryption option is used, then the 2-byte data appended at the end will be a temporarily generated IV.
 
-However, the Botan library used by kcptube does not include a 16-bit verification algorithm, so kcptube uses two 8-bit checksums at the same time:
+If the encryption feature is not selected, the 2-byte data appended at the end will be the checksum, consisting of two different 8-bit checksums:
 
 - Longitudinal Redundancy Check (LRC)
 - 8-bit checksum
+
+This is because the Botan library used in this program does not come with a 16-bit checksum algorithm. Therefore, this program simultaneously utilizes these two 8-bit checksums.
 
 The calculation speed of these two checksums is fast enough, concise and practical, and is not an obscure calculation method. For example, Modbus uses LRC.
 
@@ -452,10 +487,11 @@ The timeout period for KCP channel is 30 seconds after enabling the multiplexing
 To reduce latency, kcptube has enabled the TCP_NODELAY option. For some high-traffic application scenarios, this may result in a reduction in the amount of TCP data transmitted.
 
 ### KCP
-KCP Tube uses the original version of the [KCP](https://github.com/skywind3000/kcp), with some modifications:
+KCP Tube uses a modified version of [KCP](https://github.com/skywind3000/kcp):
 
-1. The original `flush()` function first moves the data to be sent to the sending queue, and then completes ‘sending new packet’, ‘packet retransmission’, and ‘ACK packet sending’ in the same loop. In the modified version, ‘packet retransmission’ and ‘ACK packet sending’ are done first, and then ‘move the data to be sent to the sending queue’ is done, sending it during the transfer.
-2. The original `check()` function would traverse the sending queue every time to find the retransmission timestamp for packets that have reached their timeout. In the modified version, a new variable `min_resendts` is added to the KCP struct. During the `flush()` sending loop, the minimum timestamp is found and stored in min_resendts. `check()` no longer needs to traverse the queue every time. It can directly read the value of `min_resendts`.
+1. The original ‘sent data packet cache’ used a queue, and the modified version changed to use std::map, with three mapping tables: a total queue sorted by packet number, and two wait-for-resend queues, one sorted by time and the other sorted by the number of lost packets.
+2. The original `flush()` function first transfers the data to be sent to the sending queue, and then completes the three things of ‘sending new data packet’, ‘resending data packet’, and ‘sending ACK packet’ in the same loop. The modified version changes to first do ‘resend data packet’ and ‘send ACK packet’, and then do ‘transfer data to be sent to sending queue’, while sending it during the transfer.
+3. The original `check()` function would traverse the sending queue every time to look for the timestamp of the already arrived resend. In the modified version: the first timestamp is read from the already sorted mapping table, eliminating the searching step.
 
 And other ‘bugs’ in the original version, will also exist in kcptube. For example:
 

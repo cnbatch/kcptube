@@ -63,7 +63,7 @@
     <ClCompile Include="..\..\src\networks\relay.cpp">
       <Filter>Source Files\networks</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\3rd_party\ikcp.c">
+    <ClCompile Include="..\..\src\3rd_party\ikcp.cpp">
       <Filter>Source Files\3rd_party</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\networks\kcp_updater.cpp">
@@ -110,7 +110,7 @@
     <ClInclude Include="..\..\src\networks\relay.hpp">
       <Filter>Header Files\networks</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\3rd_party\ikcp.h">
+    <ClInclude Include="..\..\src\3rd_party\ikcp.hpp">
       <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\networks\kcp_updater.hpp">
