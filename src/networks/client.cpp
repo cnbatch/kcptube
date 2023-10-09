@@ -292,18 +292,32 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
 	if (kcp_ptr->GetConv() != conv)
 	{
-		std::stringstream ss;
-		ss << peer;
-		std::string error_message = time_to_string_with_square_brackets() +
-			"KCP conv is not the same as record : conv = " + std::to_string(conv) +
-			", local kcp : " + std::to_string(kcp_ptr->GetConv()) + "\n";
-		std::cerr << error_message;
-		print_message_to_file(error_message, current_settings.log_messages);
-		return;
+		std::shared_lock locker_kcp_channels{ mutex_kcp_channels };
+		auto iter = kcp_channels.find(conv);
+		if (iter == kcp_channels.end())
+		{
+			locker_kcp_channels.unlock();
+			std::stringstream ss;
+			ss << peer;
+			std::string error_message = time_to_string_with_square_brackets() +
+				"KCP conv is not the same as record : conv = " + std::to_string(conv) +
+				", local kcp : " + std::to_string(kcp_ptr->GetConv()) + "\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
+			return;
+		}
+		kcp_ptr = iter->second->egress_kcp;
 	}
 
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
+	{
+		if (current_settings.blast)
+		{
+			uint32_t next_refresh_time = kcp_ptr->Check();
+			kcp_updater.submit(kcp_ptr, next_refresh_time);
+		}
 		return;
+	}
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 	if (kcp_mappings_ptr == nullptr)
@@ -430,17 +444,32 @@ void client_mode::udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> k
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
 	if (kcp_ptr->GetConv() != conv)
 	{
-		std::stringstream ss;
-		ss << peer;
-		std::string error_message = time_to_string_with_square_brackets() +
-			"kcp conv is not the same as record : conv = " + std::to_string(conv) +
-			", local kcp_ptr : " + std::to_string(kcp_ptr->GetConv()) + "\n";
-		std::cerr << error_message;
-		print_message_to_file(error_message, current_settings.log_messages);
+		std::shared_lock locker_kcp_channels{ mutex_kcp_channels };
+		auto iter = kcp_channels.find(conv);
+		if (iter == kcp_channels.end())
+		{
+			locker_kcp_channels.unlock();
+			std::stringstream ss;
+			ss << peer;
+			std::string error_message = time_to_string_with_square_brackets() +
+				"kcp conv is not the same as record : conv = " + std::to_string(conv) +
+				", local kcp_ptr : " + std::to_string(kcp_ptr->GetConv()) + "\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
+			return;
+		}
+		kcp_ptr = iter->second->egress_kcp;
+	}
+
+	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
+	{
+		if (current_settings.blast)
+		{
+			uint32_t next_refresh_time = kcp_ptr->Check();
+			kcp_updater.submit(kcp_ptr, next_refresh_time);
+		}
 		return;
 	}
-	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
-		return;
 
 	while (true)
 	{
@@ -790,11 +819,11 @@ void client_mode::mux_move_cached_to_tunnel(bool skip_kcp_update)
 		return;
 	}
 	
-	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_ptr_list;
+	std::unordered_set<std::shared_ptr<KCP::KCP>> kcp_ptr_list;
 	{
 		std::scoped_lock cache_lockers{mutex_mux_tcp_cache, mutex_mux_udp_cache};
-		std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_ptr_udp = mux_move_cached_to_tunnel(mux_udp_cache, 2);
-		std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_ptr_tcp = mux_move_cached_to_tunnel(mux_tcp_cache, 2);
+		std::list<std::shared_ptr<KCP::KCP>> kcp_ptr_udp = mux_move_cached_to_tunnel(mux_udp_cache, 2);
+		std::list<std::shared_ptr<KCP::KCP>> kcp_ptr_tcp = mux_move_cached_to_tunnel(mux_tcp_cache, 2);
 
 		kcp_ptr_list.insert(kcp_ptr_tcp.begin(), kcp_ptr_tcp.end());
 		kcp_ptr_list.insert(kcp_ptr_udp.begin(), kcp_ptr_udp.end());
@@ -807,10 +836,10 @@ void client_mode::mux_move_cached_to_tunnel(bool skip_kcp_update)
 	}
 }
 
-std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>>
+std::list<std::shared_ptr<KCP::KCP>>
 client_mode::mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, int one_x)
 {
-	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_ptr_list;
+	std::list<std::shared_ptr<KCP::KCP>> kcp_ptr_list;
 	if (one_x <= 0)
 		one_x = 1;
 
@@ -838,7 +867,7 @@ client_mode::mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::de
 			data_cache.pop_front();
 		}
 
-		kcp_ptr_list.insert(kcp_ptr);
+		kcp_ptr_list.emplace_back(std::move(kcp_ptr));
 	}
 
 	return kcp_ptr_list;
@@ -1725,12 +1754,12 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 	kcp_ptr->SetUserData(kcp_mappings_ptr.get());
 	kcp_ptr->keep_alive_send_time.store(timestamp);
 	kcp_ptr->keep_alive_response_time.store(timestamp);
+	kcp_ptr->quick_response.store(current_settings.blast);
 	kcp_ptr->SetMTU(current_settings.kcp_mtu);
 	kcp_ptr->SetWindowSize(current_settings.kcp_sndwnd, current_settings.kcp_rcvwnd);
 	kcp_ptr->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
 	kcp_ptr->RxMinRTO() = 10;
 	kcp_ptr->SetBandwidth(outbound_bandwidth, current_settings.inbound_bandwidth);
-	kcp_ptr->SetAsConserve(current_settings.kcp_conserve);
 	std::weak_ptr handshake_kcp_weak = handshake_ptr->egress_kcp;
 	std::weak_ptr data_ptr_weak = kcp_ptr;
 	handshake_ptr->mapping_function = [this, handshake_kcp_weak, data_ptr_weak]() { set_kcp_windows(handshake_kcp_weak, data_ptr_weak); };
@@ -1919,7 +1948,14 @@ void client_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::uniqu
 		return;
 
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
+	{
+		if (current_settings.blast)
+		{
+			uint32_t next_refresh_time = kcp_ptr->Check();
+			kcp_updater.submit(kcp_ptr, next_refresh_time);
+		}
 		return;
+	}
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 	if (kcp_mappings_ptr == nullptr)

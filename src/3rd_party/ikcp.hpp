@@ -21,8 +21,8 @@
 #include <list>
 #include <map>
 #include <memory>
-#include <set>
 #include <vector>
+#include <unordered_map>
 
 
 #ifdef _MSC_VER
@@ -93,8 +93,8 @@ namespace KCP
 		std::list<segment> rcv_queue;
 		//std::list<std::shared_ptr<segment>> snd_buf;
 		std::map<uint32_t, std::shared_ptr<segment>> snd_buf;	// SN -> segment
-		std::map<uint32_t, std::set<std::weak_ptr<segment>, std::owner_less<>>> resendts_buf;	// resendts -> segment
-		std::map<uint32_t, std::set<std::weak_ptr<segment>, std::owner_less<>>> fastack_buf;	// fastack -> segment
+		std::map<uint32_t, std::unordered_map<uint32_t, std::weak_ptr<segment>>> resendts_buf;	// resendts -> segment
+		std::map<uint32_t, std::unordered_map<uint32_t, std::weak_ptr<segment>>> fastack_buf;	// fastack -> segment
 		std::list<segment> rcv_buf;
 		std::vector<std::pair<uint32_t, uint32_t>> acklist;
 		void *user;
@@ -105,7 +105,6 @@ namespace KCP
 		int logmask;
 		std::function<int(const char *, int, void *)> output_callback;	// int(*output)(const char *buf, int len, void *user)
 		std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
-		bool fastack_conserve;
 
 		//---------------------------------------------------------------------
 		// interface
@@ -139,6 +138,7 @@ namespace KCP
 		// ikcp_check when to call it again (without ikcp_input/_send calling).
 		// 'current' - current timestamp in millisec. 
 		void update(uint32_t current);
+		void update_quick(uint32_t current);
 
 		// Determine when should you invoke ikcp_update:
 		// returns when you should invoke ikcp_update in millisec, if there 
@@ -148,6 +148,7 @@ namespace KCP
 		// schedule ikcp_update (eg. implementing an epoll-like mechanism, 
 		// or optimize ikcp_update when handling massive kcp connections)
 		uint32_t check(uint32_t current);
+		uint32_t check_quick(uint32_t current);
 
 		// when you received a low level packet (eg. UDP packet), call it
 		int input(const char *data, long size);

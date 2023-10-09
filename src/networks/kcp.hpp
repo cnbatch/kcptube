@@ -33,6 +33,7 @@ namespace KCP
 		//std::atomic<void *> custom_data;
 		std::atomic<int64_t> keep_alive_send_time;
 		std::atomic<int64_t> keep_alive_response_time;
+		std::atomic<bool> quick_response{false};
 
 	private:
 		std::unique_ptr<kcp_core> kcp_ptr;
@@ -144,8 +145,6 @@ namespace KCP
 
 		void* GetUserData();
 		void SetUserData(void *user_data);
-
-		void SetAsConserve(bool conserve);
 	};
 }
 

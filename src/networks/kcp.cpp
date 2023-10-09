@@ -27,8 +27,6 @@
 using namespace std::chrono;
 using namespace std::literals;
 
-//int middle_layer_output(const char *buf, int len, IKCPCB *kcp, void *user);
-//void middle_layer_writelog(const char *buf, IKCPCB *kcp, void *user);
 int64_t right_now();
 
 namespace KCP
@@ -138,7 +136,10 @@ namespace KCP
 	void KCP::Update()
 	{
 		std::unique_lock locker{ mtx };
-		kcp_ptr->update(TimeNowForKCP());
+		if (quick_response.load())
+			kcp_ptr->update_quick(TimeNowForKCP());
+		else
+			kcp_ptr->update(TimeNowForKCP());
 		locker.unlock();
 		post_update(kcp_ptr->user);
 	}
@@ -152,14 +153,17 @@ namespace KCP
 	uint32_t KCP::Check()
 	{
 		std::shared_lock locker{ mtx };
-		return kcp_ptr->check(TimeNowForKCP());
+		if (quick_response.load())
+			return kcp_ptr->check_quick(TimeNowForKCP());
+		else
+			return kcp_ptr->check(TimeNowForKCP());
 	}
 
 	uint32_t KCP::Refresh()
 	{
 		std::unique_lock unique_locker{ mtx };
 		kcp_ptr->flush(TimeNowForKCP());
-		return kcp_ptr->check(TimeNowForKCP());
+		return kcp_ptr->check_quick(TimeNowForKCP());
 	}
 
 	// when you received a low level packet (eg. UDP packet), call it
@@ -285,35 +289,7 @@ namespace KCP
 	{
 		kcp_ptr->user = user_data;
 	}
-
-	void KCP::SetAsConserve(bool conserve)
-	{
-		kcp_ptr->fastack_conserve = conserve;
-	}
-
-	//int proxy_output(KCP *kcp, const char *buf, int len)
-	//{
-	//	return kcp->output(buf, len, kcp->custom_data.load());
-	//}
-
-	//void proxy_writelog(KCP *kcp, const char *buf)
-	//{
-	//	kcp->writelog(buf, kcp->custom_data.load());
-	//}
-
 }
-
-//int middle_layer_output(const char *buf, int len, struct IKCPCB *kcp, void *user)
-//{
-//	KCP::KCP *kcp_ptr = (KCP::KCP*)kcp->user;
-//	return KCP::proxy_output(kcp_ptr, buf, len);
-//}
-//
-//void middle_layer_writelog(const char *buf, struct IKCPCB *kcp, void *user)
-//{
-//	KCP::KCP *kcp_ptr = (KCP::KCP*)kcp->user;
-//	return KCP::proxy_writelog(kcp_ptr, buf);
-//}
 
 int64_t right_now()
 {

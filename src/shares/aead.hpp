@@ -293,18 +293,22 @@ public:
 	{
 		std::array<uint8_t, 2> iv_raw{};
 		thread_local std::mt19937 mt(std::random_device{}());
-		std::uniform_int_distribution<uint32_t> uniform_dist(0, std::numeric_limits<uint8_t>::max());
-		iv_raw[0] = uniform_dist(mt);
-		iv_raw[1] = uniform_dist(mt);
-		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv[12] = iv[14] = iv_raw[0];
-		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv[13] = iv[15] = iv_raw[1];
+		std::uniform_int_distribution<uint16_t> uniform_dist(0, std::numeric_limits<uint16_t>::max());
+		uint64_t random_number = uniform_dist(mt);
+		*((uint16_t*)iv_raw.data()) = (uint16_t)random_number;
+
+		uint64_t assign_number = (random_number << 48) + (random_number << 32) + (random_number << 16) + random_number;
+		uint64_t *iv_u64 = (uint64_t *)iv.data();
+		iv_u64[0] = iv_u64[1] = assign_number;
 		return iv_raw;
 	}
 
 	void change_iv(std::array<uint8_t, 2> iv_raw) override
 	{
-		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv[12] = iv[14] = iv_raw[0];
-		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv[13] = iv[15] = iv_raw[1];
+		uint64_t iv_number = *((uint16_t *)iv_raw.data());
+		uint64_t assign_number = (iv_number << 48) + (iv_number << 32) + (iv_number << 16) + iv_number;
+		uint64_t *iv_u64 = (uint64_t *)iv.data();
+		iv_u64[0] = iv_u64[1] = assign_number;
 	}
 };
 
@@ -377,18 +381,22 @@ public:
 	{
 		std::array<uint8_t, 2> iv_raw{};
 		thread_local std::mt19937 mt(std::random_device{}());
-		std::uniform_int_distribution<uint32_t> uniform_dist(0, std::numeric_limits<uint8_t>::max());
-		iv_raw[0] = uniform_dist(mt);
-		iv_raw[1] = uniform_dist(mt);
-		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv_raw[0];
-		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv_raw[1];
+		std::uniform_int_distribution<uint16_t> uniform_dist(0, std::numeric_limits<uint16_t>::max());
+		uint32_t random_number = uniform_dist(mt);
+		*((uint16_t*)iv_raw.data()) = (uint16_t)random_number;
+
+		uint32_t assign_number = (random_number << 16) + random_number;
+		uint32_t *iv_u32 = (uint32_t *)iv.data();
+		iv_u32[0] = iv_u32[1] = iv_u32[2] = assign_number;
 		return iv_raw;
 	}
 
 	void change_iv(std::array<uint8_t, 2> iv_raw) override
 	{
-		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv_raw[0];
-		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv_raw[1];
+		uint32_t iv_number = *((uint16_t *)iv_raw.data());
+		uint32_t assign_number = (iv_number << 16) + iv_number;
+		uint32_t *iv_u32 = (uint32_t *)iv.data();
+		iv_u32[0] = iv_u32[1] = iv_u32[2] = assign_number;
 	}
 };
 
@@ -458,18 +466,20 @@ public:
 	{
 		std::array<uint8_t, 2> iv_raw{};
 		thread_local std::mt19937 mt(std::random_device{}());
-		std::uniform_int_distribution<uint32_t> uniform_dist(0, std::numeric_limits<uint8_t>::max());
-		iv_raw[0] = uniform_dist(mt);
-		iv_raw[1] = uniform_dist(mt);
-		iv[0] = iv[2] = iv[4] = iv[6] = iv_raw[0];
-		iv[1] = iv[3] = iv[5] = iv[7] = iv_raw[1];
+		std::uniform_int_distribution<uint16_t> uniform_dist(0, std::numeric_limits<uint16_t>::max());
+		uint64_t random_number = uniform_dist(mt);
+		*((uint16_t*)iv_raw.data()) = (uint16_t)random_number;
+
+		uint64_t assign_number = (random_number << 48) + (random_number << 32) + (random_number << 16) + random_number;
+		*(uint64_t *)iv.data() = assign_number;
 		return iv_raw;
 	}
 
 	void change_iv(std::array<uint8_t, 2> iv_raw) override
 	{
-		iv[0] = iv[2] = iv[4] = iv[6] = iv_raw[0];
-		iv[1] = iv[3] = iv[5] = iv[7] = iv_raw[1];
+		uint64_t iv_number = *((uint16_t *)iv_raw.data());
+		uint64_t assign_number = (iv_number << 48) + (iv_number << 32) + (iv_number << 16) + iv_number;
+		*(uint64_t *)iv.data() = assign_number;
 	}
 };
 
@@ -534,18 +544,22 @@ public:
 	{
 		std::array<uint8_t, 2> iv_raw{};
 		thread_local std::mt19937 mt(std::random_device{}());
-		std::uniform_int_distribution<uint32_t> uniform_dist(0, std::numeric_limits<uint8_t>::max());
-		iv_raw[0] = uniform_dist(mt);
-		iv_raw[1] = uniform_dist(mt);
-		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv[12] = iv[14] = iv[16] = iv[18] = iv[20] = iv[22] = iv_raw[0];
-		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv[13] = iv[15] = iv[17] = iv[19] = iv[21] = iv[23] = iv_raw[1];
+		std::uniform_int_distribution<uint16_t> uniform_dist(0, std::numeric_limits<uint16_t>::max());
+		uint64_t random_number = uniform_dist(mt);
+		*((uint16_t*)iv_raw.data()) = (uint16_t)random_number;
+
+		uint64_t assign_number = (random_number << 48) + (random_number << 32) + (random_number << 16) + random_number;
+		uint64_t *iv_u64 = (uint64_t *)iv.data();
+		iv_u64[0] = iv_u64[1] = iv_u64[2] = assign_number;
 		return iv_raw;
 	}
 
 	void change_iv(std::array<uint8_t, 2> iv_raw) override
 	{
-		iv[0] = iv[2] = iv[4] = iv[6] = iv[8] = iv[10] = iv[12] = iv[14] = iv[16] = iv[18] = iv[20] = iv[22] = iv_raw[0];
-		iv[1] = iv[3] = iv[5] = iv[7] = iv[9] = iv[11] = iv[13] = iv[15] = iv[17] = iv[19] = iv[21] = iv[23] = iv_raw[1];
+		uint64_t iv_number = *((uint16_t *)iv_raw.data());
+		uint64_t assign_number = (iv_number << 48) + (iv_number << 32) + (iv_number << 16) + iv_number;
+		uint64_t *iv_u64 = (uint64_t *)iv.data();
+		iv_u64[0] = iv_u64[1] = iv_u64[2] = assign_number;
 	}
 };
 

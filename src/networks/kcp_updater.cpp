@@ -57,8 +57,8 @@ namespace KCP
 			int64_t wait_time = (int64_t)(kcp_refresh_time)-(int64_t)(nearest_update_time.load());
 			if (wait_time <= 0)
 				wait_time = 1;
-			thread_local std::list<std::pair<std::weak_ptr<KCP>, uint32_t>> kcp_task_without_lock;
-			kcp_task_without_lock.clear();
+			//thread_local std::list<std::pair<std::weak_ptr<KCP>, uint32_t>> kcp_task_without_lock;
+			//kcp_task_without_lock.clear();
 			{
 				std::unique_lock tasks_lock(kcp_pile_mutex);
 				kcp_pile_available_cv.wait_for(tasks_lock, std::chrono::milliseconds{wait_time});

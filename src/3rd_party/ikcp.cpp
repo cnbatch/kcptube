@@ -269,7 +269,6 @@ namespace KCP
 		this->nocwnd = 0;
 		this->xmit = 0;
 		this->dead_link = IKCP_DEADLINK;
-		this->fastack_conserve = false;
 
 		return true;
 	}
@@ -312,7 +311,6 @@ namespace KCP
 		this->nocwnd = other.nocwnd;
 		this->xmit = other.xmit;
 		this->dead_link = other.dead_link;
-		this->fastack_conserve = other.fastack_conserve;
 	}
 
 
@@ -563,16 +561,12 @@ namespace KCP
 
 		for (auto &[seg_sn, seg] : this->snd_buf)
 		{
-			if (sn < seg_sn)
-				break;
-			else if (sn != seg->sn)
+			if (sn < seg_sn) break;
+			else if (sn != seg_sn)
 			{
-				if (fastack_conserve && ts < seg->ts)
-					continue;
-
-				this->fastack_buf[seg->fastack].erase(seg);
+				this->fastack_buf[seg->fastack].erase(seg_sn);
 				seg->fastack++;
-				this->fastack_buf[seg->fastack].insert(seg);
+				this->fastack_buf[seg->fastack][seg_sn] = seg;
 			}
 		}
 	}
@@ -646,7 +640,7 @@ namespace KCP
 
 		if (data == nullptr || size < (long)IKCP_OVERHEAD) return -1;
 
-		while (size > (long)IKCP_OVERHEAD)
+		while (size >= (long)IKCP_OVERHEAD)
 		{
 			uint32_t ts, sn, len, una, conv;
 			uint16_t wnd;
@@ -692,16 +686,8 @@ namespace KCP
 				{
 					if (sn > maxack)
 					{
-						if (!fastack_conserve)
-						{
-							maxack = sn;
-							latest_ts = ts;
-						}
-						else if (ts > latest_ts)
-						{
-							maxack = sn;
-							latest_ts = ts;
-						}
+						maxack = sn;
+						latest_ts = ts;
 					}
 				}
 				if (ikcp_canlog(IKCP_LOG_IN_ACK))
@@ -866,7 +852,7 @@ namespace KCP
 		seg.ts = 0;
 
 		// flush acknowledges
-		for (auto &[ack_sn, ack_ts] : this->acklist)
+		for (auto [ack_sn, ack_ts] : this->acklist)
 		{
 			int size = (int)(ptr - buffer);
 			if (size + (int)IKCP_OVERHEAD > (int)this->mtu)
@@ -964,7 +950,8 @@ namespace KCP
 				seg_iter = seg_next)
 			{
 				++seg_next;
-				std::shared_ptr segptr = seg_iter->lock();
+				auto [seg_sn, seg_weak] = *seg_iter;
+				std::shared_ptr segptr = seg_weak.lock();
 				if (segptr == nullptr)
 				{
 					seg_list.erase(seg_iter);
@@ -987,7 +974,7 @@ namespace KCP
 				lost = 1;
 
 				seg_list.erase(seg_iter);
-				this->resendts_buf[segptr->resendts].insert(segptr);
+				this->resendts_buf[segptr->resendts][seg_sn] = segptr;
 
 				segptr->ts = current;
 				segptr->wnd = seg.wnd;
@@ -1013,7 +1000,8 @@ namespace KCP
 				seg_iter = seg_next)
 			{
 				++seg_next;
-				std::shared_ptr segptr = seg_iter->lock();
+				auto [seg_sn, seg_weak] = *seg_iter;
+				std::shared_ptr segptr = seg_weak.lock();
 				if (segptr == nullptr)
 				{
 					seg_list.erase(seg_iter);
@@ -1029,9 +1017,9 @@ namespace KCP
 					change++;
 
 					seg_list.erase(seg_iter);
-					this->fastack_buf[segptr->fastack].insert(segptr);
-					this->resendts_buf[old_resendtrs].erase(segptr);
-					this->resendts_buf[segptr->resendts].insert(segptr);
+					this->fastack_buf[segptr->fastack][seg_sn] = segptr;
+					this->resendts_buf[old_resendtrs].erase(seg_sn);
+					this->resendts_buf[segptr->resendts][seg_sn] = segptr;
 
 					segptr->ts = current;
 					segptr->wnd = seg.wnd;
@@ -1060,8 +1048,8 @@ namespace KCP
 
 			this->snd_buf[newseg->sn] = newseg;
 			this->snd_queue.pop_front();
-			resendts_buf[newseg->resendts].insert(newseg);
-			fastack_buf[newseg->fastack].insert(newseg);
+			resendts_buf[newseg->resendts][newseg->sn] = newseg;
+			fastack_buf[newseg->fastack][newseg->sn] = newseg;
 
 			ptr = send_out(ptr, buffer, newseg.get());
 		}
@@ -1134,6 +1122,49 @@ namespace KCP
 		}
 	}
 
+	void kcp_core::update_quick(uint32_t current)
+	{
+		bool need_update = false;
+		this->current = current;
+		if (this->updated == 0)
+		{
+			this->updated = 1;
+			this->ts_flush = this->current;
+			need_update = true;
+		}
+
+		if (!need_update && !this->acklist.empty())
+			need_update = true;
+
+		if (!need_update && this->snd_nxt < this->snd_una + cwnd && !this->snd_queue.empty())
+			need_update = true;
+
+		if (!need_update && this->fastresend > 0 && !this->resendts_buf[this->fastresend].empty())
+			need_update = true;
+
+		if (!need_update && !this->resendts_buf.empty())
+		{
+			auto &[resend_ts, seg_list] = *this->resendts_buf.begin();
+			need_update = resend_ts <= current;
+		}
+
+		if (auto slap =_itimediff(this->current, this->ts_flush);
+			!need_update && (slap >= 0 || slap < -10000))
+		{
+			this->ts_flush = this->current;
+			need_update = true;
+		}
+
+		if (need_update)
+		{
+			this->ts_flush += this->interval;
+			if (this->current >= this->ts_flush)
+				this->ts_flush = this->current + this->interval;
+
+			flush();
+		}
+	}
+
 
 	//---------------------------------------------------------------------
 	// Determine when should you invoke ikcp_update:
@@ -1178,6 +1209,43 @@ namespace KCP
 		if (minimal >= this->interval) minimal = this->interval;
 
 		return current + minimal;
+	}
+
+	uint32_t kcp_core::check_quick(uint32_t current)
+	{
+		int32_t tm_packet = 0x7fffffff;
+
+		if (this->updated == 0)
+			return current;
+
+		if (_itimediff(current, ts_flush) >= 10000 || _itimediff(current, ts_flush) < -10000)
+		{
+			ts_flush = current;
+			return current;
+		}
+
+		if (!this->acklist.empty())
+			return current;
+
+		if (this->snd_nxt < this->snd_una + cwnd && !this->snd_queue.empty())
+			return current;
+
+		if (this->fastresend > 0 && !this->resendts_buf[this->fastresend].empty())
+			return current;
+
+		if (!this->resendts_buf.empty())
+		{
+			auto &[resend_ts, seg_list] = *this->resendts_buf.begin();
+
+			int32_t diff = _itimediff(resend_ts, current);
+			if (diff <= 0)
+				return current;
+
+			if (diff < tm_packet)
+				tm_packet = diff;
+		}
+
+		return current + tm_packet;
 	}
 
 	int kcp_core::set_mtu(int mtu)

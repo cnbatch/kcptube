@@ -79,7 +79,7 @@ class server_mode
 	std::shared_ptr<mux_records> create_mux_data_tcp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak);
 	std::shared_ptr<mux_records> create_mux_data_udp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak);
 	void mux_move_cached_to_tunnel(bool skip_kcp_update = false);
-	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, int one_x);
+	std::list<std::shared_ptr<KCP::KCP>> mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, int one_x);
 	void refresh_mux_queue(std::weak_ptr<KCP::KCP> kcp_ptr_weak);
 
 	int kcp_sender(const char *buf, int len, void *user);

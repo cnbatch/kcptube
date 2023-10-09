@@ -162,7 +162,14 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 
 	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_mappings_ptr->ingress_kcp;
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
+	{
+		if (current_settings.blast)
+		{
+			uint32_t next_refresh_time = kcp_ptr->Check();
+			kcp_updater.submit(kcp_ptr, next_refresh_time);
+		}
 		return;
+	}
 
 	{
 		std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
@@ -476,7 +483,7 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				data_kcp->Update();
 				data_kcp->RxMinRTO() = 10;
 				data_kcp->SetBandwidth(outbound_bandwidth, current_settings.inbound_bandwidth);
-				data_kcp->SetAsConserve(current_settings.kcp_conserve);
+				data_kcp->quick_response.store(current_settings.blast);
 
 				bool connect_success = false;
 
@@ -552,6 +559,13 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 			default:
 				break;
 			}
+		}
+		else
+		{
+			kcp_mappings *kcp_mappings_ptr = iter->second.get();
+			std::shared_ptr<KCP::KCP> handshake_kcp = kcp_mappings_ptr->ingress_kcp;
+
+			handshake_kcp->Input((const char *)data_ptr, (long)packet_data_size);
 		}
 		unique_locker_handshake_channels.unlock();
 	}
@@ -934,11 +948,11 @@ void server_mode::mux_move_cached_to_tunnel(bool skip_kcp_update)
 		return;
 	}
 
-	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_ptr_list;
+	std::unordered_set<std::shared_ptr<KCP::KCP>> kcp_ptr_list;
 	{
 		std::scoped_lock cache_lockers{mutex_mux_tcp_cache, mutex_mux_udp_cache};
-		std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_ptr_udp = mux_move_cached_to_tunnel(mux_udp_cache, 2);
-		std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_ptr_tcp = mux_move_cached_to_tunnel(mux_tcp_cache, 2);
+		std::list<std::shared_ptr<KCP::KCP>> kcp_ptr_udp = mux_move_cached_to_tunnel(mux_udp_cache, 2);
+		std::list<std::shared_ptr<KCP::KCP>> kcp_ptr_tcp = mux_move_cached_to_tunnel(mux_tcp_cache, 2);
 
 		kcp_ptr_list.insert(kcp_ptr_tcp.begin(), kcp_ptr_tcp.end());
 		kcp_ptr_list.insert(kcp_ptr_udp.begin(), kcp_ptr_udp.end());
@@ -951,10 +965,10 @@ void server_mode::mux_move_cached_to_tunnel(bool skip_kcp_update)
 	}
 }
 
-std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>>
+std::list<std::shared_ptr<KCP::KCP>>
 server_mode::mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, int one_x)
 {
-	std::set<std::shared_ptr<KCP::KCP>, std::owner_less<>> kcp_ptr_list;
+	std::list<std::shared_ptr<KCP::KCP>> kcp_ptr_list;
 	if (one_x <= 0)
 		one_x = 1;
 
@@ -982,7 +996,7 @@ server_mode::mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::de
 			data_cache.pop_front();
 		}
 
-		kcp_ptr_list.insert(kcp_ptr);
+		kcp_ptr_list.emplace_back(std::move(kcp_ptr));
 	}
 
 	return kcp_ptr_list;

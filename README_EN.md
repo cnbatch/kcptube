@@ -169,7 +169,6 @@ encryption_algorithm=AES-GCM
 | stun_server  | STUN Server's address |No| Cannot be used if listen_port option is port range mode|
 | log_path  | The directory where the Logs are stored |No|Cannot point to the file itself|
 | kcp_mtu  | Positive Integer |No|Default value is 1440|
-| kcp_conserve  | yes<br>true<br>1<br>no<br>false<br>0 |No|Ease up on the 'fast ACK' a little bit.|
 | kcp  | manual<br>fast1 - 6<br>regular1 - 5<br> &nbsp; |Yes|Setup Manually<br>Fast Modes<br>Regular Speeds<br>(the number at the end: the smaller the value, the faster the speed)|
 | kcp_sndwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
 | kcp_rcvwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
@@ -180,7 +179,7 @@ encryption_algorithm=AES-GCM
 | outbound_bandwidth | Positive Integer |No|Outbound bandwidth, used to dynamically update the value of kcp_sndwnd during communication|
 | inbound_bandwidth | Positive Integer |No|Inbound bandwidth, used to dynamically update the value of kcp_rcvwnd during communication|
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |No|If the system disables IPv6, this option must be enabled and set to yes or true or 1|
-| blast | yes<br>true<br>1<br>no<br>false<br>0 |No|Packets are forwarded as quickly as possible regardless of KCP flow control settings. May lead to overload.|
+| blast | yes<br>true<br>1<br>no<br>false<br>0 |No|Enabled by default. Based on the KCP flow control settings, packets are forwarded as quickly as possible.|
 | [listener] | N/A |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the listening mode<br>This tag represents data exchanged with the client|
 | [forwarder] | N/A  |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the forwarding mode<br>This tag represents data exchanged with the server|
 
@@ -219,15 +218,15 @@ This bandwidth values should not larger than your actual bandwidth, otherwise th
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
 | regular1     | 1024       |   1024    |      1    |   1        |   5      |   1   |
 | regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
-| regular3*    | 1024       |   1024    |      1    |   1        |   5      |   1   |
-| regular4*    | 1024       |   1024    |      2    |   1        |   5      |   1   |
-| regular5*    | 1024       |   1024    |      0    |   1        |   3      |   1   |
+| regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
+| regular4     | 1024       |   1024    |      0    |   10       |   2      |   1   |
+| regular5     | 1024       |   1024    |      0    |   30       |   2      |   1   |
 
 Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency smoother.
 
 If you want to reduce traffic waste and also accept a little bit more latency increase, please try choosing regular modes.<br /> 
-The star-marked modes (regular3 ~ 5) have enabled the kcp_conserve option, which leads to slightly higher latency caused by packet loss, but reduces wastage of traffic to some extent.
-
+For scenarios that do not require low latency but only need high throughput transmission, please use **regular 3 - 5**.<br /> 
+If the CPU load is deemed too heavy during usage, consider disabling the blast option (set it to `blast=0`), but note that the transmission rate will be halved as a drawback.
 
 ### Log File
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.
@@ -402,6 +401,9 @@ If the system does not support IPv6 or IPv6 is disabled, please set ipv4_only=tr
 
 ## Other Considerations
 ### ‘Too Many Open Files’ of multiple Operation Systems
+In most cases, this kind of message only occurs on the server side, not on the client side.
+
+If you do encounter it on the client side, please check whether the value of mux_tunnels is set too high. (please also refer to the paragraph on "Multiplexing (mux_tunnels=N)")
 #### GhostBSD
 In general, most BSD systems will not encounter this issue, only GhostBSD updated in the second half of 2023 will encounter it.
 
@@ -461,7 +463,7 @@ The calculation speed of these two checksums is fast enough, concise and practic
 
 It should be reminded that using two checksums still cannot completely avoid content errors, just like TCP itself. If you really need accuracy, please enable the encryption option.
 
-## Multiplexing
+## Multiplexing (mux_tunnels=N)
 The function of multiplexing is not automatically enabled by default. For each incoming connection accepted, a corresponding outgoing connection is created.
 
 The reason is to avoid the QoS of operators. Once a port number is affected by QoS in multiplexing mode, other sessions sharing the same port number will also be blocked until the port number is changed.
@@ -480,7 +482,8 @@ If you really need to use the ‘multiplexing’ function, you can refer to the 
         - OpenVPN
         - Wireguard
 
-The timeout period for KCP channel is 30 seconds after enabling the multiplexing function.
+The timeout period for KCP channel is 30 seconds after enabling the multiplexing function. In most cases, setting `mux_tunnels` to 3 - 10 is enough, and there is no need to set an excessively high value.
+
 
 ## About the codes
 ### TCP

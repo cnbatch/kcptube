@@ -346,13 +346,6 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				current_settings->inbound_bandwidth = bandwidth_from_string(original_value, error_msg);
 				break;
 
-			case strhash("kcp_conserve"):
-			{
-				bool yes = value == "yes" || value == "true" || value == "1";
-				current_settings->kcp_conserve = yes;
-				break;
-			}
-
 			case strhash("log_path"):
 				current_settings->log_directory = original_value;
 				break;
@@ -366,8 +359,8 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 
 			case strhash("blast"):
 			{
-				bool yes = value == "yes" || value == "true" || value == "1";
-				current_settings->blast = yes;
+				bool blast_disabled = value == "no" || value == "false" || value == "0";
+				current_settings->blast = !blast_disabled;
 				break;
 			}
 
@@ -608,7 +601,7 @@ void copy_settings(user_settings &inner, user_settings &outter)
 	if (outter.ipv4_only)
 		inner.ipv4_only = outter.ipv4_only;
 
-	if (outter.blast)
+	if (!outter.blast)
 		inner.blast = outter.blast;
 }
 
@@ -745,11 +738,10 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 
 	case kcp_mode::regular3:
 	{
-		current_user_settings.kcp_nodelay = 1;
-		current_user_settings.kcp_interval = 1;
-		current_user_settings.kcp_resend = 5;
+		current_user_settings.kcp_nodelay = 0;
+		current_user_settings.kcp_interval = 5;
+		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
-		current_user_settings.kcp_conserve = true;
 		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
 		if (current_user_settings.kcp_rcvwnd == 0)
@@ -759,11 +751,10 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 
 	case kcp_mode::regular4:
 	{
-		current_user_settings.kcp_nodelay = 2;
-		current_user_settings.kcp_interval = 1;
-		current_user_settings.kcp_resend = 5;
+		current_user_settings.kcp_nodelay = 0;
+		current_user_settings.kcp_interval = 10;
+		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
-		current_user_settings.kcp_conserve = true;
 		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
 		if (current_user_settings.kcp_rcvwnd == 0)
@@ -777,10 +768,9 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 	default:
 	{
 		current_user_settings.kcp_nodelay = 0;
-		current_user_settings.kcp_interval = 1;
+		current_user_settings.kcp_interval = 30;
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
-		current_user_settings.kcp_conserve = true;
 		if (current_user_settings.kcp_sndwnd == 0)
 			current_user_settings.kcp_sndwnd = constant_values::kcp_send_window;
 		if (current_user_settings.kcp_rcvwnd == 0)

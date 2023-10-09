@@ -79,10 +79,9 @@ struct user_settings
 	uint32_t kcp_rcvwnd = 0;
 	uint64_t outbound_bandwidth = 0;
 	uint64_t inbound_bandwidth = 0;
-	bool kcp_conserve = false;
 	bool ipv4_only = false;
 	bool test_only = false;
-	bool blast = false;
+	bool blast = true;
 	std::string listen_on;
 	std::string destination_address;
 	std::string encryption_password;
