@@ -65,7 +65,7 @@ This bandwidth values should not larger than your actual bandwidth, otherwise th
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
 | regular1     | 1024       |   1024    |      1    |   1        |   5      |   1   |
 | regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
-| regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
+| regular3     | 1024       |   1024    |      0    |   5        |   2      |   1   |
 | regular4     | 1024       |   1024    |      0    |   10       |   2      |   1   |
 | regular5     | 1024       |   1024    |      0    |   30       |   2      |   1   |
 
