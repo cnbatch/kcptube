@@ -20,15 +20,15 @@ class server_mode
 	std::array<uint8_t, 16> external_ipv6_address;
 	const std::array<uint8_t, 16> zero_value_array;
 
-	std::map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
+	std::unordered_map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
 
 	std::shared_mutex mutex_handshake_channels;
 	std::map<udp::endpoint, std::shared_ptr<kcp_mappings>> handshake_channels;
 	std::shared_mutex mutex_kcp_channels;
-	std::map<uint32_t, std::shared_ptr<kcp_mappings>> kcp_channels;
+	std::unordered_map<uint32_t, std::shared_ptr<kcp_mappings>> kcp_channels;
 
 	std::mutex mutex_expiring_kcp;
-	std::map<std::shared_ptr<kcp_mappings>, int64_t, std::owner_less<>> expiring_kcp;
+	std::unordered_map<std::shared_ptr<kcp_mappings>, int64_t> expiring_kcp;
 	std::mutex mutex_expiring_handshakes;
 	std::map<std::weak_ptr<kcp_mappings>, int64_t, std::owner_less<>> expiring_handshakes;
 
@@ -36,10 +36,10 @@ class server_mode
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive;
 
 	std::shared_mutex mutex_id_map_to_mux_records;
-	std::map<uint64_t, std::shared_ptr<mux_records>> id_map_to_mux_records;	// (KCP conv << 32) + connection uid
+	std::unordered_map<uint64_t, std::shared_ptr<mux_records>> id_map_to_mux_records;	// (KCP conv << 32) + connection uid
 
 	std::shared_mutex mutex_expiring_mux_records;
-	std::map<uint64_t, std::shared_ptr<mux_records>> expiring_mux_records;	// (KCP conv << 32) + connection uid
+	std::unordered_map<uint64_t, std::shared_ptr<mux_records>> expiring_mux_records;	// (KCP conv << 32) + connection uid
 
 	std::shared_mutex mutex_mux_tcp_cache;
 	std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> mux_tcp_cache;

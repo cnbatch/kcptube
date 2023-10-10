@@ -9,6 +9,7 @@
 #include <array>
 #include <atomic>
 #include <unordered_set>
+#include <unordered_map>
 #include <iostream>
 #include <iomanip>
 #include <sstream>

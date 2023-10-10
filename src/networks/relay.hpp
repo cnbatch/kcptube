@@ -20,21 +20,21 @@ class relay_mode
 	std::array<uint8_t, 16> external_ipv6_address;
 	const std::array<uint8_t, 16> zero_value_array;
 
-	std::map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
+	std::unordered_map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
 
 	std::shared_mutex mutex_id_map_to_both_sides;
-	std::map<uint32_t, std::shared_ptr<kcp_mappings>> id_map_to_both_sides;
+	std::unordered_map<uint32_t, std::shared_ptr<kcp_mappings>> id_map_to_both_sides;
 
 	std::shared_mutex mutex_handshake_ingress_map_to_channels;
 	std::map<udp::endpoint, std::shared_ptr<kcp_mappings>> handshake_ingress_map_to_channels;
 
 	std::mutex mutex_expiring_kcp;
-	std::map<std::shared_ptr<kcp_mappings>, int64_t, std::owner_less<>> expiring_kcp;
+	std::unordered_map<std::shared_ptr<kcp_mappings>, int64_t> expiring_kcp;
 	std::mutex mutex_expiring_handshakes;
 	std::map<std::weak_ptr<kcp_mappings>, int64_t, std::owner_less<>> expiring_handshakes;
 
 	std::mutex mutex_expiring_forwarders;
-	std::map<std::shared_ptr<forwarder>, int64_t, std::owner_less<>> expiring_forwarders;
+	std::unordered_map<std::shared_ptr<forwarder>, int64_t> expiring_forwarders;
 
 	std::shared_mutex mutex_kcp_keepalive_ingress;
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive_ingress;

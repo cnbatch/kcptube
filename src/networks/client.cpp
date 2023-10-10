@@ -1110,7 +1110,7 @@ void client_mode::process_disconnect(uint32_t conv)
 	std::shared_ptr<kcp_mappings> kcp_mappings_ptr = kcp_channel_iter->second;
 	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_mappings_ptr->egress_kcp;
 
-	if (std::scoped_lock locker_expiring_kcp{ mutex_expiring_kcp }; expiring_kcp.find(kcp_ptr) == expiring_kcp.end())
+	if (std::scoped_lock locker_expiring_kcp{ mutex_expiring_kcp }; expiring_kcp.find(kcp_mappings_ptr) == expiring_kcp.end())
 		expiring_kcp.insert({ kcp_mappings_ptr, packet::right_now() });
 
 	if (std::scoped_lock locker_kcp_keepalive{mutex_kcp_keepalive}; kcp_keepalive.find(kcp_ptr) != kcp_keepalive.end())

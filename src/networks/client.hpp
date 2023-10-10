@@ -15,7 +15,7 @@ class client_mode
 	std::unique_ptr<udp_server> udp_access_point;
 
 	std::shared_mutex mutex_handshakes;
-	std::map<kcp_mappings*, std::shared_ptr<kcp_mappings>> handshakes;
+	std::unordered_map<kcp_mappings*, std::shared_ptr<kcp_mappings>> handshakes;
 
 	std::shared_mutex mutex_udp_local_session_map_to_kcp;
 	std::map<udp::endpoint, std::shared_ptr<kcp_mappings>> udp_local_session_map_to_kcp;
@@ -23,17 +23,17 @@ class client_mode
 	std::mutex mutex_udp_address_map_to_handshake;
 	std::map<udp::endpoint, std::shared_ptr<kcp_mappings>> udp_address_map_to_handshake;
 	std::mutex mutex_udp_seesion_caches;
-	std::map<std::shared_ptr<kcp_mappings>, std::vector<std::vector<uint8_t>>, std::owner_less<>> udp_seesion_caches;
+	std::unordered_map<std::shared_ptr<kcp_mappings>, std::vector<std::vector<uint8_t>>> udp_seesion_caches;
 
 	std::shared_mutex mutex_kcp_channels;
-	std::map<uint32_t, std::shared_ptr<kcp_mappings>> kcp_channels;
+	std::unordered_map<uint32_t, std::shared_ptr<kcp_mappings>> kcp_channels;
 
 	std::mutex mutex_expiring_kcp;
-	std::map<std::shared_ptr<kcp_mappings>, int64_t, std::owner_less<>> expiring_kcp;
+	std::unordered_map<std::shared_ptr<kcp_mappings>, int64_t> expiring_kcp;
 	std::mutex mutex_expiring_handshakes;
-	std::map<std::shared_ptr<kcp_mappings>, int64_t, std::owner_less<>> expiring_handshakes;
+	std::unordered_map<std::shared_ptr<kcp_mappings>, int64_t> expiring_handshakes;
 	std::mutex mutex_expiring_forwarders;
-	std::map<std::shared_ptr<forwarder>, int64_t, std::owner_less<>> expiring_forwarders;
+	std::unordered_map<std::shared_ptr<forwarder>, int64_t> expiring_forwarders;
 
 	std::shared_mutex mutex_target_address;
 	std::unique_ptr<asio::ip::address> target_address;
@@ -42,7 +42,7 @@ class client_mode
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive;
 
 	std::shared_mutex mutex_id_map_to_mux_records;
-	std::map<uint64_t, std::shared_ptr<mux_records>> id_map_to_mux_records;	// (KCP conv << 32) + connection uid
+	std::unordered_map<uint64_t, std::shared_ptr<mux_records>> id_map_to_mux_records;	// (KCP conv << 32) + connection uid
 	std::shared_mutex mutex_udp_map_to_mux_records;
 	std::map<udp::endpoint, std::weak_ptr<mux_records>> udp_map_to_mux_records;
 
