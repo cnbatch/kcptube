@@ -870,6 +870,7 @@ void udp_server::initialise(const udp::endpoint &ep)
 	if (ep.address().is_v6())
 		connection_socket.set_option(v6_option);
 	connection_socket.bind(ep);
+	port_number = ep.port();
 }
 
 void udp_server::start_receive()

@@ -805,8 +805,6 @@ void client_mode::udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, siz
 						return;
 					cache_iter->second.emplace_back(std::move(data_cache));
 					udp_cache_locker.unlock();
-
-					;
 				}
 
 				id_map_to_mux_records[complete_connection_id] = mux_records_ptr;
@@ -921,11 +919,7 @@ void client_mode::mux_transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappi
 	if (prtcl == protocol_type::udp)
 	{
 		udp::endpoint udp_client_ep = mux_records_ptr->source_endpoint;
-		asio::ip::port_type output_port = 0;
-		if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
-			output_port = mux_records_ptr->custom_output_port;
-		else
-			output_port = kcp_mappings_ptr->ingress_listen_port;
+		asio::ip::port_type output_port = mux_records_ptr->custom_output_port;
 		udp_access_points[output_port]->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, udp_client_ep);
 		mux_records_ptr->last_data_transfer_time.store(packet::right_now());
 	}
@@ -1993,13 +1987,12 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 		udp_seesion_caches.erase(handshake_mappings_ptr);
 		udp_local_session_map_to_kcp[local_peer] = kcp_mappings_ptr;
 		kcp_mappings_ptr->last_data_transfer_time.store(timestamp);
-
-		if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
-			kcp_mappings_ptr->ingress_listen_port = handshake_ptr->ingress_listen_port;
+		kcp_mappings_ptr->ingress_listen_port = handshake_ptr->ingress_listen_port;
 	}
 
 	if (ptrcl == protocol_type::mux)
 	{
+		kcp_mappings_ptr->ingress_listen_port = handshake_ptr->ingress_listen_port;
 		std::scoped_lock handshake_lockers{mutex_handshakes, mutex_expiring_handshakes};
 		std::shared_ptr<kcp_mappings> handshake_mappings_ptr = handshakes[handshake_ptr];
 		handshakes.erase(handshake_ptr);
