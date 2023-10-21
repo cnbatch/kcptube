@@ -26,9 +26,12 @@
 | outbound_bandwidth | Positive Integer |No|Outbound bandwidth, used to dynamically update the value of kcp_sndwnd during communication|
 | inbound_bandwidth | Positive Integer |No|Inbound bandwidth, used to dynamically update the value of kcp_rcvwnd during communication|
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |No|If the system disables IPv6, this option must be enabled and set to yes or true or 1|
-| blast | yes<br>true<br>1<br>no<br>false<br>0 |No|Enabled by default. Based on the KCP flow control settings, packets are forwarded as quickly as possible.|
-| [listener] | N/A |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the listening mode<br>This tag represents data exchanged with the client|
-| [forwarder] | N/A  |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the forwarding mode<br>This tag represents data exchanged with the server|
+| blast | yes<br>true<br>1<br>no<br>false<br>0 |No|Packets are forwarded as quickly as possible regardless of KCP flow control settings. May lead to overload.|
+| \[listener\] | N/A |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the listening mode<br>This tag represents data exchanged with the client|
+| \[forwarder\] | N/A  |Yes<br>(Relay Mode only)|Section Name of Relay Mode, KCP settings for specifying the forwarding mode<br>This tag represents data exchanged with the server|
+| \[custom_input\] | N/A  |No| Section Name of Custom-IP-Mapping Mode, please refer to [The Usage of Custom IP Mappings](custom_ip_mappings_en.md)|
+| \[custom_input_tcp\] | N/A  |No| Section Name of Custom-IP-Mapping Mode, please refer to [The Usage of Custom IP Mappings](custom_ip_mappings_en.md)|
+| \[custom_input_udp\] | N/A  |No| Section Name of Custom-IP-Mapping Mode, please refer to [The Usage of Custom IP Mappings](custom_ip_mappings_en.md)|
 
 Note: `encryption_algorithm` and `encryption_password` must be consistent at both ends of the communication.
 
@@ -73,7 +76,7 @@ Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 ma
 
 If you want to reduce traffic waste and also accept a little bit more latency increase, please try choosing regular modes.<br /> 
 For scenarios that do not require low latency but only need high throughput transmission, please use **regular 3 - 5**.<br /> 
-If the CPU load is deemed too heavy during usage, consider disabling the blast option (set it to `blast=0`), but note that the transmission rate will be halved as a drawback.
+Enabling `blast=1` at this time is recommended.
 
 # Log File
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.

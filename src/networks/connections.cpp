@@ -298,15 +298,15 @@ namespace packet
 		return { ftr, prtcl, data_ptr, data_size };
 	}
 
-	settings_wrapper get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data)
+	const settings_wrapper* get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data)
 	{
-		settings_wrapper settings = *(const settings_wrapper *)data.data();
+		const settings_wrapper *settings = (const settings_wrapper *)data.data();
 		return settings;
 	}
 
-	settings_wrapper get_initialise_details_from_unpacked_data(const uint8_t *data)
+	const settings_wrapper* get_initialise_details_from_unpacked_data(const uint8_t *data)
 	{
-		settings_wrapper settings = *(const settings_wrapper *)data;
+		const settings_wrapper *settings = (const settings_wrapper *)data;
 		return settings;
 	}
 
@@ -325,6 +325,19 @@ namespace packet
 		settings_wrapper *ptr = (settings_wrapper *)data.data();
 		ptr->outbound_bandwidth = outbound_bandwidth;
 		ptr->inbound_bandwidth = inbound_bandwidth;
+
+		return create_inner_packet(feature::initialise, prtcl, data);
+	}
+
+	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl, uint64_t outbound_bandwidth, uint64_t inbound_bandwidth, const std::string &set_address, asio::ip::port_type set_port)
+	{
+		std::vector<uint8_t> data(sizeof(settings_wrapper) + set_address.size());
+		settings_wrapper *ptr = (settings_wrapper *)data.data();
+		ptr->outbound_bandwidth = outbound_bandwidth;
+		ptr->inbound_bandwidth = inbound_bandwidth;
+		ptr->user_input_port = set_port;
+		char *str_ptr = ptr->user_input_ip;
+		std::copy(set_address.begin(), set_address.end(), str_ptr);
 
 		return create_inner_packet(feature::initialise, prtcl, data);
 	}
@@ -409,6 +422,25 @@ namespace packet
 		return new_size;
 	}
 
+	std::vector<uint8_t> mux_tell_server_connect_address(protocol_type prtcl, uint32_t connection_id, const std::string &connect_address, asio::ip::port_type connect_port)
+	{
+		const auto new_size = sizeof(data_layer) - 1 + sizeof(mux_pre_connect) + connect_address.size();
+		std::vector<uint8_t> new_data(new_size);
+
+		data_layer *ptr = (data_layer *)new_data.data();
+		ptr->feature_value = feature::mux_pre_connect;
+		ptr->protocol_value = prtcl;
+
+		mux_pre_connect *mux_ptr = (mux_pre_connect *)ptr->data;
+		mux_ptr->connection_id = connection_id;
+		mux_ptr->user_input_port = connect_port;
+		char *ip_str = mux_ptr->user_input_ip;
+		if (!connect_address.empty())
+			std::copy(connect_address.begin(), connect_address.end(), ip_str);
+
+		return new_data;
+	}
+
 	std::tuple<uint32_t, uint8_t*, size_t> extract_mux_data_from_unpacked_data(uint8_t *data, size_t length)
 	{
 		mux_data_wrapper *ptr = (mux_data_wrapper *)data;
@@ -417,6 +449,17 @@ namespace packet
 		size_t data_size = length - (data_ptr - data);
 
 		return { connection_id, data_ptr, data_size };
+	}
+
+	std::tuple<uint32_t, uint16_t, std::string> extract_mux_pre_connect_from_unpacked_data(uint8_t * data, size_t length)
+	{
+		mux_pre_connect *ptr = (mux_pre_connect *)data;
+		uint32_t connection_id = ptr->connection_id;
+		uint16_t user_input_port = ptr->user_input_port;
+		char *str = ptr->user_input_ip;
+		std::string user_input_ip = str;
+
+		return { connection_id, user_input_port, user_input_ip };
 	}
 
 	std::vector<uint8_t> inform_mux_cancel_packet(protocol_type prtcl, uint32_t connection_id)

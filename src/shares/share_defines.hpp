@@ -8,6 +8,7 @@
 #include <limits>
 #include <random>
 #include <set>
+#include <map>
 #include <string>
 #include <numeric>
 #include <memory>
@@ -57,6 +58,7 @@ T calculate_difference(T number_left, T number_right)
 
 struct user_settings
 {
+	using user_input_address_mapping = std::map<std::pair<std::string, uint16_t>, std::pair<std::string, uint16_t>>;
 	uint16_t listen_port = 0;
 	uint16_t listen_port_start = 0;
 	uint16_t listen_port_end = 0;
@@ -81,7 +83,11 @@ struct user_settings
 	uint64_t inbound_bandwidth = 0;
 	bool ipv4_only = false;
 	bool test_only = false;
-	bool blast = true;
+	bool blast = false;
+	bool ignore_listen_address = false;
+	bool ignore_listen_port = false;
+	bool ignore_destination_address = false;
+	bool ignore_destination_port = false;
 	std::string listen_on;
 	std::string destination_address;
 	std::string encryption_password;
@@ -91,6 +97,9 @@ struct user_settings
 	std::filesystem::path log_messages;
 	std::shared_ptr<user_settings> ingress;
 	std::shared_ptr<user_settings> egress;
+	std::shared_ptr<user_input_address_mapping> user_input_mappings;
+	std::shared_ptr<user_input_address_mapping> user_input_mappings_tcp;
+	std::shared_ptr<user_input_address_mapping> user_input_mappings_udp;
 };
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);

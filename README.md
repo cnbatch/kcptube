@@ -179,9 +179,12 @@ encryption_algorithm=AES-GCM
 | outbound_bandwidth | 正整数 |否|出站带宽，用于通讯过程中动态更新 kcp_sndwnd 的值|
 | inbound_bandwidth | 正整数 |否|入站带宽，用于通讯过程中动态更新 kcp_rcvwnd 的值|
 | ipv4_only | yes<br>true<br>1<br>no<br>false<br>0 |否|若系统禁用了 IPv6，须启用该选项并设为 yes 或 true 或 1|
-| blast | yes<br>true<br>1<br>no<br>false<br>0 |否|默认开启。在 KCP 流控设置的基础上，尽可能迅速地转发数据包|
-| [listener] | N/A |是<br>(仅限中继模式)|中继模式的标签，用于指定监听模式的 KCP 设置<br>该标签表示与客户端交互数据|
-| [forwarder] | N/A  |是<br>(仅限中继模式)|中继模式的标签，用于指定转运模式的 KCP 设置<br>该标签表示与服务端交互数据|
+| blast | yes<br>true<br>1<br>no<br>false<br>0 |否|尝试忽略 KCP 流控设置，尽可能迅速地转发数据包。可能会导致负载过大|
+| \[listener\] | N/A |是<br>(仅限中继模式)|中继模式的标签，用于指定监听模式的 KCP 设置<br>该标签表示与客户端交互数据|
+| \[forwarder\] | N/A  |是<br>(仅限中继模式)|中继模式的标签，用于指定转运模式的 KCP 设置<br>该标签表示与服务端交互数据|
+| \[custom_input\] | N/A  |否|自定义映射模式的标签，使用方法请参考 [自定义映射使用方法](docs/custom_ip_mappings_zh-cn.md)|
+| \[custom_input_tcp\] | N/A  |否|自定义映射模式的标签，使用方法请参考 [自定义映射使用方法](docs/custom_ip_mappings_zh-cn.md)|
+| \[custom_input_udp\] | N/A  |否|自定义映射模式的标签，使用方法请参考 [自定义映射使用方法](docs/custom_ip_mappings_zh-cn.md)|
 
 其中，`encryption_algorithm` 以及 `encryption_password` 在通讯的两端必须保持一致。
 
@@ -226,7 +229,7 @@ encryption_algorithm=AES-GCM
 
 如果想减少流量浪费、不介意延迟稍微增加，可以选择 regular 模式。<br />
 对于不追求低延迟、只需要大流量传输的场景，请使用 **regular 3 ~ 5**。<br />
-若使用时认为 CPU **负载过重**，那么可以考虑关闭 blast 选项（设置成 `blast=0`），缺点是流量传输率会减半。
+建议同时开启 `blast=1` 设置。
 
 ### Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。

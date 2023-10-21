@@ -214,7 +214,10 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 			else if (prtcl == protocol_type::udp)
 			{
 				std::shared_ptr<udp_client> &udp_channel = kcp_mappings_ptr->local_udp;
-				udp_channel->async_send_out(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size, *udp_target);
+				if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
+					udp_channel->async_send_out(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size, kcp_mappings_ptr->egress_target_endpoint);
+				else
+					udp_channel->async_send_out(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size, *udp_target);
 			}
 			break;
 		}
@@ -261,6 +264,11 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 		case feature::mux_cancel:
 		{
 			mux_cancel_channel(prtcl, kcp_mappings_ptr, unbacked_data_ptr, unbacked_data_size);
+			break;
+		}
+		case feature::mux_pre_connect:
+		{
+			mux_pre_connect(prtcl, kcp_mappings_ptr, std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
 			break;
 		}
 		default:
@@ -463,10 +471,12 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				}
 				locker_kcp_channels.unlock();
 
-				packet::settings_wrapper basic_settings = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
+				const packet::settings_wrapper *basic_settings = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
 				uint64_t outbound_bandwidth = current_settings.outbound_bandwidth;
-				if (basic_settings.inbound_bandwidth > 0 && outbound_bandwidth > basic_settings.inbound_bandwidth)
-					outbound_bandwidth = basic_settings.inbound_bandwidth;
+				const char *user_input_ip = basic_settings->user_input_ip;
+				asio::ip::port_type user_input_port = basic_settings->user_input_port;
+				if (basic_settings->inbound_bandwidth > 0 && outbound_bandwidth > basic_settings->inbound_bandwidth)
+					outbound_bandwidth = basic_settings->inbound_bandwidth;
 
 				std::shared_ptr<kcp_mappings> data_kcp_mappings = std::make_shared<kcp_mappings>();
 				kcp_mappings *data_kcp_mappings_ptr = data_kcp_mappings.get();
@@ -497,12 +507,12 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				}
 				case protocol_type::tcp:
 				{
-					connect_success = create_new_tcp_connection(handshake_kcp, data_kcp);
+					connect_success = create_new_tcp_connection(handshake_kcp, data_kcp, user_input_ip, user_input_port);
 					break;
 				}
 				case protocol_type::udp:
 				{
-					connect_success = create_new_udp_connection(handshake_kcp, data_kcp, peer);
+					connect_success = create_new_udp_connection(handshake_kcp, data_kcp, peer, user_input_ip, user_input_port);
 					break;
 				}
 				default:
@@ -608,7 +618,7 @@ void server_mode::mux_transfer_data(protocol_type prtcl, std::shared_ptr<kcp_map
 			if (iter_mux_records == id_map_to_mux_records.end())
 			{
 				if (prtcl == protocol_type::tcp)
-					mux_records_ptr = create_mux_data_tcp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp);
+					mux_records_ptr = create_mux_data_tcp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp, "", 0);
 				if (prtcl == protocol_type::udp)
 					mux_records_ptr = create_mux_data_udp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp);
 
@@ -645,7 +655,10 @@ void server_mode::mux_transfer_data(protocol_type prtcl, std::shared_ptr<kcp_map
 	if (prtcl == protocol_type::udp)
 	{
 		std::shared_ptr<udp_client> udp_channel = mux_records_ptr->local_udp;
-		udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, *udp_target);
+		if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
+			udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, kcp_mappings_ptr->egress_target_endpoint);
+		else
+			udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, *udp_target);
 		mux_records_ptr->last_data_transfer_time.store(packet::right_now());
 	}
 }
@@ -689,7 +702,67 @@ void server_mode::mux_cancel_channel(protocol_type prtcl, std::shared_ptr<kcp_ma
 	}
 }
 
-bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp)
+void server_mode::mux_pre_connect(protocol_type prtcl, std::shared_ptr<kcp_mappings> kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size)
+{
+	auto [mux_connection_id, user_input_port, user_input_ip] = packet::extract_mux_pre_connect_from_unpacked_data(unbacked_data_ptr, unbacked_data_size);
+	uint64_t complete_connection_id = ((uint64_t)kcp_mappings_ptr->ingress_kcp->GetConv() << 32) + mux_connection_id;
+	std::shared_ptr<mux_records> mux_records_ptr = nullptr;
+
+	std::shared_lock locker_expiring_mux_records{ mutex_expiring_mux_records };
+	if (expiring_mux_records.find(complete_connection_id) != expiring_mux_records.end())
+	{
+		std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
+		kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
+		uint32_t next_update_time = current_settings.blast ? kcp_mappings_ptr->ingress_kcp->Refresh() : kcp_mappings_ptr->ingress_kcp->Check();
+		kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
+		return;
+	}
+	locker_expiring_mux_records.unlock();
+
+	{
+		std::shared_lock shared_locker_iter_mux_records{ mutex_id_map_to_mux_records, std::defer_lock };
+		std::unique_lock unique_locker_iter_mux_records{ mutex_id_map_to_mux_records, std::defer_lock };
+		shared_locker_iter_mux_records.lock();
+		auto iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
+		if (iter_mux_records == id_map_to_mux_records.end())
+		{
+			shared_locker_iter_mux_records.unlock();
+			unique_locker_iter_mux_records.lock();
+			iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
+			if (iter_mux_records == id_map_to_mux_records.end())
+			{
+				if (prtcl == protocol_type::tcp)
+					mux_records_ptr = create_mux_data_tcp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp, user_input_ip, user_input_port);
+				
+				if (prtcl == protocol_type::udp)
+				{
+					asio::error_code ec;
+					mux_records_ptr = create_mux_data_udp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp);
+					udp::resolver::results_type udp_endpoints = mux_records_ptr->local_udp->get_remote_hostname(user_input_ip, user_input_port, ec);
+					asio::ip::address user_input_address = asio::ip::address::from_string(user_input_ip);
+
+					if (ec || udp_endpoints.size() == 0 || (current_settings.ipv4_only && !user_input_address.is_v4()))
+						mux_records_ptr = nullptr;
+					else
+						kcp_mappings_ptr->egress_target_endpoint = *udp_endpoints.begin();
+				}
+
+				if (mux_records_ptr == nullptr)
+				{
+					std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
+					kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
+					uint32_t next_update_time = current_settings.blast ? kcp_mappings_ptr->ingress_kcp->Refresh() : kcp_mappings_ptr->ingress_kcp->Check();
+					kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
+					return;
+				}
+
+				id_map_to_mux_records[complete_connection_id] = mux_records_ptr;
+			}
+		}
+	}
+}
+
+bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const std::string &user_input_address, asio::ip::port_type user_input_port)
 {
 	bool connect_success = false;
 	std::weak_ptr<KCP::KCP> weak_data_kcp = data_kcp;
@@ -698,8 +771,17 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 		tcp_connector_incoming(std::move(data), data_size, target_session, weak_data_kcp);
 	};
 	tcp_client target_connector(io_context, callback_function, current_settings.ipv4_only);
-	std::string &destination_address = current_settings.destination_address;
+	std::string destination_address = current_settings.destination_address;
 	uint16_t destination_port = current_settings.destination_port;
+
+	if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
+	{
+		if (user_input_port == 0 || user_input_address.empty())
+			return false;
+		destination_address = user_input_address;
+		destination_port = user_input_port;
+	}
+
 	asio::error_code ec;
 	if (target_connector.set_remote_hostname(destination_address, destination_port, ec) && ec)
 	{
@@ -735,7 +817,7 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 	return connect_success;
 }
 
-bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const udp::endpoint &peer)
+bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const udp::endpoint &peer, const std::string &user_input_address, asio::ip::port_type user_input_port)
 {
 	bool connect_success = false;
 	std::weak_ptr<KCP::KCP> weak_data_kcp = data_kcp;
@@ -782,8 +864,34 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 		{
 			return kcp_sender(buf, len, user);
 		});
+	
+	bool resolve_completed = false;
+	if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
+	{
+		if (user_input_port == 0 || user_input_address.empty())
+			return false;
 
-	if (udp_target != nullptr || update_local_udp_target(target_connector))
+		asio::ip::address target_address = asio::ip::address::from_string(user_input_address);
+		if (current_settings.ipv4_only && !target_address.is_v4())
+			return false;
+
+		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(user_input_address, user_input_port, ec);
+		if (ec || udp_endpoints.size() == 0)
+			return false;
+
+		udp::endpoint target_endpoint = *udp_endpoints.begin();
+		target_connector->async_receive();
+		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->GetUserData();
+		kcp_mappings_ptr->egress_target_endpoint = target_endpoint;
+
+		resolve_completed = true;
+	}
+	else if (udp_target != nullptr || update_local_udp_target(target_connector))
+	{
+		resolve_completed = true;
+	}
+
+	if (resolve_completed)
 	{
 		target_connector->async_receive();
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->GetUserData();
@@ -854,7 +962,7 @@ void server_mode::setup_mux_kcp(std::shared_ptr<KCP::KCP> data_kcp)
 	mux_udp_cache_max_size[data_kcp] = data_kcp->GetSendWindowSize();
 }
 
-std::shared_ptr<mux_records> server_mode::create_mux_data_tcp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak)
+std::shared_ptr<mux_records> server_mode::create_mux_data_tcp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak, const std::string &user_input_address, asio::ip::port_type user_input_port)
 {
 	std::shared_ptr<mux_records> mux_records_ptr = std::make_shared<mux_records>();
 	std::weak_ptr<mux_records> mux_records_ptr_weak = mux_records_ptr;
@@ -863,8 +971,17 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_tcp_connection(uint32_
 		tcp_connector_incoming(std::move(data), data_size, target_session, kcp_session_weak, mux_records_ptr_weak);
 	};
 	tcp_client target_connector(io_context, callback_function, current_settings.ipv4_only);
-	std::string &destination_address = current_settings.destination_address;
+	std::string destination_address = current_settings.destination_address;
 	uint16_t destination_port = current_settings.destination_port;
+
+	if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
+	{
+		if (user_input_port == 0 || user_input_address.empty())
+			return nullptr;
+		destination_address = user_input_address;
+		destination_port = user_input_port;
+	}
+
 	asio::error_code ec;
 	if (target_connector.set_remote_hostname(destination_address, destination_port, ec) && ec)
 	{
@@ -927,7 +1044,8 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_udp_connection(uint32_
 		return nullptr;
 	}
 
-	if (udp_target != nullptr || update_local_udp_target(target_connector))
+	if (current_settings.ignore_destination_address || current_settings.ignore_destination_port ||
+		udp_target != nullptr || update_local_udp_target(target_connector))
 		target_connector->async_receive();
 	else
 		return nullptr;
@@ -1288,7 +1406,6 @@ void server_mode::cleanup_expiring_handshake_connections()
 			continue;
 
 		kcp_mappings_ptr->mapping_function();
-		kcp_updater.remove(kcp_ptr);
 		std::shared_lock locker_endpoint{kcp_mappings_ptr->mutex_ingress_endpoint};
 		udp::endpoint ep = kcp_mappings_ptr->ingress_source_endpoint;
 		locker_endpoint.unlock();
@@ -1341,7 +1458,6 @@ void server_mode::cleanup_expiring_data_connections()
 			break;
 		}
 
-		kcp_updater.remove(kcp_ptr);
 		expiring_kcp.erase(iter);
 	}
 }

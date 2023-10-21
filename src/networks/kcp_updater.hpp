@@ -37,6 +37,9 @@ namespace KCP
 			create_thread();
 		}
 
+		KCPUpdater(const KCPUpdater &) = delete;
+		KCPUpdater(KCPUpdater &&) = delete;
+
 		/**
 		* @brief Destruct the thread pool. Waits for all tasks to complete, then destroys all threads.
 		*/
@@ -58,7 +61,7 @@ namespace KCP
 
 		void submit(std::weak_ptr<KCP> kcp_ptr, uint32_t next_update_time);
 
-		void remove(std::weak_ptr<KCP> kcp_ptr);
+		//void remove(std::weak_ptr<KCP> kcp_ptr);
 
 		/**
 		* @brief Wait for tasks to be completed. Normally, this function waits for all tasks, both those that are currently running in the threads and those that are still waiting in the queue. Note: To wait for just one specific task, use submit() instead, and call the wait() member function of the generated future.
@@ -93,11 +96,12 @@ namespace KCP
 		// Private data
 		// ============
 
-		std::condition_variable kcp_pile_available_cv = {};
-		std::condition_variable kcp_pile_done_cv = {};
-		std::map<std::weak_ptr<KCP>, uint32_t, std::owner_less<>> pile_of_kcp = {};	// uint32_t is for storing next update time
+		std::condition_variable kcp_tasks_available_cv = {};
+		std::condition_variable kcp_tasks_done_cv = {};
+		//std::map<std::weak_ptr<KCP>, uint32_t, std::owner_less<>> pile_of_kcp = {};	// uint32_t is for storing next update time
+		std::map<uint32_t, std::list<std::weak_ptr<KCP>>> kcp_time_list;
 		std::atomic<size_t> kcp_tasks_total = 0;
-		mutable std::mutex kcp_pile_mutex = {};
+		std::mutex kcp_tasks_mutex = {};
 		std::unique_ptr<std::thread> kcp_thread = nullptr;
 		std::atomic<bool> running = false;
 		std::atomic<bool> waiting = false;

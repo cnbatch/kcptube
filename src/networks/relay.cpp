@@ -222,6 +222,8 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 		case feature::mux_transfer:
 			[[fallthrough]];
 		case feature::mux_cancel:
+			[[fallthrough]];
+		case feature::mux_pre_connect:
 		{
 			kcp_ptr_egress->Send((const char *)buffer_ptr, kcp_data_size);
 
@@ -302,7 +304,8 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 			{
 			case feature::initialise:
 			{
-				packet::settings_wrapper basic_settings = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
+				const packet::settings_wrapper *basic_settings_ptr = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
+				packet::settings_wrapper basic_settings = *basic_settings_ptr;
 
 				if (basic_settings.inbound_bandwidth > 0 && basic_settings.inbound_bandwidth > current_settings.egress->inbound_bandwidth)
 					basic_settings.inbound_bandwidth = current_settings.egress->inbound_bandwidth;
@@ -486,7 +489,8 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 		{
 			if (conv == 0)
 			{
-				packet::settings_wrapper basic_settings = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
+				const packet::settings_wrapper *basic_settings_ptr = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
+				packet::settings_wrapper basic_settings = *basic_settings_ptr;
 				if (basic_settings.port_start != 0 && basic_settings.port_end != 0)
 				{
 					if (current_settings.egress->destination_port_start != basic_settings.port_start)
@@ -536,6 +540,8 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 		case feature::mux_transfer:
 			[[fallthrough]];
 		case feature::mux_cancel:
+			[[fallthrough]];
+		case feature::mux_pre_connect:
 		{
 			kcp_mappings_ptr->ingress_kcp->Send((const char *)buffer_ptr, kcp_data_size);
 
@@ -932,8 +938,6 @@ void relay_mode::cleanup_expiring_handshake_connections()
 		}
 		
 		handshakes_kcp_mappings_ptr->mapping_function();
-		kcp_updater.remove(handshakes_kcp_mappings_ptr->ingress_kcp);
-		kcp_updater.remove(handshakes_kcp_mappings_ptr->egress_kcp);
 		std::shared_lock locker_ep{handshakes_kcp_mappings_ptr->mutex_ingress_endpoint};
 		udp::endpoint ep = handshakes_kcp_mappings_ptr->ingress_source_endpoint;
 		locker_ep.unlock();
@@ -996,8 +1000,6 @@ void relay_mode::cleanup_expiring_data_connections()
 		}
 
 		expiring_kcp.erase(iter);
-		kcp_updater.remove(ingress_kcp_ptr);
-		kcp_updater.remove(egress_kcp_ptr);
 	}
 }
 
@@ -1035,9 +1037,6 @@ void relay_mode::loop_find_expires()
 
 			if (std::scoped_lock locker_kcp_keepalive{mutex_kcp_keepalive_egress}; kcp_keepalive_egress.find(kcp_ptr_egress) != kcp_keepalive_egress.end())
 				kcp_keepalive_egress.erase(kcp_ptr_egress);
-
-			kcp_updater.remove(kcp_ptr_ingress);
-			kcp_updater.remove(kcp_ptr_egress);
 
 			id_map_to_both_sides.erase(iter);
 			kcp_ptr_ingress->SetOutput(empty_kcp_output);

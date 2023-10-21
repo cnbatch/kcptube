@@ -11,8 +11,8 @@ class client_mode
 	KCP::KCPUpdater &kcp_updater;
 	const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender;
 	user_settings current_settings;
-	std::unique_ptr<tcp_server> tcp_access_point;
-	std::unique_ptr<udp_server> udp_access_point;
+	std::unordered_map<asio::ip::port_type, std::unique_ptr<tcp_server>> tcp_access_points;
+	std::unordered_map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_access_points;
 
 	std::shared_mutex mutex_handshakes;
 	std::unordered_map<kcp_mappings*, std::shared_ptr<kcp_mappings>> handshakes;
@@ -63,16 +63,21 @@ class client_mode
 
 	bool start_test_only();
 	bool normal_start();
-	void tcp_listener_accept_incoming(std::shared_ptr<tcp_session> incoming_session);
+	void multiple_listening_tcp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled);
+	void multiple_listening_udp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled);
+
+	void tcp_listener_accept_incoming(std::shared_ptr<tcp_session> incoming_session, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
 	void tcp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::weak_ptr<KCP::KCP> kcp_ptr_weak);
-	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
+	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
+
 	void udp_forwarder_incoming(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 
-	void tcp_listener_accept_incoming_mux(std::shared_ptr<tcp_session> incoming_session);
+	void tcp_listener_accept_incoming_mux(std::shared_ptr<tcp_session> incoming_session, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
 	void tcp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::weak_ptr<KCP::KCP> kcp_ptr_weak, std::weak_ptr<mux_records> mux_records_ptr_weak);
-	void udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
+
+	void udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
 
 	void mux_transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
 	void mux_cancel_channel(protocol_type prtcl, kcp_mappings *kcp_mappings_ptr, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
@@ -102,9 +107,9 @@ class client_mode
 	void find_expires(const asio::error_code &e);
 	void keep_alive(const asio::error_code &e);
 
-	std::shared_ptr<kcp_mappings> create_handshake(std::shared_ptr<tcp_session> local_tcp);
-	std::shared_ptr<kcp_mappings> create_handshake(udp::endpoint local_endpoint);
-	std::shared_ptr<kcp_mappings> create_handshake(feature ftr, protocol_type prtcl);
+	std::shared_ptr<kcp_mappings> create_handshake(std::shared_ptr<tcp_session> local_tcp, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
+	std::shared_ptr<kcp_mappings> create_handshake(udp::endpoint local_endpoint, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
+	std::shared_ptr<kcp_mappings> create_handshake(feature ftr, protocol_type prtcl, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
 	void resume_tcp(kcp_mappings *kcp_mappings_ptr);
 	void set_kcp_windows(std::weak_ptr<KCP::KCP> handshake_kcp, std::weak_ptr<KCP::KCP> data_ptr_weak);
 	void setup_mux_kcp(std::shared_ptr<KCP::KCP> kcp_ptr);

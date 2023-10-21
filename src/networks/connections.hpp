@@ -55,7 +55,8 @@ enum class feature : uint8_t
 	keep_alive_response,
 	raw_data,
 	mux_transfer,
-	mux_cancel
+	mux_cancel,
+	mux_pre_connect
 };
 
 enum class protocol_type : uint8_t { not_care, mux, tcp, udp };
@@ -88,12 +89,21 @@ namespace packet
 		uint16_t port_end;
 		uint64_t outbound_bandwidth;
 		uint64_t inbound_bandwidth;
+		uint16_t user_input_port;
+		char user_input_ip[1];
 	};
 	
 	struct mux_data_wrapper
 	{
 		uint32_t connection_id;
 		uint8_t data[1];
+	};
+
+	struct mux_pre_connect
+	{
+		uint32_t connection_id;
+		uint16_t user_input_port;
+		char user_input_ip[1];
 	};
 #pragma pack(pop)
 
@@ -110,12 +120,13 @@ namespace packet
 	std::tuple<feature, protocol_type, std::vector<uint8_t>> unpack_inner(const std::vector<uint8_t> &data);
 	std::tuple<feature, protocol_type, uint8_t*, size_t> unpack_inner(uint8_t *data, size_t length);
 
-	settings_wrapper get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data);
-	settings_wrapper get_initialise_details_from_unpacked_data(const uint8_t *data);
+	const settings_wrapper* get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data);
+	const settings_wrapper* get_initialise_details_from_unpacked_data(const uint8_t *data);
 
 	void modify_initialise_details_of_unpacked_data(uint8_t *data, const settings_wrapper &settings);
 
 	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl, uint64_t outbound_bandwidth, uint64_t inbound_bandwidth);
+	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl, uint64_t outbound_bandwidth, uint64_t inbound_bandwidth, const std::string &set_address, asio::ip::port_type set_port);
 
 	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, const settings_wrapper &settings);
 
@@ -133,7 +144,9 @@ namespace packet
 
 	std::vector<uint8_t> create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, const std::vector<uint8_t> &custom_data);
 	size_t create_mux_data_packet(protocol_type prtcl, uint32_t connection_id, uint8_t *input_data, size_t data_size);
+	std::vector<uint8_t> mux_tell_server_connect_address(protocol_type prtcl, uint32_t connection_id, const std::string &connect_address, asio::ip::port_type connect_port);
 	std::tuple<uint32_t, uint8_t*, size_t> extract_mux_data_from_unpacked_data(uint8_t *data, size_t length);
+	std::tuple<uint32_t, uint16_t, std::string> extract_mux_pre_connect_from_unpacked_data(uint8_t *data, size_t length);
 
 	std::vector<uint8_t> inform_mux_cancel_packet(protocol_type prtcl, uint32_t connection_id);
 	uint32_t extract_mux_cancel_from_unpacked_data(uint8_t *data, size_t length);
@@ -508,6 +521,9 @@ struct kcp_mappings
 	std::atomic<int64_t> changeport_timestamp;
 	std::atomic<int64_t> handshake_setup_time;
 	std::atomic<int64_t> last_data_transfer_time;
+	asio::ip::port_type ingress_listen_port;	// client mode only
+	asio::ip::port_type remote_output_port;	// client mode only
+	std::string remote_output_address;	// client mode only
 	std::function<void()> mapping_function = []() {};
 };
 
@@ -518,6 +534,8 @@ struct mux_records
 	std::shared_ptr<tcp_session> local_tcp;
 	std::shared_ptr<udp_client> local_udp;
 	udp::endpoint source_endpoint;
+	asio::ip::port_type custom_output_port;
+	std::string custom_output_address;
 	std::atomic<int64_t> last_data_transfer_time;
 };
 

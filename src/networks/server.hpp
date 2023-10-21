@@ -70,13 +70,14 @@ class server_mode
 
 	void mux_transfer_data(protocol_type prtcl, std::shared_ptr<kcp_mappings> kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
 	void mux_cancel_channel(protocol_type prtcl, std::shared_ptr<kcp_mappings> kcp_mappings_ptr, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
+	void mux_pre_connect(protocol_type prtcl, std::shared_ptr<kcp_mappings> kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
 
-	bool create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp);
-	bool create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const udp::endpoint &peer);
+	bool create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const std::string &user_input_address, asio::ip::port_type user_input_port);
+	bool create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const udp::endpoint &peer, const std::string &user_input_address, asio::ip::port_type user_input_port);
 	void resume_tcp(kcp_mappings* kcp_mappings_ptr);
 	void set_kcp_windows(std::weak_ptr<KCP::KCP> handshake_kcp, std::weak_ptr<KCP::KCP> data_ptr_weak);
 	void setup_mux_kcp(std::shared_ptr<KCP::KCP> data_kcp);
-	std::shared_ptr<mux_records> create_mux_data_tcp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak);
+	std::shared_ptr<mux_records> create_mux_data_tcp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak, const std::string &user_input_address, asio::ip::port_type user_input_port);
 	std::shared_ptr<mux_records> create_mux_data_udp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak);
 	void mux_move_cached_to_tunnel(bool skip_kcp_update = false);
 	std::list<std::shared_ptr<KCP::KCP>> mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, int one_x);

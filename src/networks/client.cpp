@@ -29,7 +29,7 @@ bool client_mode::start_test_only()
 {
 	printf("Testing...\n");
 	
-	std::shared_ptr<kcp_mappings> hs = create_handshake(feature::test_connection, protocol_type::not_care);
+	std::shared_ptr<kcp_mappings> hs = create_handshake(feature::test_connection, protocol_type::not_care, "", 0);
 	if (hs == nullptr)
 	{
 		std::string error_message = time_to_string_with_square_brackets() + "establish handshake failed\n";
@@ -57,7 +57,7 @@ bool client_mode::normal_start()
 	printf("start_up() running in client mode\n");
 
 	uint16_t port_number = current_settings.listen_port;
-	if (port_number == 0)
+	if (port_number == 0 && !current_settings.ignore_listen_port && !current_settings.ignore_listen_address)
 		return false;
 
 	tcp::endpoint listen_on_tcp;
@@ -101,20 +101,53 @@ bool client_mode::normal_start()
 	{
 		if (current_settings.mux_tunnels == 0)
 		{
-			tcp_server::acceptor_callback_t tcp_func_acceptor = std::bind(&client_mode::tcp_listener_accept_incoming, this, _1);
-			tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback);
+			if (current_settings.ignore_listen_port || current_settings.ignore_listen_address)
+			{
+				if (current_settings.user_input_mappings != nullptr)
+				{
+					multiple_listening_tcp(*current_settings.user_input_mappings, false);
+					multiple_listening_udp(*current_settings.user_input_mappings, false);
+				}
+				if (current_settings.user_input_mappings_tcp != nullptr)
+					multiple_listening_tcp(*current_settings.user_input_mappings_tcp, false);
 
-			udp_callback_t udp_func_ap = std::bind(&client_mode::udp_listener_incoming, this, _1, _2, _3, _4);
-			udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap);
+				if (current_settings.user_input_mappings_udp != nullptr)
+					multiple_listening_udp(*current_settings.user_input_mappings_udp, false);
+			}
+			else
+			{
+				tcp_server::acceptor_callback_t tcp_func_acceptor = std::bind(&client_mode::tcp_listener_accept_incoming, this, _1, "", 0);
+				udp_callback_t udp_func_ap = std::bind(&client_mode::udp_listener_incoming, this, _1, _2, _3, _4, "", 0);
+				auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback);
+				auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap);
+				tcp_access_points.insert({ port_number, std::move(tcp_access_point) });
+				udp_access_points.insert({ port_number, std::move(udp_access_point) });
+			}
 		}
 		else
 		{
-			tcp_server::acceptor_callback_t tcp_func_acceptor = std::bind(&client_mode::tcp_listener_accept_incoming_mux, this, _1);
-			tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback);
+			tcp_server::acceptor_callback_t tcp_func_acceptor = std::bind(&client_mode::tcp_listener_accept_incoming_mux, this, _1, "", 0);
+			udp_callback_t udp_func_ap = std::bind(&client_mode::udp_listener_incoming_mux, this, _1, _2, _3, _4, "", 0);
+			if (current_settings.ignore_listen_port || current_settings.ignore_listen_address)
+			{
+				if (current_settings.user_input_mappings != nullptr)
+				{
+					multiple_listening_tcp(*current_settings.user_input_mappings, true);
+					multiple_listening_udp(*current_settings.user_input_mappings, true);
+				}
+				if (current_settings.user_input_mappings_tcp != nullptr)
+					multiple_listening_tcp(*current_settings.user_input_mappings_tcp, true);
 
-			udp_callback_t udp_func_ap = std::bind(&client_mode::udp_listener_incoming_mux, this, _1, _2, _3, _4);
-			udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap);
-
+				if (current_settings.user_input_mappings_udp != nullptr)
+					multiple_listening_udp(*current_settings.user_input_mappings_udp, true);
+			}
+			else
+			{
+				auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback);
+				auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap);
+				tcp_access_points.insert({ port_number, std::move(tcp_access_point) });
+				udp_access_points.insert({ port_number, std::move(udp_access_point) });
+			}
 			establish_mux_channels(current_settings.mux_tunnels);
 		}
 
@@ -141,12 +174,92 @@ bool client_mode::normal_start()
 	return true;
 }
 
-void client_mode::tcp_listener_accept_incoming(std::shared_ptr<tcp_session> incoming_session)
+void client_mode::multiple_listening_tcp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled)
+{
+	for (auto &[listen_local, destination] : user_input_mappings)
+	{
+		tcp::endpoint listen_on_tcp;
+		if (current_settings.ipv4_only)
+			listen_on_tcp = tcp::endpoint(tcp::v4(), 0);
+		else
+			listen_on_tcp = tcp::endpoint(tcp::v6(), 0);
+		
+		std::string local_address = listen_local.first;
+		asio::ip::port_type local_port = listen_local.second;
+		std::string remote_address = destination.first;
+		asio::ip::port_type remote_port = destination.second;
+
+		if (!local_address.empty())
+		{
+			asio::ip::address input_address = asio::ip::address::from_string(local_address);
+			if (current_settings.ipv4_only && !input_address.is_v4())
+			{
+				std::string error_message = time_to_string_with_square_brackets() + "ipv4_only is set, ignoring IPv6 address" + local_address + "\n";
+				std::cerr << error_message;
+				print_message_to_file(error_message, current_settings.log_messages);
+				continue;
+			}
+			listen_on_tcp.address(input_address);
+		}
+		listen_on_tcp.port(local_port);
+
+		tcp_server::acceptor_callback_t tcp_func_acceptor;
+		if (mux_enabled)
+			tcp_func_acceptor = std::bind(&client_mode::tcp_listener_accept_incoming_mux, this, _1, remote_address, remote_port);
+		else
+			tcp_func_acceptor = std::bind(&client_mode::tcp_listener_accept_incoming, this, _1, remote_address, remote_port);
+
+		auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback);
+		tcp_access_points.insert({ local_port, std::move(tcp_access_point) });
+	}
+}
+
+void client_mode::multiple_listening_udp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled)
+{
+	for (auto &[listen_local, destination] : user_input_mappings)
+	{
+		udp::endpoint listen_on_udp;
+		if (current_settings.ipv4_only)
+			listen_on_udp = udp::endpoint(udp::v4(), 0);
+		else
+			listen_on_udp = udp::endpoint(udp::v6(), 0);
+
+		std::string local_address = listen_local.first;
+		asio::ip::port_type local_port = listen_local.second;
+		std::string remote_address = destination.first;
+		asio::ip::port_type remote_port = destination.second;
+
+		if (!local_address.empty())
+		{
+			asio::ip::address input_address = asio::ip::address::from_string(local_address);
+			if (current_settings.ipv4_only && !input_address.is_v4())
+			{
+				std::string error_message = time_to_string_with_square_brackets() + "ipv4_only is set, ignoring IPv6 address" + local_address + "\n";
+				std::cerr << error_message;
+				print_message_to_file(error_message, current_settings.log_messages);
+				continue;
+			}
+			listen_on_udp.address(input_address);
+		}
+		listen_on_udp.port(local_port);
+
+		udp_callback_t udp_func_ap;
+		if (mux_enabled)
+			udp_func_ap = std::bind(&client_mode::udp_listener_incoming_mux, this, _1, _2, _3, _4, remote_address, remote_port);
+		else
+			udp_func_ap = std::bind(&client_mode::udp_listener_incoming, this, _1, _2, _3, _4, remote_address, remote_port);
+
+		auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap);
+		udp_access_points.insert({ local_port, std::move(udp_access_point) });
+	}
+}
+
+void client_mode::tcp_listener_accept_incoming(std::shared_ptr<tcp_session> incoming_session, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
 {
 	if (!incoming_session->is_open())
 		return;
 
-	std::shared_ptr<kcp_mappings> hs = create_handshake(incoming_session);
+	std::shared_ptr<kcp_mappings> hs = create_handshake(incoming_session, remote_output_address, remote_output_port);
 	if (hs == nullptr)
 	{
 		std::string error_message = time_to_string_with_square_brackets() + "establish handshake failed\n";
@@ -189,7 +302,7 @@ void client_mode::tcp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 	kcp_updater.submit(kcp_ptr, next_refresh_time);
 }
 
-void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
+void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
 {
 	if (data == nullptr || data_size == 0)
 		return;
@@ -219,7 +332,7 @@ void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 					return;
 				}
 
-				std::shared_ptr<kcp_mappings> hs = create_handshake(peer);
+				std::shared_ptr<kcp_mappings> hs = create_handshake(peer, remote_output_address, remote_output_port);
 				if (hs == nullptr)
 				{
 					std::string error_message = time_to_string_with_square_brackets() + "establish handshake failed\n";
@@ -228,6 +341,7 @@ void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 					return;
 				}
 
+				hs->ingress_listen_port = port_number;
 				hs->egress_kcp->Update();
 				uint32_t next_update_time = hs->egress_kcp->Check();
 				kcp_updater.submit(hs->egress_kcp, next_update_time);
@@ -397,7 +511,8 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 			if (prtcl == protocol_type::udp)
 			{
 				udp::endpoint &udp_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-				udp_access_point->async_send_out(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size, udp_endpoint);
+				asio::ip::port_type output_port = kcp_mappings_ptr->ingress_listen_port;
+				udp_access_points[output_port]->async_send_out(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size, udp_endpoint);
 				kcp_mappings_ptr->last_data_transfer_time.store(packet::right_now());
 			}
 
@@ -534,7 +649,7 @@ void client_mode::udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> k
 	}
 }
 
-void client_mode::tcp_listener_accept_incoming_mux(std::shared_ptr<tcp_session> incoming_session)
+void client_mode::tcp_listener_accept_incoming_mux(std::shared_ptr<tcp_session> incoming_session, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
 {
 	if (!incoming_session->is_open())
 		return;
@@ -570,10 +685,28 @@ void client_mode::tcp_listener_accept_incoming_mux(std::shared_ptr<tcp_session> 
 			tcp_listener_incoming(std::move(data), data_size, incoming_session, kcp_ptr_weak, mux_records_ptr_weak);
 		});
 	incoming_session->when_disconnect([this, kcp_ptr, mux_records_ptr](std::shared_ptr<tcp_session> session) { local_disconnect(kcp_ptr, session, mux_records_ptr); });
-	incoming_session->async_read_data();
 
-	std::scoped_lock locks{ mutex_id_map_to_mux_records };
+	std::unique_lock unique_lock_id_map_to_mux_records{ mutex_id_map_to_mux_records };
 	id_map_to_mux_records[complete_connection_id] = mux_records_ptr;
+	unique_lock_id_map_to_mux_records.unlock();
+
+	if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
+	{
+		auto data = packet::mux_tell_server_connect_address(protocol_type::tcp, new_id, remote_output_address, remote_output_port);
+		std::unique_ptr<uint8_t[]> data_sptr = std::make_unique<uint8_t[]>(data.size());
+		uint8_t *data_ptr = data_sptr.get();
+		std::copy(data.begin(), data.end(), data_ptr);
+		mux_data_cache data_cache = { std::move(data_sptr), data_ptr, data.size() };
+
+		std::unique_lock tcp_cache_locker{ mutex_mux_tcp_cache };
+		auto cache_iter = mux_tcp_cache.find(kcp_ptr_weak);
+		if (cache_iter == mux_tcp_cache.end())
+			return;
+		cache_iter->second.emplace_back(std::move(data_cache));
+		tcp_cache_locker.unlock();
+	}
+
+	incoming_session->async_read_data();
 }
 
 void client_mode::tcp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::weak_ptr<KCP::KCP> kcp_ptr_weak, std::weak_ptr<mux_records> mux_records_ptr_weak)
@@ -623,7 +756,7 @@ void client_mode::tcp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 	mux_move_cached_to_tunnel();
 }
 
-void client_mode::udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
+void client_mode::udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
 {
 	mux_move_cached_to_tunnel();
 
@@ -656,6 +789,25 @@ void client_mode::udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, siz
 				mux_records_ptr->kcp_conv = conv;
 				mux_records_ptr->connection_id = new_id;
 				mux_records_ptr->source_endpoint = peer;
+				mux_records_ptr->custom_output_port = port_number;
+
+				if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
+				{
+					auto data = packet::mux_tell_server_connect_address(protocol_type::udp, new_id, remote_output_address, remote_output_port);
+					std::unique_ptr<uint8_t[]> data_sptr = std::make_unique<uint8_t[]>(data.size());
+					uint8_t *data_ptr = data_sptr.get();
+					std::copy(data.begin(), data.end(), data_ptr);
+					mux_data_cache data_cache = { std::move(data_sptr), data_ptr, data.size() };
+
+					std::unique_lock udp_cache_locker{ mutex_mux_udp_cache };
+					auto cache_iter = mux_udp_cache.find(kcp_ptr);
+					if (cache_iter == mux_udp_cache.end())
+						return;
+					cache_iter->second.emplace_back(std::move(data_cache));
+					udp_cache_locker.unlock();
+
+					;
+				}
 
 				id_map_to_mux_records[complete_connection_id] = mux_records_ptr;
 				udp_map_to_mux_records[peer] = mux_records_ptr;
@@ -769,7 +921,12 @@ void client_mode::mux_transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappi
 	if (prtcl == protocol_type::udp)
 	{
 		udp::endpoint udp_client_ep = mux_records_ptr->source_endpoint;
-		udp_access_point->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, udp_client_ep);
+		asio::ip::port_type output_port = 0;
+		if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
+			output_port = mux_records_ptr->custom_output_port;
+		else
+			output_port = kcp_mappings_ptr->ingress_listen_port;
+		udp_access_points[output_port]->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, udp_client_ep);
 		mux_records_ptr->last_data_transfer_time.store(packet::right_now());
 	}
 }
@@ -1211,11 +1368,11 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 	protocol_type connection_protocol = kcp_mappings_ptr->connection_protocol;
 	std::shared_ptr<kcp_mappings> new_kcp_mappings_ptr;
 	if (connection_protocol == protocol_type::tcp)
-		new_kcp_mappings_ptr = create_handshake(kcp_mappings_ptr->local_tcp);
+		new_kcp_mappings_ptr = create_handshake(kcp_mappings_ptr->local_tcp, kcp_mappings_ptr->remote_output_address, kcp_mappings_ptr->remote_output_port);
 	if (connection_protocol == protocol_type::udp)
-		new_kcp_mappings_ptr = create_handshake(kcp_mappings_ptr->ingress_source_endpoint);
+		new_kcp_mappings_ptr = create_handshake(kcp_mappings_ptr->ingress_source_endpoint, kcp_mappings_ptr->remote_output_address, kcp_mappings_ptr->remote_output_port);
 	if (connection_protocol == protocol_type::mux)
-		new_kcp_mappings_ptr = create_handshake(feature::initialise, protocol_type::mux);
+		new_kcp_mappings_ptr = create_handshake(feature::initialise, protocol_type::mux, kcp_mappings_ptr->remote_output_address, kcp_mappings_ptr->remote_output_port);
 
 	auto func = [this, kcp_mappings_ptr, new_kcp_mappings_ptr]() mutable
 	{
@@ -1230,7 +1387,6 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 		locker.unlock();
 
 		kcp_mappings_ptr->egress_kcp->SetUserData(nullptr);
-		kcp_updater.remove(kcp_mappings_ptr->egress_kcp);
 		uint32_t next_update_time = new_kcp_mappings_ptr->egress_kcp->Check();
 		kcp_updater.submit(new_kcp_mappings_ptr->egress_kcp, next_update_time);
 	};
@@ -1336,7 +1492,6 @@ void client_mode::cleanup_expiring_data_connections()
 			udp_local_session_map_to_kcp.erase(udp_endpoint);
 		}
 
-		kcp_updater.remove(kcp_mappings_ptr->egress_kcp);
 		expiring_kcp.erase(iter);
 	}
 }
@@ -1368,7 +1523,6 @@ void client_mode::cleanup_expiring_handshake_connections()
 			kcp_mappings_ptr->egress_forwarder->stop();
 		}
 
-		kcp_updater.remove(kcp_ptr);
 		expiring_handshakes.erase(iter);
 	}
 }
@@ -1572,23 +1726,23 @@ void client_mode::keep_alive(const asio::error_code &e)
 	timer_keep_alive.async_wait([this](const asio::error_code& e) { keep_alive(e); });
 }
 
-std::shared_ptr<kcp_mappings> client_mode::create_handshake(std::shared_ptr<tcp_session> local_tcp)
+std::shared_ptr<kcp_mappings> client_mode::create_handshake(std::shared_ptr<tcp_session> local_tcp, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
 {
-	std::shared_ptr<kcp_mappings> handshake_kcp_mappings = create_handshake(feature::initialise, protocol_type::tcp);
+	std::shared_ptr<kcp_mappings> handshake_kcp_mappings = create_handshake(feature::initialise, protocol_type::tcp, remote_output_address, remote_output_port);
 	if (handshake_kcp_mappings != nullptr)
 		handshake_kcp_mappings->local_tcp = local_tcp;
 	return handshake_kcp_mappings;
 }
 
-std::shared_ptr<kcp_mappings> client_mode::create_handshake(udp::endpoint local_endpoint)
+std::shared_ptr<kcp_mappings> client_mode::create_handshake(udp::endpoint local_endpoint, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
 {
-	std::shared_ptr<kcp_mappings> handshake_kcp_mappings = create_handshake(feature::initialise, protocol_type::udp);
+	std::shared_ptr<kcp_mappings> handshake_kcp_mappings = create_handshake(feature::initialise, protocol_type::udp, remote_output_address, remote_output_port);
 	if (handshake_kcp_mappings != nullptr)
 		handshake_kcp_mappings->ingress_source_endpoint = local_endpoint;
 	return handshake_kcp_mappings;
 }
 
-std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protocol_type prtcl)
+std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protocol_type prtcl, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
 {
 	std::shared_ptr<KCP::KCP> handshake_kcp = std::make_shared<KCP::KCP>();
 	std::shared_ptr<kcp_mappings> handshake_kcp_mappings = std::make_shared<kcp_mappings>();
@@ -1597,6 +1751,8 @@ std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protoco
 	handshake_kcp_mappings->connection_protocol = prtcl;
 	handshake_kcp_mappings->changeport_timestamp.store(LLONG_MAX);
 	handshake_kcp_mappings->handshake_setup_time.store(packet::right_now());
+	handshake_kcp_mappings->remote_output_address = remote_output_address;
+	handshake_kcp_mappings->remote_output_port = remote_output_port;
 
 	auto udp_func = std::bind(&client_mode::handle_handshake, this, _1, _2, _3, _4, _5);
 	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ipv4_only);
@@ -1629,8 +1785,15 @@ std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protoco
 
 	std::vector<uint8_t> handshake_data;
 	if (ftr == feature::initialise)
-	handshake_data = packet::request_initialise_packet(handshake_kcp_mappings->connection_protocol,
-	                                                   current_settings.outbound_bandwidth, current_settings.inbound_bandwidth);
+	{
+		if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
+			handshake_data = packet::request_initialise_packet(handshake_kcp_mappings->connection_protocol,
+			                                                   current_settings.outbound_bandwidth, current_settings.inbound_bandwidth,
+			                                                   remote_output_address, remote_output_port);
+		else
+			handshake_data = packet::request_initialise_packet(handshake_kcp_mappings->connection_protocol,
+			                                                   current_settings.outbound_bandwidth, current_settings.inbound_bandwidth);
+	}
 	if (ftr == feature::test_connection)
 		handshake_data = packet::create_test_connection_packet();
 	if (handshake_kcp->Send((const char *)handshake_data.data(), handshake_data.size()) < 0)
@@ -1700,7 +1863,7 @@ void client_mode::establish_mux_channels(uint16_t counts)
 {
 	for (int i = 0; i < counts; i++)
 	{
-		std::shared_ptr<kcp_mappings> hs = create_handshake(feature::initialise, protocol_type::mux);
+		std::shared_ptr<kcp_mappings> hs = create_handshake(feature::initialise, protocol_type::mux, "", 0);
 		if (hs == nullptr)
 		{
 			std::string error_message = time_to_string_with_square_brackets() + "establish handshake failed\n";
@@ -1830,6 +1993,9 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 		udp_seesion_caches.erase(handshake_mappings_ptr);
 		udp_local_session_map_to_kcp[local_peer] = kcp_mappings_ptr;
 		kcp_mappings_ptr->last_data_transfer_time.store(timestamp);
+
+		if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
+			kcp_mappings_ptr->ingress_listen_port = handshake_ptr->ingress_listen_port;
 	}
 
 	if (ptrcl == protocol_type::mux)
@@ -1919,8 +2085,6 @@ void client_mode::handshake_test_cleanup(kcp_mappings *handshake_ptr)
 	auto session_iter = handshakes.find(handshake_ptr);
 	if (session_iter == handshakes.end())
 		return;
-	if (session_iter->second != nullptr)
-		kcp_updater.remove(handshake_ptr->egress_kcp);
 	handshakes.erase(session_iter);
 	timer_expiring_kcp.cancel();
 	timer_find_expires.cancel();
@@ -1979,10 +2143,10 @@ void client_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::uniqu
 		{
 		case feature::initialise:
 		{
-			packet::settings_wrapper basic_settings = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
-			if (basic_settings.inbound_bandwidth > 0 && current_settings.outbound_bandwidth > basic_settings.inbound_bandwidth)
-				current_settings.outbound_bandwidth = basic_settings.inbound_bandwidth;
-			on_handshake_success(kcp_mappings_ptr, basic_settings);
+			const packet::settings_wrapper *basic_settings = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
+			if (basic_settings->inbound_bandwidth > 0 && current_settings.outbound_bandwidth > basic_settings->inbound_bandwidth)
+				current_settings.outbound_bandwidth = basic_settings->inbound_bandwidth;
+			on_handshake_success(kcp_mappings_ptr, *basic_settings);
 			break;
 		}
 		case feature::test_connection:
