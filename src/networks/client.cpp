@@ -501,7 +501,7 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 		case feature::raw_data:
 		{
 			if (prtcl != kcp_mappings_ptr->connection_protocol)
-				continue;
+				break;
 
 			if (prtcl == protocol_type::tcp)
 			{
@@ -1368,6 +1368,7 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 	if (connection_protocol == protocol_type::mux)
 		new_kcp_mappings_ptr = create_handshake(feature::initialise, protocol_type::mux, kcp_mappings_ptr->remote_output_address, kcp_mappings_ptr->remote_output_port);
 
+	new_kcp_mappings_ptr->ingress_listen_port = kcp_mappings_ptr->ingress_listen_port;
 	auto func = [this, kcp_mappings_ptr, new_kcp_mappings_ptr]() mutable
 	{
 		std::shared_ptr<kcp_mappings> old_kcp_mappings_ptr = nullptr;
@@ -1494,7 +1495,7 @@ void client_mode::cleanup_expiring_handshake_connections()
 {
 	auto time_right_now = packet::right_now();
 
-	std::scoped_lock locker{ mutex_expiring_handshakes };
+	std::unique_lock locker_expiring_handshakes{ mutex_expiring_handshakes };
 	for (auto iter = expiring_handshakes.begin(), next_iter = iter; iter != expiring_handshakes.end(); iter = next_iter)
 	{
 		++next_iter;
@@ -1519,6 +1520,15 @@ void client_mode::cleanup_expiring_handshake_connections()
 
 		expiring_handshakes.erase(iter);
 	}
+	locker_expiring_handshakes.unlock();
+
+	std::shared_lock locker_handshake{ mutex_handshakes };
+	for (auto iter = handshakes.begin(); iter != handshakes.end(); ++iter)
+	{
+		kcp_mappings *kcp_mappings_raw_ptr = iter->first;
+		handshake_timeout_detection(kcp_mappings_raw_ptr);
+	}	
+	locker_handshake.unlock();
 }
 
 void client_mode::cleanup_expiring_mux_records()
@@ -1870,7 +1880,7 @@ void client_mode::establish_mux_channels(uint16_t counts)
 		uint32_t next_update_time = hs->egress_kcp->Check();
 		kcp_updater.submit(hs->egress_kcp, next_update_time);
 
-		std::scoped_lock locker{mutex_handshakes};
+		std::scoped_lock locker{ mutex_handshakes };
 		handshakes[hs.get()] = hs;
 	}
 }
@@ -1972,6 +1982,7 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 		expiring_handshakes.insert({ handshake_mappings_ptr, timestamp });
 
 		kcp_mappings_ptr->ingress_source_endpoint = local_peer;
+		kcp_mappings_ptr->ingress_listen_port = handshake_ptr->ingress_listen_port;
 		kcp_ptr->SetOutput([this](const char *buf, int len, void *user) -> int
 			{
 				return kcp_sender(buf, len, user);
@@ -1987,7 +1998,6 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 		udp_seesion_caches.erase(handshake_mappings_ptr);
 		udp_local_session_map_to_kcp[local_peer] = kcp_mappings_ptr;
 		kcp_mappings_ptr->last_data_transfer_time.store(timestamp);
-		kcp_mappings_ptr->ingress_listen_port = handshake_ptr->ingress_listen_port;
 	}
 
 	if (ptrcl == protocol_type::mux)
@@ -2094,6 +2104,7 @@ void client_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::uniqu
 	if (!error_message.empty())
 	{
 		std::cerr << error_message << "\n";
+		print_message_to_file(error_message, current_settings.log_messages);
 		return;
 	}
 

@@ -81,7 +81,7 @@ namespace packet
 		protocol_type protocol_value : 4;
 		uint8_t data[1];
 	};
-	
+
 	struct settings_wrapper
 	{
 		uint32_t uid;
@@ -92,7 +92,7 @@ namespace packet
 		uint16_t user_input_port;
 		char user_input_ip[1];
 	};
-	
+
 	struct mux_data_wrapper
 	{
 		uint32_t connection_id;
@@ -180,13 +180,13 @@ public:
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false), session_ending(false) {}
-	
+
 	tcp_session(asio::io_context &net_io, ttp::task_group_pool &task_groups, size_t task_count_limit, tcp_callback_t callback_func)
 		: network_io(net_io), connection_socket(network_io), task_assigner(nullptr), sequence_task_pool(&task_groups), task_limit(task_count_limit),
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false), session_ending(false) {}
-	
+
 	tcp_session(asio::io_context &net_io, ttp::task_thread_pool &task_pool, size_t task_count_limit, tcp_callback_t callback_func)
 		: network_io(net_io), connection_socket(network_io), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit),
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
@@ -360,7 +360,7 @@ public:
 
 	void async_send_out(std::unique_ptr<std::vector<uint8_t>> data, const udp::endpoint &client_endpoint);
 	void async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &client_endpoint);
-	void async_send_out(std::unique_ptr<uint8_t[]> data, uint8_t *start_pos , size_t data_size, const udp::endpoint &client_endpoint);
+	void async_send_out(std::unique_ptr<uint8_t[]> data, uint8_t *start_pos, size_t data_size, const udp::endpoint &client_endpoint);
 	void async_send_out(std::vector<uint8_t> &&data, const udp::endpoint &client_endpoint);
 	udp::resolver& get_resolver() { return resolver; }
 
@@ -373,7 +373,7 @@ private:
 
 	ttp::task_thread_pool *task_assigner;
 	ttp::task_group_pool *sequence_task_pool;
-	asio::ip::port_type port_number;
+	const asio::ip::port_type port_number;
 	udp::resolver resolver;
 	udp::socket connection_socket;
 	udp::endpoint incoming_endpoint;

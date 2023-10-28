@@ -37,7 +37,7 @@ std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender,
 	udp::resolver::resolver_base::flags input_flags = udp::resolver::numeric_service | udp::resolver::v4_mapped | udp::resolver::all_matching;
 	if (v4_only)
 		input_flags = udp::resolver::numeric_service;
-	
+
 	asio::error_code ec;
 	udp::resolver &udp_resolver = sender.get_resolver();
 	udp::resolver::results_type remote_addresses = udp_resolver.resolve(udp_version, stun_host, "3478", input_flags, ec);
@@ -617,7 +617,7 @@ void tcp_session::async_send_data(std::vector<uint8_t> &&data)
 	auto asio_buffer = asio::buffer(data);
 	asio::async_write(connection_socket, asio_buffer,
 		[this, data_ = std::move(data), sptr = shared_from_this()](const asio::error_code &error, size_t bytes_transferred)
-	{ after_write_completed(error, bytes_transferred); });
+		{ after_write_completed(error, bytes_transferred); });
 }
 
 void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, size_t size_in_bytes)
@@ -628,7 +628,7 @@ void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, size_t
 	auto asio_buffer = asio::buffer(buffer_data.get(), size_in_bytes);
 	asio::async_write(connection_socket, asio_buffer,
 		[this, buffer_ptr = std::move(buffer_data), sptr = shared_from_this()](const asio::error_code &error, size_t bytes_transferred)
-	{ after_write_completed(error, bytes_transferred); });
+		{ after_write_completed(error, bytes_transferred); });
 }
 
 void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, uint8_t *start_pos, size_t size_in_bytes)
@@ -638,7 +638,7 @@ void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, uint8_
 
 	asio::async_write(connection_socket, asio::buffer(start_pos, size_in_bytes),
 		[this, buffer_ptr = std::move(buffer_data), sptr = shared_from_this()](const asio::error_code &error, size_t bytes_transferred)
-	{ after_write_completed(error, bytes_transferred); });
+		{ after_write_completed(error, bytes_transferred); });
 }
 
 void tcp_session::async_send_data(const uint8_t *buffer_data, size_t size_in_bytes)
@@ -759,9 +759,9 @@ void tcp_server::start_accept()
 
 	tcp_acceptor.async_accept(new_connection->socket(),
 		[this, new_connection](const asio::error_code &error_code)
-	{
-		handle_accept(new_connection, error_code);
-	});
+		{
+			handle_accept(new_connection, error_code);
+		});
 }
 
 void tcp_server::handle_accept(std::shared_ptr<tcp_session> new_connection, const asio::error_code &error_code)
@@ -870,7 +870,6 @@ void udp_server::initialise(const udp::endpoint &ep)
 	if (ep.address().is_v6())
 		connection_socket.set_option(v6_option);
 	connection_socket.bind(ep);
-	port_number = ep.port();
 }
 
 void udp_server::start_receive()
