@@ -15,7 +15,8 @@
 | mux_tunnels  | 0 - 65535 |No | The default value is 0, which means that multiplexing is disabled. This option means how many multiplexing tunnels between two KCP endpoints.<br>Client Mode only.|
 | stun_server  | STUN Server's address |No| Cannot be used if listen_port option is port range mode|
 | log_path  | The directory where the Logs are stored |No|Cannot point to the file itself|
-| kcp_mtu  | Positive Integer |No|Default value is 1440|
+| mtu  | Positive Integer |No|Default value is 1440|
+| kcp_mtu  | Positive Integer |No|This option refers to the length of the data content within a UDP packet. <br>The value set for this option refers to the value set by calling ikcp_setmtu(). <br>Default value is 1440.|
 | kcp  | manual<br>fast1 - 6<br>regular1 - 5<br> &nbsp; |Yes|Setup Manually<br>Fast Modes<br>Regular Speeds<br>(the number at the end: the smaller the value, the faster the speed)|
 | kcp_sndwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
 | kcp_rcvwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|

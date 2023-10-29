@@ -168,7 +168,7 @@ encryption_algorithm=AES-GCM
 | mux_tunnels  | 0 - 65535 |否 | 预设值为 0，等于不使用多路复用通道<br>该选项是指两个KCP端之间的多路复用通道数<br>仅限客户端启用|
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|
-| kcp_mtu  | 正整数 |否|预设值1440|
+| kcp_mtu  | 正整数 |否|预设值1440。调用 ikcp_setmtu() 设置的值，亦即 UDP 数据包内数据内容的长度|
 | kcp  | manual<br>fast1 - 6<br>regular1 - 5<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越小，速度越快)|
 | kcp_sndwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
 | kcp_rcvwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
