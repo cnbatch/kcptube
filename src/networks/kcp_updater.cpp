@@ -2,32 +2,40 @@
 #include <set>
 #include "kcp_updater.hpp"
 
+
+template <typename L, typename R>
+inline bool weak_ptr_equals(const std::weak_ptr<L> &l_ptr, const std::weak_ptr<R> &r_ptr)
+{
+	return !l_ptr.owner_before(r_ptr) && !r_ptr.owner_before(l_ptr);
+}
+
 namespace KCP
 {
 	void KCPUpdater::submit(std::weak_ptr<KCP> kcp_ptr, uint32_t next_update_time)
 	{
-		{
-			std::scoped_lock tasks_lock(kcp_tasks_mutex);
-			kcp_time_list[next_update_time].push_back(kcp_ptr);
-			//pile_of_kcp[kcp_ptr] = next_update_time;
-			++kcp_tasks_total;
-		}
+		std::unique_lock tasks_lock(kcp_tasks_mutex);
+		kcp_time_list[next_update_time].push_back(kcp_ptr);
+		tasks_lock.unlock();
+		++kcp_tasks_total;
 
-		if (nearest_update_time.load() > next_update_time)
-		{
+		if (nearest_update_time.load() >= next_update_time)
 			kcp_tasks_available_cv.notify_one();
-		}
 	}
 
-	//void KCPUpdater::remove(std::weak_ptr<KCP> kcp_ptr)
-	//{
-	//	std::scoped_lock tasks_lock(kcp_pile_mutex);
-	//	auto iter = pile_of_kcp.find(kcp_ptr);
-	//	if (iter == pile_of_kcp.end())
-	//		return;
-	//	pile_of_kcp.erase(iter);
-	//	kcp_tasks_total.store(pile_of_kcp.size());
-	//}
+	void KCPUpdater::remove(std::weak_ptr<KCP> kcp_ptr)
+	{
+		std::scoped_lock tasks_lock(kcp_tasks_mutex);
+		for (auto &[update_time, kcp_ptr_list] : kcp_time_list)
+		{
+			for (auto iter = kcp_ptr_list.begin(), next = iter; iter != kcp_ptr_list.end(); iter = next)
+			{
+				++next;
+				if (weak_ptr_equals(kcp_ptr, *iter))
+					kcp_ptr_list.erase(iter);
+			}
+		}
+		kcp_tasks_total.store(kcp_time_list.size());
+	}
 
 	void KCPUpdater::wait_for_tasks()
 	{
@@ -55,7 +63,7 @@ namespace KCP
 		while (running)
 		{
 			uint32_t kcp_refresh_time = TimeNowForKCP();
-			int64_t wait_time = ((int64_t)kcp_refresh_time) - (int64_t)(nearest_update_time.load());
+			int64_t wait_time = (int64_t)(nearest_update_time.load()) - ((int64_t)kcp_refresh_time);
 			if (wait_time <= 0)
 				wait_time = 1;
 
@@ -87,8 +95,8 @@ namespace KCP
 						if (kcp_ptr == nullptr)
 							continue;
 
-						kcp_ptr->Update(kcp_refresh_time);
-						uint32_t kcp_update_time = kcp_ptr->Check(kcp_refresh_time);
+						kcp_ptr->Update();
+						uint32_t kcp_update_time = kcp_ptr->Check();
 						temp_list[kcp_update_time].push_back(kcp_weak_ptr);
 					}
 

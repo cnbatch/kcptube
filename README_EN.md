@@ -221,8 +221,8 @@ This bandwidth values should not larger than your actual bandwidth, otherwise th
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
 | regular1     | 1024       |   1024    |      1    |   1        |   5      |   1   |
 | regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
-| regular3     | 1024       |   1024    |      0    |   5        |   2      |   1   |
-| regular4     | 1024       |   1024    |      0    |   10       |   2      |   1   |
+| regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
+| regular4     | 1024       |   1024    |      0    |   15       |   2      |   1   |
 | regular5     | 1024       |   1024    |      0    |   30       |   2      |   1   |
 
 Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency smoother.
@@ -394,6 +394,42 @@ I don't have an Apple computer, please solve all the steps by yourself.
 
 ---
 
+## Improving UDP Transmission Performance
+Increasing the receive buffer can improve UDP transmission performance.
+### FreeBSD
+You can use the command `sysctl kern.ipc.maxsockbuf` to view the buffer size. If you need to adjust it, run the following command (replace the number with the desired value):
+```
+sysctl -w kern.ipc.maxsockbuf=33554434
+```
+Alternatively, you can write the following in `/etc/sysctl.conf`:
+```
+kern.ipc.maxsockbuf=33554434
+```
+### NetBSD & OpenBSD
+You can use the command `sysctl net.inet.udp.recvspace` to view the receive buffer size. If you need to adjust it, run the following command (replace the number with the desired value):
+```
+sysctl -w net.inet.udp.recvspace=33554434
+```
+Alternatively, you can write the following in `/etc/sysctl.conf`:
+```
+net.inet.udp.recvspace=33554434
+```
+If necessary, you can also adjust the value of `net.inet.udp.sendspace`, which is for the send buffer.
+### Linux
+For the receive buffer, you can use the commands `sysctl net.core.rmem_max` and `sysctl net.core.rmem_default` to view the receive buffer size.
+
+If you need to adjust it, run the following commands (replace the number with the desired value):
+```
+sysctl -w net.core.rmem_max=33554434
+sysctl -w net.core.rmem_default=33554434
+```
+Alternatively, you can write the following in `/etc/sysctl.conf`:
+```
+net.core.rmem_max=33554434
+net.core.rmem_default=33554434
+```
+If necessary, you can also adjust the values of `net.core.wmem_max` and `net.core.wmem_default`, which are for the send buffer settings.
+
 ## IPv4-mapped IPv6
 As kcptube uses IPv6 single-stack + enabled IPv4 mapped addresses (IPv4-mapped IPv6) to simultaneously use IPv4 and IPv6 networks internally, please ensure that the value of the v6only option is 0. 
 
@@ -403,6 +439,19 @@ As kcptube uses IPv6 single-stack + enabled IPv4 mapped addresses (IPv4-mapped I
 If the system does not support IPv6 or IPv6 is disabled, please set ipv4_only=true in the configuration file, so that kcptube will fall back to using IPv4 single-stack mode.
 
 ## Other Considerations
+
+### NetBSD
+After running command
+```
+sysctl -w net.inet6.ip6.v6only=0
+```
+Single stack + mapped address mode can listen to dual stack.
+
+However, for unknown reasons, it may not be possible to actively connect to an IPv4-mapped address may not be possible.
+
+### OpenBSD
+OpenBSD completely blocks IPv4-mapped IPv6, if you use dual-stack on the OpenBSD platform, you need to save the configuration file as two files, one of which enables ipv4_only=1, and then load both configuration files when using kcptube.
+
 ### ‘Too Many Open Files’ of multiple Operation Systems
 In most cases, this kind of message only occurs on the server side, not on the client side.
 
@@ -435,18 +484,6 @@ Edit /etc/security/limits.conf and add at the end:
 root      hard    nofile       300000
 root      soft    nofile       300000
 ```
-
-### NetBSD
-After running command
-```
-sysctl -w net.inet6.ip6.v6only=0
-```
-Single stack + mapped address mode can listen to dual stack.
-
-However, for unknown reasons, it may not be possible to actively connect to an IPv4-mapped address may not be possible.
-
-### OpenBSD
-OpenBSD completely blocks IPv4-mapped IPv6, if you use dual-stack on the OpenBSD platform, you need to save the configuration file as two files, one of which enables ipv4_only=1, and then load both configuration files when using kcptube.
 
 ## Encryption and Data verification
 Since TCP data transmission is required, data verification cannot be ignored, just like TCP itself.

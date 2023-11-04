@@ -298,8 +298,8 @@ void client_mode::tcp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 
 	size_t new_data_size = packet::create_data_packet(protocol_type::tcp, data_ptr, data_size);
 	kcp_ptr->Send((const char *)data_ptr, new_data_size);
-	uint32_t next_refresh_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
-	kcp_updater.submit(kcp_ptr, next_refresh_time);
+	uint32_t next_update_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
+	kcp_updater.submit(kcp_ptr, next_update_time);
 }
 
 void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
@@ -369,8 +369,8 @@ void client_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 	size_t new_data_size = packet::create_data_packet(protocol_type::udp, data_ptr, data_size);
 
 	kcp_session->Send((const char *)data_ptr, new_data_size);
-	uint32_t next_refresh_time = current_settings.blast ? kcp_session->Refresh() : kcp_session->Check();
-	kcp_updater.submit(kcp_session, next_refresh_time);
+	uint32_t next_update_time = current_settings.blast ? kcp_session->Refresh() : kcp_session->Check();
+	kcp_updater.submit(kcp_session, next_update_time);
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_session->GetUserData();
 	kcp_mappings_ptr->last_data_transfer_time.store(packet::right_now());
@@ -400,7 +400,7 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 	if (packet_data_size == 0)
 		return;
 	auto timestamp = packet::right_now();
-	if (calculate_difference((int32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
+	if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
 		return;
 
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
@@ -424,17 +424,10 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 	}
 
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
-	{
-		if (current_settings.blast)
-		{
-			uint32_t next_refresh_time = kcp_ptr->Check();
-			kcp_updater.submit(kcp_ptr, next_refresh_time);
-		}
 		return;
-	}
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
-	if (kcp_mappings_ptr == nullptr)
+	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
 		return;
 
 	while (true)
@@ -491,8 +484,8 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 			std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_response_packet(prtcl);
 			kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
 
-			uint32_t next_refresh_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
-			kcp_updater.submit(kcp_ptr, next_refresh_time);
+			uint32_t next_update_time = kcp_ptr->Check();
+			kcp_updater.submit(kcp_ptr, next_update_time);
 			break;
 		}
 		case feature::keep_alive_response:
@@ -553,7 +546,7 @@ void client_mode::udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> k
 	if (packet_data_size == 0)
 		return;
 	auto timestamp = packet::right_now();
-	if (calculate_difference((int32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
+	if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
 		return;
 
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
@@ -577,14 +570,7 @@ void client_mode::udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> k
 	}
 
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
-	{
-		if (current_settings.blast)
-		{
-			uint32_t next_refresh_time = kcp_ptr->Check();
-			kcp_updater.submit(kcp_ptr, next_refresh_time);
-		}
 		return;
-	}
 
 	while (true)
 	{
@@ -893,7 +879,7 @@ void client_mode::mux_transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappi
 				unique_locker_iter_mux_records.unlock();
 				std::vector<uint8_t> data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
 				kcp_mappings_ptr->egress_kcp->Send((const char *)data.data(), data.size());
-				uint32_t next_update_time = current_settings.blast ? kcp_mappings_ptr->egress_kcp->Refresh() : kcp_mappings_ptr->egress_kcp->Check();
+				uint32_t next_update_time = kcp_mappings_ptr->egress_kcp->Check();
 				kcp_updater.submit(kcp_mappings_ptr->egress_kcp, next_update_time);
 				return;
 			}
@@ -982,7 +968,7 @@ void client_mode::mux_move_cached_to_tunnel(bool skip_kcp_update)
 
 	for (std::shared_ptr<KCP::KCP> kcp_ptr : kcp_ptr_list)
 	{
-		uint32_t next_update_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
+		uint32_t next_update_time = kcp_ptr->Check();
 		kcp_updater.submit(kcp_ptr, next_update_time);
 	}
 }
@@ -1213,7 +1199,7 @@ void client_mode::local_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, std::share
 
 	std::vector<uint8_t> data = packet::inform_disconnect_packet(protocol_type::tcp);
 	kcp_ptr->Send((const char *)data.data(), data.size());
-	uint32_t next_update_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
+	uint32_t next_update_time = kcp_ptr->Check();
 	kcp_updater.submit(kcp_ptr, next_update_time);
 
 	session->when_disconnect(empty_tcp_disconnect);
@@ -1382,6 +1368,7 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 		locker.unlock();
 
 		kcp_mappings_ptr->egress_kcp->SetUserData(nullptr);
+		kcp_updater.remove(kcp_mappings_ptr->egress_kcp);
 		uint32_t next_update_time = new_kcp_mappings_ptr->egress_kcp->Check();
 		kcp_updater.submit(new_kcp_mappings_ptr->egress_kcp, next_update_time);
 	};
@@ -1486,7 +1473,8 @@ void client_mode::cleanup_expiring_data_connections()
 			std::scoped_lock locker_udp_session_map_to_kcp {mutex_udp_local_session_map_to_kcp};
 			udp_local_session_map_to_kcp.erase(udp_endpoint);
 		}
-
+		
+		kcp_updater.remove(kcp_ptr);
 		expiring_kcp.erase(iter);
 	}
 }
@@ -1518,6 +1506,7 @@ void client_mode::cleanup_expiring_handshake_connections()
 			kcp_mappings_ptr->egress_forwarder->stop();
 		}
 
+		kcp_updater.remove(kcp_mappings_ptr->egress_kcp);
 		expiring_handshakes.erase(iter);
 	}
 	locker_expiring_handshakes.unlock();
@@ -1578,7 +1567,7 @@ void client_mode::cleanup_expiring_mux_records()
 		{
 			kcp_mappings_ptr->egress_kcp->Send((const char *)data.data(), data.size());
 		}
-		uint32_t next_update_time = current_settings.blast ? kcp_mappings_ptr->egress_kcp->Refresh() : kcp_mappings_ptr->egress_kcp->Check();
+		uint32_t next_update_time = kcp_mappings_ptr->egress_kcp->Check();
 		kcp_updater.submit(kcp_mappings_ptr->egress_kcp, next_update_time);
 	}
 }
@@ -1688,8 +1677,8 @@ void client_mode::loop_keep_alive()
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(kcp_mappings_ptr->connection_protocol);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
 
-		uint32_t next_refresh_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
-		kcp_updater.submit(kcp_ptr, next_refresh_time);
+		uint32_t next_update_time = kcp_ptr->Check();
+		kcp_updater.submit(kcp_ptr, next_update_time);
 		kcp_ptr->keep_alive_send_time.store(packet::right_now());
 	}
 }
@@ -1921,7 +1910,6 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 	kcp_ptr->SetUserData(kcp_mappings_ptr.get());
 	kcp_ptr->keep_alive_send_time.store(timestamp);
 	kcp_ptr->keep_alive_response_time.store(timestamp);
-	kcp_ptr->quick_response.store(current_settings.blast);
 	kcp_ptr->SetMTU(current_settings.kcp_mtu);
 	kcp_ptr->SetWindowSize(current_settings.kcp_sndwnd, current_settings.kcp_rcvwnd);
 	kcp_ptr->NoDelay(current_settings.kcp_nodelay, current_settings.kcp_interval, current_settings.kcp_resend, current_settings.kcp_nc);
@@ -2088,6 +2076,8 @@ void client_mode::handshake_test_cleanup(kcp_mappings *handshake_ptr)
 	auto session_iter = handshakes.find(handshake_ptr);
 	if (session_iter == handshakes.end())
 		return;
+	if (session_iter->second != nullptr)
+		kcp_updater.remove(handshake_ptr->egress_kcp);
 	handshakes.erase(session_iter);
 	timer_expiring_kcp.cancel();
 	timer_find_expires.cancel();
@@ -2112,18 +2102,11 @@ void client_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::uniqu
 	if (packet_data_size == 0)
 		return;
 	auto timestamp = packet::right_now();
-	if (calculate_difference((int32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
+	if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
 		return;
 
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
-	{
-		if (current_settings.blast)
-		{
-			uint32_t next_refresh_time = kcp_ptr->Check();
-			kcp_updater.submit(kcp_ptr, next_refresh_time);
-		}
 		return;
-	}
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 	if (kcp_mappings_ptr == nullptr)
@@ -2147,7 +2130,9 @@ void client_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::uniqu
 		{
 		case feature::initialise:
 		{
-			const packet::settings_wrapper *basic_settings = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
+			std::unique_ptr<uint8_t[]> settings_data_ptr = std::make_unique<uint8_t[]>(unbacked_data_size);
+			packet::convert_wrapper_byte_order(unbacked_data_ptr, settings_data_ptr.get(), unbacked_data_size);
+			const packet::settings_wrapper *basic_settings = packet::get_initialise_details_from_unpacked_data(settings_data_ptr.get());
 			if (basic_settings->inbound_bandwidth > 0 && current_settings.outbound_bandwidth > basic_settings->inbound_bandwidth)
 				current_settings.outbound_bandwidth = basic_settings->inbound_bandwidth;
 			on_handshake_success(kcp_mappings_ptr, *basic_settings);

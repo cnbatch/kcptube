@@ -69,8 +69,8 @@ This bandwidth values should not larger than your actual bandwidth, otherwise th
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
 | regular1     | 1024       |   1024    |      1    |   1        |   5      |   1   |
 | regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
-| regular3     | 1024       |   1024    |      0    |   5        |   2      |   1   |
-| regular4     | 1024       |   1024    |      0    |   10       |   2      |   1   |
+| regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
+| regular4     | 1024       |   1024    |      0    |   15       |   2      |   1   |
 | regular5     | 1024       |   1024    |      0    |   30       |   2      |   1   |
 
 Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency smoother.

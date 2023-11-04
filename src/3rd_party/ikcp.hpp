@@ -138,7 +138,6 @@ namespace KCP
 		// ikcp_check when to call it again (without ikcp_input/_send calling).
 		// 'current' - current timestamp in millisec. 
 		void update(uint32_t current);
-		void update_quick(uint32_t current);
 
 		// Determine when should you invoke ikcp_update:
 		// returns when you should invoke ikcp_update in millisec, if there 
@@ -148,7 +147,6 @@ namespace KCP
 		// schedule ikcp_update (eg. implementing an epoll-like mechanism, 
 		// or optimize ikcp_update when handling massive kcp connections)
 		uint32_t check(uint32_t current);
-		uint32_t check_quick(uint32_t current);
 
 		// when you received a low level packet (eg. UDP packet), call it
 		int input(const char *data, long size);

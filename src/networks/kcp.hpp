@@ -33,7 +33,6 @@ namespace KCP
 		//std::atomic<void *> custom_data;
 		std::atomic<int64_t> keep_alive_send_time;
 		std::atomic<int64_t> keep_alive_response_time;
-		std::atomic<bool> quick_response{false};
 
 	private:
 		std::unique_ptr<kcp_core> kcp_ptr;
@@ -96,10 +95,10 @@ namespace KCP
 		// or optimize Update when handling massive kcp connections)
 		uint32_t Check(uint32_t current);
 		uint32_t Check();
-		
+
 		// Flush() & Check()
 		uint32_t Refresh();
-
+		
 		// when you received a low level packet (eg. UDP packet), call it
 		int Input(const char *data, long size);
 

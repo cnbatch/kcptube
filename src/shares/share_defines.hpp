@@ -83,7 +83,7 @@ struct user_settings
 	uint64_t inbound_bandwidth = 0;
 	bool ipv4_only = false;
 	bool test_only = false;
-	bool blast = false;
+	bool blast = 1;
 	bool ignore_listen_address = false;
 	bool ignore_listen_port = false;
 	bool ignore_destination_address = false;

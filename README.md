@@ -221,8 +221,8 @@ encryption_algorithm=AES-GCM
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
 | regular1     | 1024       |   1024    |      1    |   1        |   5      |   1   |
 | regular2     | 1024       |   1024    |      2    |   1        |   5      |   1   |
-| regular3     | 1024       |   1024    |      0    |   5        |   2      |   1   |
-| regular4     | 1024       |   1024    |      0    |   10       |   2      |   1   |
+| regular3     | 1024       |   1024    |      0    |   1        |   2      |   1   |
+| regular4     | 1024       |   1024    |      0    |   15       |   2      |   1   |
 | regular5     | 1024       |   1024    |      0    |   30       |   2      |   1   |
 
 其中，丢包率越高（高于 10%），kcp_nodelay=1 就比 kcp_nodelay=2 越有优势。在丢包率不特别高的情况下，kcp_nodelay=2 可使延迟抖动更为平滑。
@@ -394,6 +394,42 @@ make
 
 ---
 
+## 对 UDP 传输性能的改善
+增加接收缓存可以改善 UDP 传输性能
+### FreeBSD
+可以使用命令 `sysctl kern.ipc.maxsockbuf` 查看缓存大小。如果需要调整，请运行命令（数字改为想要的数值）：
+```
+sysctl -w kern.ipc.maxsockbuf=33554434
+```
+或者在 `/etc/sysctl.conf` 写入 
+```
+kern.ipc.maxsockbuf=33554434
+```
+### NetBSD & OpenBSD
+可以使用命令 `sysctl net.inet.udp.recvspace` 查看接收缓存大小。如果需要调整，请运行命令（数字改为想要的数值）：
+```
+sysctl -w net.inet.udp.recvspace=33554434
+```
+或者在 `/etc/sysctl.conf` 写入 
+```
+net.inet.udp.recvspace=33554434
+```
+若有必要，可以同时调整 `net.inet.udp.sendspace` 的数值。这是发送缓存的设置。
+### Linux
+对于接收缓存，可以使用命令 `sysctl net.core.rmem_max` 及 `sysctl net.core.rmem_default` 查看接收缓存大小。
+
+如果需要调整，请运行命令（数字改为想要的数值）：
+```
+sysctl -w net.core.rmem_max=33554434
+sysctl -w net.core.rmem_default=33554434
+```
+或者在 `/etc/sysctl.conf` 写入 
+```
+net.core.rmem_max=33554434
+net.core.rmem_default=33554434
+```
+若有必要，可以同时调整 `net.core.wmem_max` 及 `net.core.wmem_default` 的数值。这是发送缓存的设置。
+
 ## IPv4 映射 IPv6
 由于 kcptube 内部使用的是 IPv6 单栈 + 开启 IPv4 映射地址（IPv4-mapped IPv6）来同时使用 IPv4 与 IPv6 网络，因此请确保 v6only 选项的值为 0。
 
@@ -402,6 +438,19 @@ make
 如果系统不支持 IPv6，或者禁用了 IPv6，请在配置文件中设置 ipv4_only=true，这样 kcptube 会退回到使用 IPv4 单栈模式。
 
 ## 其它注意事项
+
+### NetBSD
+使用命令
+```
+sysctl -w net.inet6.ip6.v6only=0
+```
+设置后，单栈+映射地址模式可以侦听双栈。
+
+但由于未知的原因，可能无法主动连接 IPv4 映射地址。
+
+### OpenBSD
+因为 OpenBSD 彻底屏蔽了 IPv4 映射地址，所以在 OpenBSD 平台使用双栈的话，需要将配置文件保存成两个，其中一个启用 ipv4_only=1，然后在使用 kcptube 时同时载入两个配置文件。
+
 ### 多种系统都遇到的 Too Many Open Files
 大多数情况下，这种提示只会在服务器端遇到，不会在客户端遇到。
 
@@ -434,18 +483,6 @@ kern.maxfiles=100000
 root      hard    nofile       300000
 root      soft    nofile       300000
 ```
-
-### NetBSD
-使用命令
-```
-sysctl -w net.inet6.ip6.v6only=0
-```
-设置后，单栈+映射地址模式可以侦听双栈。
-
-但由于未知的原因，可能无法主动连接 IPv4 映射地址。
-
-### OpenBSD
-因为 OpenBSD 彻底屏蔽了 IPv4 映射地址，所以在 OpenBSD 平台使用双栈的话，需要将配置文件保存成两个，其中一个启用 ipv4_only=1，然后在使用 kcptube 时同时载入两个配置文件。
 
 ## 加密与数据校验
 由于需要传送 TCP 数据，因此数据校验是不可忽略的，正如 TCP 本身那样。

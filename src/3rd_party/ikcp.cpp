@@ -540,16 +540,28 @@ namespace KCP
 		if (sn < this->snd_una || sn >= this->snd_nxt)
 			return;
 
-		this->snd_buf.erase(sn);
+		if (auto iter = this->snd_buf.find(sn); iter != this->snd_buf.end())
+		{
+			std::shared_ptr<segment> seg = iter->second;
+			this->resendts_buf[seg->resendts].erase(sn);
+			this->fastack_buf[seg->fastack].erase(sn);
+			this->snd_buf.erase(iter);
+		}
 	}
 
 	void kcp_core::parse_una(uint32_t una)
 	{
-		for (auto seg = this->snd_buf.begin(), next = seg; seg != this->snd_buf.end(); seg = next)
+		for (auto iter = this->snd_buf.begin(), next = iter; iter != this->snd_buf.end(); iter = next)
 		{
 			++next;
-			if (una > seg->first)
-				this->snd_buf.erase(seg);
+			uint32_t sn = iter->first;
+			std::shared_ptr<segment> seg = iter->second;
+			if (una > iter->first)
+			{
+				this->resendts_buf[seg->resendts].erase(sn);
+				this->fastack_buf[seg->fastack].erase(sn);
+				this->snd_buf.erase(iter);
+			}
 			else break;
 		}
 	}
@@ -1122,49 +1134,6 @@ namespace KCP
 		}
 	}
 
-	void kcp_core::update_quick(uint32_t current)
-	{
-		bool need_update = false;
-		this->current = current;
-		if (this->updated == 0)
-		{
-			this->updated = 1;
-			this->ts_flush = this->current;
-			need_update = true;
-		}
-
-		if (!need_update && !this->acklist.empty())
-			need_update = true;
-
-		if (!need_update && this->snd_nxt < this->snd_una + cwnd && !this->snd_queue.empty())
-			need_update = true;
-
-		if (!need_update && this->fastresend > 0 && !this->resendts_buf[this->fastresend].empty())
-			need_update = true;
-
-		if (!need_update && !this->resendts_buf.empty())
-		{
-			auto &[resend_ts, seg_list] = *this->resendts_buf.begin();
-			need_update = resend_ts <= current;
-		}
-
-		if (auto slap =_itimediff(this->current, this->ts_flush);
-			!need_update && (slap >= 0 || slap < -10000))
-		{
-			this->ts_flush = this->current;
-			need_update = true;
-		}
-
-		if (need_update)
-		{
-			this->ts_flush += this->interval;
-			if (this->current >= this->ts_flush)
-				this->ts_flush = this->current + this->interval;
-
-			flush();
-		}
-	}
-
 
 	//---------------------------------------------------------------------
 	// Determine when should you invoke ikcp_update:
@@ -1209,43 +1178,6 @@ namespace KCP
 		if (minimal >= this->interval) minimal = this->interval;
 
 		return current + minimal;
-	}
-
-	uint32_t kcp_core::check_quick(uint32_t current)
-	{
-		int32_t tm_packet = 0x7fffffff;
-
-		if (this->updated == 0)
-			return current;
-
-		if (_itimediff(current, ts_flush) >= 10000 || _itimediff(current, ts_flush) < -10000)
-		{
-			ts_flush = current;
-			return current;
-		}
-
-		if (!this->acklist.empty())
-			return current;
-
-		if (this->snd_nxt < this->snd_una + cwnd && !this->snd_queue.empty())
-			return current;
-
-		if (this->fastresend > 0 && !this->resendts_buf[this->fastresend].empty())
-			return current;
-
-		if (!this->resendts_buf.empty())
-		{
-			auto &[resend_ts, seg_list] = *this->resendts_buf.begin();
-
-			int32_t diff = _itimediff(resend_ts, current);
-			if (diff <= 0)
-				return current;
-
-			if (diff < tm_packet)
-				tm_packet = diff;
-		}
-
-		return current + tm_packet;
 	}
 
 	int kcp_core::set_mtu(int mtu)

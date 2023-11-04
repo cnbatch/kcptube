@@ -510,7 +510,7 @@ void parse_custom_input_ip(const std::string &line, user_settings::user_input_ad
 			error_msg.emplace_back("'" + line + "' Remote Address can't be empty");
 		return;
 	}
-	
+
 	uint16_t local_port_number = (uint16_t)std::stoi(local_port);
 	uint16_t remote_port_number = (uint16_t)std::stoi(remote_port);
 
@@ -663,10 +663,10 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 				error_msg.emplace_back("listen_port_end should not be set");
 		}
 
-		if(current_user_settings.ignore_destination_address)
+		if (current_user_settings.ignore_destination_address)
 			error_msg.emplace_back("destination_address can't be ignored");
 
-		if(current_user_settings.ignore_destination_port)
+		if (current_user_settings.ignore_destination_port)
 			error_msg.emplace_back("destination_port can't be ignored");
 
 		verify_client_destination(current_user_settings, error_msg);
@@ -696,7 +696,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 			if (current_user_settings.destination_address.empty())
 				error_msg.emplace_back("invalid destination_address setting");
 		}
-	
+
 		if (current_user_settings.mux_tunnels > 0)
 			error_msg.emplace_back("mux_tunnels should not be set");
 	}
@@ -940,7 +940,7 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 	case kcp_mode::regular3:
 	{
 		current_user_settings.kcp_nodelay = 0;
-		current_user_settings.kcp_interval = 5;
+		current_user_settings.kcp_interval = 1;
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd == 0)
@@ -953,7 +953,7 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 	case kcp_mode::regular4:
 	{
 		current_user_settings.kcp_nodelay = 0;
-		current_user_settings.kcp_interval = 10;
+		current_user_settings.kcp_interval = 15;
 		current_user_settings.kcp_resend = 2;
 		current_user_settings.kcp_nc = 1;
 		if (current_user_settings.kcp_sndwnd == 0)
@@ -1015,13 +1015,13 @@ void verify_client_destination(user_settings &current_user_settings, std::vector
 {
 	if (current_user_settings.destination_port == 0)
 	{
-		if(current_user_settings.destination_port_start == 0 ||
+		if (current_user_settings.destination_port_start == 0 ||
 			current_user_settings.destination_port_end == 0)
 		{
 			error_msg.emplace_back("destination port setting incorrect");
 		}
-		
-		if(current_user_settings.destination_port_start > current_user_settings.destination_port_end)
+
+		if (current_user_settings.destination_port_start > current_user_settings.destination_port_end)
 		{
 			error_msg.emplace_back("destination end port must larger than start port");
 		}

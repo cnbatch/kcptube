@@ -198,6 +198,41 @@ void debug_print_data(const uint8_t *data, size_t len)
 
 namespace packet
 {
+	uint64_t htonll(uint64_t value)
+	{
+		// The answer is 42
+		static const int num = 42;
+		uint64_t converted_value = value;
+
+		// Check the endianness
+		if (*reinterpret_cast<const char*>(&num) == num)
+		{
+			const uint32_t high_part = htonl(static_cast<uint32_t>(value >> 32));
+			const uint32_t low_part = htonl(static_cast<uint32_t>(value & 0xFFFFFFFFLL));
+
+			converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+		}
+
+		return converted_value;
+	}
+
+	uint64_t ntohll(uint64_t value)
+	{
+		// The answer is 42
+		static const int num = 42;
+		uint64_t converted_value = value;
+
+		// Check the endianness
+		if (*reinterpret_cast<const char*>(&num) == num)
+		{
+			const uint32_t high_part = ntohl(static_cast<uint32_t>(value >> 32));
+			const uint32_t low_part = ntohl(static_cast<uint32_t>(value & 0xFFFFFFFFLL));
+
+			converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+		}
+
+		return converted_value;
+	}
 	int64_t right_now()
 	{
 		auto right_now = system_clock::now();
@@ -209,7 +244,7 @@ namespace packet
 		int64_t timestamp = right_now();
 		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + gbv_buffer_expand_size);
 		packet_layer *ptr = (packet_layer *)new_buffer.get();
-		ptr->timestamp = (int32_t)timestamp;
+		ptr->timestamp = htonl((uint32_t)timestamp);
 		uint8_t *data_ptr = ptr->data;
 		if (data_size > 0)
 			std::copy_n(input_data, data_size, data_ptr);
@@ -220,7 +255,6 @@ namespace packet
 
 	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data)
 	{
-		int64_t timestamp = right_now();
 		auto new_data_size = sizeof(data_layer) - 1 + data.size();
 
 		std::vector<uint8_t> new_data(new_data_size);
@@ -266,10 +300,10 @@ namespace packet
 		return new_size;
 	}
 
-	std::tuple<int32_t, uint8_t*, size_t> unpack(uint8_t *data, size_t length)
+	std::tuple<uint32_t, uint8_t*, size_t> unpack(uint8_t *data, size_t length)
 	{
 		packet_layer *ptr = (packet_layer *)data;
-		int32_t timestamp = ptr->timestamp;
+		uint32_t timestamp = ntohl(ptr->timestamp);
 		uint8_t *data_ptr = ptr->data;
 		size_t data_size = length - (data_ptr - data);
 		return { timestamp , data_ptr, data_size };
@@ -310,21 +344,55 @@ namespace packet
 		return settings;
 	}
 
+	void convert_wrapper_byte_order_ntoh(void *data)
+	{
+		settings_wrapper *settings = (settings_wrapper *)data;
+		settings->uid = ntohl(settings->uid);
+		settings->port_start = ntohs(settings->port_start);
+		settings->port_end = ntohs(settings->port_end);
+		settings->outbound_bandwidth = ntohll(settings->outbound_bandwidth);
+		settings->inbound_bandwidth = ntohll(settings->inbound_bandwidth);
+		settings->user_input_port = ntohs(settings->user_input_port);
+	}
+
+	void convert_wrapper_byte_order_hton(void *data)
+	{
+		settings_wrapper *settings = (settings_wrapper *)data;
+		settings->uid = htonl(settings->uid);
+		settings->port_start = htons(settings->port_start);
+		settings->port_end = htons(settings->port_end);
+		settings->outbound_bandwidth = htonll(settings->outbound_bandwidth);
+		settings->inbound_bandwidth = htonll(settings->inbound_bandwidth);
+		settings->user_input_port = htons(settings->user_input_port);
+	}
+
+	void convert_wrapper_byte_order(const std::vector<uint8_t> &input_data, std::vector<uint8_t> &output_data)
+	{
+		output_data = input_data;
+		convert_wrapper_byte_order_ntoh(output_data.data());
+	}
+
+	void convert_wrapper_byte_order(const uint8_t *input_data, uint8_t *output_data, size_t data_size)
+	{
+		std::copy_n(input_data, data_size, output_data);
+		convert_wrapper_byte_order_ntoh(output_data);
+	}
+
 	void modify_initialise_details_of_unpacked_data(uint8_t *data, const settings_wrapper &settings)
 	{
 		settings_wrapper *ptr = (settings_wrapper *)data;
-		ptr->port_start = settings.port_start;
-		ptr->port_end = settings.port_end;
-		ptr->outbound_bandwidth = settings.outbound_bandwidth;
-		ptr->inbound_bandwidth = settings.inbound_bandwidth;
+		ptr->port_start = htons(settings.port_start);
+		ptr->port_end = htons(settings.port_end);
+		ptr->outbound_bandwidth = htonll(settings.outbound_bandwidth);
+		ptr->inbound_bandwidth = htonll(settings.inbound_bandwidth);
 	}
 
 	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl, uint64_t outbound_bandwidth, uint64_t inbound_bandwidth)
 	{
 		std::vector<uint8_t> data(sizeof(settings_wrapper));
 		settings_wrapper *ptr = (settings_wrapper *)data.data();
-		ptr->outbound_bandwidth = outbound_bandwidth;
-		ptr->inbound_bandwidth = inbound_bandwidth;
+		ptr->outbound_bandwidth = htonll(outbound_bandwidth);
+		ptr->inbound_bandwidth = htonll(inbound_bandwidth);
 
 		return create_inner_packet(feature::initialise, prtcl, data);
 	}
@@ -333,18 +401,19 @@ namespace packet
 	{
 		std::vector<uint8_t> data(sizeof(settings_wrapper) + set_address.size());
 		settings_wrapper *ptr = (settings_wrapper *)data.data();
-		ptr->outbound_bandwidth = outbound_bandwidth;
-		ptr->inbound_bandwidth = inbound_bandwidth;
-		ptr->user_input_port = set_port;
+		ptr->outbound_bandwidth = htonll(outbound_bandwidth);
+		ptr->inbound_bandwidth = htonll(inbound_bandwidth);
+		ptr->user_input_port = htons(set_port);
 		char *str_ptr = ptr->user_input_ip;
 		std::copy(set_address.begin(), set_address.end(), str_ptr);
 
 		return create_inner_packet(feature::initialise, prtcl, data);
 	}
 
-	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, const settings_wrapper &settings)
+	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, settings_wrapper settings)
 	{
-		const uint8_t *data_ptr = (const uint8_t *)&settings;
+		convert_wrapper_byte_order_hton(&settings);
+		const uint8_t *data_ptr = (uint8_t *)&settings;
 		return create_inner_packet(feature::initialise, prtcl, data_ptr, sizeof settings);
 	}
 
@@ -395,7 +464,7 @@ namespace packet
 		ptr->protocol_value = prtcl;
 
 		mux_data_wrapper *mux_data_ptr = (mux_data_wrapper *)ptr->data;
-		mux_data_ptr->connection_id = connection_id;
+		mux_data_ptr->connection_id = htonl(connection_id);
 		uint8_t *data_ptr = mux_data_ptr->data;
 		if (custom_data.size() > 0)
 			std::copy(custom_data.cbegin(), custom_data.cend(), data_ptr);
@@ -413,7 +482,7 @@ namespace packet
 		ptr->protocol_value = prtcl;
 
 		mux_data_wrapper *mux_data_ptr = (mux_data_wrapper *)ptr->data;
-		mux_data_ptr->connection_id = connection_id;
+		mux_data_ptr->connection_id = htonl(connection_id);
 		uint8_t *data_ptr = mux_data_ptr->data;
 		if (data_size > 0)
 			std::copy_n(input_data, data_size, data_ptr);
@@ -432,8 +501,8 @@ namespace packet
 		ptr->protocol_value = prtcl;
 
 		mux_pre_connect *mux_ptr = (mux_pre_connect *)ptr->data;
-		mux_ptr->connection_id = connection_id;
-		mux_ptr->user_input_port = connect_port;
+		mux_ptr->connection_id = htonl(connection_id);
+		mux_ptr->user_input_port = htons(connect_port);
 		char *ip_str = mux_ptr->user_input_ip;
 		if (!connect_address.empty())
 			std::copy(connect_address.begin(), connect_address.end(), ip_str);
@@ -444,7 +513,7 @@ namespace packet
 	std::tuple<uint32_t, uint8_t*, size_t> extract_mux_data_from_unpacked_data(uint8_t *data, size_t length)
 	{
 		mux_data_wrapper *ptr = (mux_data_wrapper *)data;
-		uint32_t connection_id = ptr->connection_id;
+		uint32_t connection_id = ntohl(ptr->connection_id);
 		uint8_t *data_ptr = ptr->data;
 		size_t data_size = length - (data_ptr - data);
 
@@ -454,8 +523,8 @@ namespace packet
 	std::tuple<uint32_t, uint16_t, std::string> extract_mux_pre_connect_from_unpacked_data(uint8_t * data, size_t length)
 	{
 		mux_pre_connect *ptr = (mux_pre_connect *)data;
-		uint32_t connection_id = ptr->connection_id;
-		uint16_t user_input_port = ptr->user_input_port;
+		uint32_t connection_id = ntohl(ptr->connection_id);
+		uint16_t user_input_port = ntohs(ptr->user_input_port);
 		char *str = ptr->user_input_ip;
 		std::string user_input_ip = str;
 
@@ -472,14 +541,14 @@ namespace packet
 		ptr->protocol_value = prtcl;
 
 		mux_data_wrapper *mux_data_ptr = (mux_data_wrapper *)ptr->data;
-		mux_data_ptr->connection_id = connection_id;
+		mux_data_ptr->connection_id = htonl(connection_id);
 		return new_data;
 	}
 
 	uint32_t extract_mux_cancel_from_unpacked_data(uint8_t *data, size_t length)
 	{
 		mux_data_wrapper *ptr = (mux_data_wrapper *)data;
-		uint32_t connection_id = ptr->connection_id;
+		uint32_t connection_id = ntohl(ptr->connection_id);
 		return connection_id;
 	}
 

@@ -16,15 +16,16 @@ namespace rfc3489
 		return header_data;
 	}
 
-	bool unpack_address_port(const uint8_t *data, uint64_t transaction_id_part_1, uint64_t transaction_id_part_2, uint32_t &ip_address, uint16_t &port)
+	bool unpack_address_port(const uint8_t *data, const stun_header *current_header, uint32_t &ip_address, uint16_t &port)
 	{
 		const uint8_t *ptr = data;
 		const stun_header *header = (const stun_header *)ptr;
-		if(ntohs(header->message_type) != message_type::binding_response)
+		if (ntohs(header->message_type) != message_type::binding_response)
 			return false;
 
 		uint16_t attrbutes_size = ntohs(header->message_length);
-		if (header->transaction_id_part_1 != transaction_id_part_1 || header->transaction_id_part_2 != transaction_id_part_2)
+		if (header->transaction_id_part_1 != current_header->transaction_id_part_1 ||
+			header->transaction_id_part_2 != current_header->transaction_id_part_2)
 			return false;
 
 		const stun_attributes *attribute_ptr = (const stun_attributes *)(ptr + sizeof(stun_header));
@@ -66,13 +67,8 @@ namespace rfc8489
 		return header_data;
 	}
 
-	//bool unpack_address_port(const vla::dynarray<uint8_t> &data, uint32_t transaction_id_part_1, uint64_t transaction_id_part_2,
-	//	uint32_t &ipv4_address, uint16_t &ipv4_port, std::array<uint8_t, 16> &ipv6_address, uint16_t &ipv6_port)
-	//{
-	//	return unpack_address_port(data.data(), transaction_id_part_1, transaction_id_part_2, ipv4_address, ipv4_port, ipv6_address, ipv6_port);
-	//}
-
-	bool unpack_address_port(const uint8_t *data, uint32_t transaction_id_part_1, uint64_t transaction_id_part_2, uint32_t & ipv4_address, uint16_t & ipv4_port, std::array<uint8_t, 16>& ipv6_address, uint16_t & ipv6_port)
+	bool unpack_address_port(const uint8_t *data, const stun_header *current_header,
+		uint32_t &ipv4_address, uint16_t &ipv4_port, std::array<uint8_t, 16> &ipv6_address, uint16_t &ipv6_port)
 	{
 		bool address_has_found = false;
 		const uint8_t *ptr = data;
@@ -83,7 +79,8 @@ namespace rfc8489
 			return false;
 
 		uint16_t attrbutes_size = ntohs(header->message_length);
-		if (header->transaction_id_part_1 != transaction_id_part_1 || header->transaction_id_part_2 != transaction_id_part_2)
+		if (header->transaction_id_part_1 != current_header->transaction_id_part_1 ||
+			header->transaction_id_part_2 != current_header->transaction_id_part_2)
 			return false;
 
 		const stun_attributes *attribute_ptr = (const stun_attributes *)(ptr + sizeof(stun_header));
@@ -118,29 +115,12 @@ namespace rfc8489
 				if (ipv6->family == ip_family::ipv6)
 				{
 					std::copy(std::begin(ipv6->x_ip_address), std::end(ipv6->x_ip_address), ipv6_address.begin());
-					uint8_t *ptr = ipv6_address.data();
+					uint32_t *byte_array_32 = (uint32_t *)ipv6_address.data();
+					uint64_t *byte_array_64 = (uint64_t *)ipv6_address.data();
 					uint32_t n_cookie = htonl(magic_cookie_value);
-
-					for (uint8_t *u8_ptr = (uint8_t *)&n_cookie;
-						u8_ptr < (uint8_t *)&n_cookie + sizeof(n_cookie);
-						u8_ptr++, ptr++)
-					{
-						*ptr ^= *u8_ptr;
-					}
-
-					for (uint8_t *u8_ptr = (uint8_t *)&transaction_id_part_1;
-						u8_ptr < (uint8_t *)&transaction_id_part_1 + sizeof(transaction_id_part_1);
-						u8_ptr++, ptr++)
-					{
-						*ptr ^= *u8_ptr;
-					}
-
-					for (uint8_t *u8_ptr = (uint8_t *)&transaction_id_part_2;
-						u8_ptr < (uint8_t *)&transaction_id_part_2 + sizeof(transaction_id_part_2);
-						u8_ptr++, ptr++)
-					{
-						*ptr ^= *u8_ptr;
-					}
+					byte_array_32[0] ^= n_cookie;
+					byte_array_32[1] ^= current_header->transaction_id_part_1;
+					byte_array_64[1] ^= current_header->transaction_id_part_2;
 
 					ipv6_port = ntohs(ipv6->x_port) ^ magic_cookie_front16;
 					address_has_found = true;

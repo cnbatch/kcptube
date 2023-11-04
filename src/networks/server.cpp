@@ -119,7 +119,7 @@ void server_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 		uint16_t ipv4_port = 0;
 		std::array<uint8_t, 16> ipv6_address{};
 		uint16_t ipv6_port = 0;
-		if (rfc8489::unpack_address_port(data_ptr, stun_header->transaction_id_part_1, stun_header->transaction_id_part_2, ipv4_address, ipv4_port, ipv6_address, ipv6_port))
+		if (rfc8489::unpack_address_port(data_ptr, stun_header.get(), ipv4_address, ipv4_port, ipv6_address, ipv6_port))
 		{
 			save_external_ip_address(ipv4_address, ipv4_port, ipv6_address, ipv6_port);
 			return;
@@ -141,7 +141,7 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 	if (packet_data_size == 0)
 		return;
 	auto timestamp = packet::right_now();
-	if (calculate_difference((int32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
+	if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
 		return;
 
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
@@ -162,14 +162,7 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 
 	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_mappings_ptr->ingress_kcp;
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
-	{
-		if (current_settings.blast)
-		{
-			uint32_t next_refresh_time = kcp_ptr->Check();
-			kcp_updater.submit(kcp_ptr, next_refresh_time);
-		}
 		return;
-	}
 
 	{
 		std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
@@ -226,8 +219,8 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 			std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_response_packet(prtcl);
 			kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
 
-			uint32_t next_refresh_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
-			kcp_updater.submit(kcp_ptr, next_refresh_time);
+			uint32_t next_update_time = kcp_ptr->Check();
+			kcp_updater.submit(kcp_ptr, next_update_time);
 			break;
 		}
 		case feature::keep_alive_response:
@@ -239,7 +232,7 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 			{
 				std::shared_ptr<tcp_session> &tcp_channel = kcp_mappings_ptr->local_tcp;
 				if (tcp_channel != nullptr)
-					process_tcp_disconnect(tcp_channel.get(), kcp_ptr);
+					process_tcp_disconnect(tcp_channel.get(), kcp_ptr, false);
 			}
 			if (prtcl == protocol_type::udp)
 			{
@@ -315,7 +308,7 @@ void server_mode::udp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t
 	size_t new_data_size = packet::create_data_packet(protocol_type::udp, data_ptr, data_size);
 
 	kcp_session->Send((const char *)data_ptr, new_data_size);
-	uint32_t next_update_time = current_settings.blast ? kcp_session->Refresh() : kcp_session->Check();
+	uint32_t next_update_time = kcp_session->Check();
 	kcp_updater.submit(kcp_session, next_update_time);
 }
 
@@ -471,7 +464,9 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				}
 				locker_kcp_channels.unlock();
 
-				const packet::settings_wrapper *basic_settings = packet::get_initialise_details_from_unpacked_data(unbacked_data_ptr);
+				std::unique_ptr<uint8_t[]> settings_data_ptr = std::make_unique<uint8_t[]>(unbacked_data_size);
+				packet::convert_wrapper_byte_order(unbacked_data_ptr, settings_data_ptr.get(), unbacked_data_size);
+				const packet::settings_wrapper *basic_settings = packet::get_initialise_details_from_unpacked_data(settings_data_ptr.get());
 				uint64_t outbound_bandwidth = current_settings.outbound_bandwidth;
 				const char *user_input_ip = basic_settings->user_input_ip;
 				asio::ip::port_type user_input_port = basic_settings->user_input_port;
@@ -493,7 +488,6 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				data_kcp->Update();
 				data_kcp->RxMinRTO() = 10;
 				data_kcp->SetBandwidth(outbound_bandwidth, current_settings.inbound_bandwidth);
-				data_kcp->quick_response.store(current_settings.blast);
 
 				bool connect_success = false;
 
@@ -599,7 +593,7 @@ void server_mode::mux_transfer_data(protocol_type prtcl, std::shared_ptr<kcp_map
 	{
 		std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
 		kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
-		uint32_t next_update_time = current_settings.blast ? kcp_mappings_ptr->ingress_kcp->Refresh() : kcp_mappings_ptr->ingress_kcp->Check();
+		uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
 		kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
 		return;
 	}
@@ -626,7 +620,7 @@ void server_mode::mux_transfer_data(protocol_type prtcl, std::shared_ptr<kcp_map
 				{
 					std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
 					kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
-					uint32_t next_update_time = current_settings.blast ? kcp_mappings_ptr->ingress_kcp->Refresh() : kcp_mappings_ptr->ingress_kcp->Check();
+					uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
 					kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
 					return;
 				}
@@ -713,7 +707,7 @@ void server_mode::mux_pre_connect(protocol_type prtcl, std::shared_ptr<kcp_mappi
 	{
 		std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
 		kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
-		uint32_t next_update_time = current_settings.blast ? kcp_mappings_ptr->ingress_kcp->Refresh() : kcp_mappings_ptr->ingress_kcp->Check();
+		uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
 		kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
 		return;
 	}
@@ -751,7 +745,7 @@ void server_mode::mux_pre_connect(protocol_type prtcl, std::shared_ptr<kcp_mappi
 				{
 					std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
 					kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
-					uint32_t next_update_time = current_settings.blast ? kcp_mappings_ptr->ingress_kcp->Refresh() : kcp_mappings_ptr->ingress_kcp->Check();
+					uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
 					kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
 					return;
 				}
@@ -1078,7 +1072,7 @@ void server_mode::mux_move_cached_to_tunnel(bool skip_kcp_update)
 
 	for (std::shared_ptr<KCP::KCP> kcp_ptr : kcp_ptr_list)
 	{
-		uint32_t next_update_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
+		uint32_t next_update_time = kcp_ptr->Check();
 		kcp_updater.submit(kcp_ptr, next_update_time);
 	}
 }
@@ -1185,7 +1179,7 @@ int server_mode::kcp_sender(const char *buf, int len, void *user)
 	return 0;
 }
 
-void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP::KCP> kcp_ptr_weak)
+void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP::KCP> kcp_ptr_weak, bool inform_peer)
 {
 	if (session == nullptr)
 		return;
@@ -1203,15 +1197,20 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP
 	kcp_mappings_ptr = kcp_channels[conv];
 	if (expiring_kcp.find(kcp_mappings_ptr) == expiring_kcp.end())
 	{
+		if (inform_peer)
+		{
+			std::vector<uint8_t> data = packet::inform_disconnect_packet(protocol_type::tcp);
+			kcp_ptr->Send((const char *)data.data(), data.size());
+		}
+		uint32_t next_update_time = kcp_ptr->Check();
+		kcp_updater.submit(kcp_ptr, next_update_time);
+		expiring_kcp.insert({ kcp_mappings_ptr, packet::right_now() });
+
 		session->when_disconnect(empty_tcp_disconnect);
 		session->session_is_ending(true);
 		session->pause(false);
 		session->stop();
-		std::vector<uint8_t> data = packet::inform_disconnect_packet(protocol_type::tcp);
-		kcp_ptr->Send((const char *)data.data(), data.size());
-		uint32_t next_update_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
-		kcp_updater.submit(kcp_ptr, next_update_time);
-		expiring_kcp.insert({ kcp_mappings_ptr, packet::right_now() });
+
 		kcp_channels.erase(conv);
 	}
 
@@ -1406,6 +1405,7 @@ void server_mode::cleanup_expiring_handshake_connections()
 			continue;
 
 		kcp_mappings_ptr->mapping_function();
+		kcp_updater.remove(kcp_ptr);
 		std::shared_lock locker_endpoint{kcp_mappings_ptr->mutex_ingress_endpoint};
 		udp::endpoint ep = kcp_mappings_ptr->ingress_source_endpoint;
 		locker_endpoint.unlock();
@@ -1458,6 +1458,7 @@ void server_mode::cleanup_expiring_data_connections()
 			break;
 		}
 
+		kcp_updater.remove(kcp_ptr);
 		expiring_kcp.erase(iter);
 	}
 }
@@ -1509,7 +1510,7 @@ void server_mode::cleanup_expiring_mux_records()
 		{
 			kcp_mappings_ptr->ingress_kcp->Send((const char *)data.data(), data.size());
 		}
-		uint32_t next_update_time = current_settings.blast ? kcp_mappings_ptr->ingress_kcp->Refresh() : kcp_mappings_ptr->ingress_kcp->Check();
+		uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
 		kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
 	}
 
@@ -1554,8 +1555,8 @@ void server_mode::loop_find_expires()
 				auto error_packet = packet::inform_error_packet(protocol_type::tcp, "TCP Session Closed");
 				kcp_ptr->Send((char *)error_packet.data(), error_packet.size());
 
-				uint32_t next_refresh_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
-				kcp_updater.submit(kcp_ptr, next_refresh_time);
+				uint32_t next_update_time = kcp_ptr->Check();
+				kcp_updater.submit(kcp_ptr, next_update_time);
 				do_erase = true;
 				normal_delete = true;
 			}
@@ -1597,8 +1598,8 @@ void server_mode::loop_find_expires()
 		}
 		else
 		{
-			uint32_t next_refresh_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
-			kcp_updater.submit(kcp_ptr, next_refresh_time);
+			uint32_t next_update_time = kcp_ptr->Check();
+			kcp_updater.submit(kcp_ptr, next_update_time);
 		}
 	}
 }
@@ -1621,8 +1622,8 @@ void server_mode::loop_keep_alive()
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(ptype);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
 
-		uint32_t next_refresh_time = current_settings.blast ? kcp_ptr->Refresh() : kcp_ptr->Check();
-		kcp_updater.submit(kcp_ptr, next_refresh_time);
+		uint32_t next_update_time = kcp_ptr->Check();
+		kcp_updater.submit(kcp_ptr, next_update_time);
 		kcp_ptr->keep_alive_send_time.store(packet::right_now());
 	}
 }

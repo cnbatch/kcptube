@@ -7,13 +7,6 @@
 #include <numeric>
 #include <iostream>
 
-#if __cpp_lib_execution
-#include <execution>
-#define PAR std::execution::par,
-#else
-#define PAR
-#endif
-
 #ifdef _WIN32
 #include <Windows.h>
 #endif // _WIN32
@@ -136,10 +129,7 @@ namespace KCP
 	void KCP::Update()
 	{
 		std::unique_lock locker{ mtx };
-		if (quick_response.load())
-			kcp_ptr->update_quick(TimeNowForKCP());
-		else
-			kcp_ptr->update(TimeNowForKCP());
+		kcp_ptr->update(TimeNowForKCP());
 		locker.unlock();
 		post_update(kcp_ptr->user);
 	}
@@ -153,17 +143,14 @@ namespace KCP
 	uint32_t KCP::Check()
 	{
 		std::shared_lock locker{ mtx };
-		if (quick_response.load())
-			return kcp_ptr->check_quick(TimeNowForKCP());
-		else
-			return kcp_ptr->check(TimeNowForKCP());
+		return kcp_ptr->check(TimeNowForKCP());
 	}
 
 	uint32_t KCP::Refresh()
 	{
 		std::unique_lock unique_locker{ mtx };
 		kcp_ptr->flush(TimeNowForKCP());
-		return kcp_ptr->check_quick(TimeNowForKCP());
+		return kcp_ptr->check(TimeNowForKCP());
 	}
 
 	// when you received a low level packet (eg. UDP packet), call it
@@ -179,8 +166,10 @@ namespace KCP
 	// flush pending data
 	void KCP::Flush()
 	{
-		std::scoped_lock locker{ mtx };
+		std::unique_lock locker{ mtx };
 		kcp_ptr->flush(TimeNowForKCP());
+		locker.unlock();
+		post_update(kcp_ptr->user);
 	}
 
 	// check the size of next message in the recv queue

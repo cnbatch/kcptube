@@ -85,7 +85,7 @@ class server_mode
 
 	int kcp_sender(const char *buf, int len, void *user);
 
-	void process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP::KCP> kcp_ptr_weak);
+	void process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP::KCP> kcp_ptr_weak, bool inform_peer = true);
 	void process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP::KCP> kcp_ptr_weak, std::weak_ptr<mux_records> mux_records_weak);
 	bool update_local_udp_target(std::shared_ptr<udp_client> target_connector);
 	void save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_port, const std::array<uint8_t, 16> &ipv6_address, uint16_t ipv6_port);

@@ -71,7 +71,7 @@ namespace packet
 #pragma pack (push, 1)
 	struct packet_layer
 	{
-		int32_t timestamp;
+		uint32_t timestamp;
 		uint8_t data[1];
 	};
 
@@ -109,6 +109,10 @@ namespace packet
 
 	constexpr size_t empty_data_size = sizeof(data_layer);
 
+	// from https://stackoverflow.com/questions/3022552/is-there-any-standard-htonl-like-function-for-64-bits-integers-in-c
+	uint64_t htonll(uint64_t value);
+	uint64_t ntohll(uint64_t value);
+
 	int64_t right_now();
 
 	std::unique_ptr<uint8_t[]> create_packet(const uint8_t *input_data, int data_size, int &new_size);
@@ -116,19 +120,23 @@ namespace packet
 	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const uint8_t *input_data, size_t data_size);
 	size_t create_inner_packet(feature ftr, protocol_type prtcl, uint8_t *input_data, size_t data_size);
 
-	std::tuple<int32_t, uint8_t*, size_t> unpack(uint8_t *data, size_t length);
+	std::tuple<uint32_t, uint8_t*, size_t> unpack(uint8_t *data, size_t length);
 	std::tuple<feature, protocol_type, std::vector<uint8_t>> unpack_inner(const std::vector<uint8_t> &data);
 	std::tuple<feature, protocol_type, uint8_t*, size_t> unpack_inner(uint8_t *data, size_t length);
 
 	const settings_wrapper* get_initialise_details_from_unpacked_data(const std::vector<uint8_t> &data);
 	const settings_wrapper* get_initialise_details_from_unpacked_data(const uint8_t *data);
+	void convert_wrapper_byte_order_ntoh(void *data);
+	void convert_wrapper_byte_order_hton(void *data);
+	void convert_wrapper_byte_order(const std::vector<uint8_t> &input_data, std::vector<uint8_t> &output_data);
+	void convert_wrapper_byte_order(const uint8_t *input_data, uint8_t *output_data, size_t data_size);
 
 	void modify_initialise_details_of_unpacked_data(uint8_t *data, const settings_wrapper &settings);
 
 	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl, uint64_t outbound_bandwidth, uint64_t inbound_bandwidth);
 	std::vector<uint8_t> request_initialise_packet(protocol_type prtcl, uint64_t outbound_bandwidth, uint64_t inbound_bandwidth, const std::string &set_address, asio::ip::port_type set_port);
 
-	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, const settings_wrapper &settings);
+	std::vector<uint8_t> response_initialise_packet(protocol_type prtcl, settings_wrapper settings);
 
 	std::vector<uint8_t> create_test_connection_packet();
 

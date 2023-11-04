@@ -59,10 +59,7 @@ namespace rfc3489
 #pragma pack(pop)
 
 	std::unique_ptr<stun_header> create_stun_header(uint64_t id);
-	//bool unpack_address_port(const vla::dynarray<uint8_t> &data, uint64_t transaction_id_part_1,
-	//                         uint64_t transaction_id_part_2, uint32_t &ip_address, uint16_t &port);
-	bool unpack_address_port(const uint8_t *data, uint64_t transaction_id_part_1,
-	                         uint64_t transaction_id_part_2, uint32_t &ip_address, uint16_t &port);
+	bool unpack_address_port(const uint8_t *data, const stun_header *current_header, uint32_t &ip_address, uint16_t &port);
 }
 
 namespace rfc8489
@@ -147,16 +144,9 @@ namespace rfc8489
 #pragma pack(pop)
 
 	std::unique_ptr<stun_header> create_stun_header(uint64_t id);
-
-	//bool unpack_address_port(const vla::dynarray<uint8_t> &data,
-	//	uint32_t transaction_id_part_1, uint64_t transaction_id_part_2,
-	//	uint32_t &ipv4_address, uint16_t &ipv4_port,
-	//	std::array<uint8_t, 16> &ipv6_address, uint16_t &ipv6_port);
-
-	bool unpack_address_port(const uint8_t *data,
-		uint32_t transaction_id_part_1, uint64_t transaction_id_part_2,
-		uint32_t &ipv4_address, uint16_t &ipv4_port,
-		std::array<uint8_t, 16> &ipv6_address, uint16_t &ipv6_port);
+	bool unpack_address_port(const uint8_t *data, const stun_header *current_header,
+	                         uint32_t &ipv4_address, uint16_t &ipv4_port,
+	                         std::array<uint8_t, 16> &ipv6_address, uint16_t &ipv6_port);
 }
 
 #endif // !__STUN_HPP__
