@@ -543,8 +543,15 @@ namespace KCP
 		if (auto iter = this->snd_buf.find(sn); iter != this->snd_buf.end())
 		{
 			std::shared_ptr<segment> seg = iter->second;
-			this->resendts_buf[seg->resendts].erase(sn);
-			this->fastack_buf[seg->fastack].erase(sn);
+
+			if (auto resendts_iter = this->resendts_buf.find(seg->resendts); resendts_iter != this->resendts_buf.end())
+				if (auto um_iter = resendts_iter->second.find(sn); um_iter != resendts_iter->second.end())
+					resendts_iter->second.erase(um_iter);
+
+			if (auto fastack_iter = this->fastack_buf.find(seg->resendts); fastack_iter != this->fastack_buf.end())
+				if (auto um_iter = fastack_iter->second.find(sn); um_iter != fastack_iter->second.end())
+					fastack_iter->second.erase(um_iter);
+
 			this->snd_buf.erase(iter);
 		}
 	}
@@ -556,10 +563,16 @@ namespace KCP
 			++next;
 			uint32_t sn = iter->first;
 			std::shared_ptr<segment> seg = iter->second;
-			if (una > iter->first)
+			if (una > sn)
 			{
-				this->resendts_buf[seg->resendts].erase(sn);
-				this->fastack_buf[seg->fastack].erase(sn);
+				if (auto resendts_iter = this->resendts_buf.find(seg->resendts); resendts_iter != this->resendts_buf.end())
+					if (auto um_iter = resendts_iter->second.find(sn); um_iter != resendts_iter->second.end())
+						resendts_iter->second.erase(um_iter);
+
+				if (auto fastack_iter = this->fastack_buf.find(seg->resendts); fastack_iter != this->fastack_buf.end())
+					if (auto um_iter = fastack_iter->second.find(sn); um_iter != fastack_iter->second.end())
+						fastack_iter->second.erase(um_iter);
+
 				this->snd_buf.erase(iter);
 			}
 			else break;
