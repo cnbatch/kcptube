@@ -88,7 +88,7 @@ First, the conclusion: the lower the number of the pattern, the faster the respo
 
 - When the value is 0, the new time is simply multiplied by 2 based on the previous time.<br /> 
 - When the value is 1, the new waiting time is only 1.5 times the previous time, not 2 times.<br /> 
-In May 2023, the original author of KCP added a value of 2, similar to value 1. The difference is that value 1 uses the ‘previous time’ calculated by the current packet itself, while value 2 uses the average delay time calculated separately within KCP.<br />
+- In May 2023, the original author of KCP added a value of 2, similar to value 1. The difference is that value 1 uses the ‘previous time’ calculated by the current packet itself, while value 2 uses the average delay time calculated separately within KCP.<br />
 That's why this page was mentioned earlier that ‘kcp_nodelay=2 can make the network latency jitter smoother.’
 
 `kcp_interval` refers to the `internal` variable, the update interval of KCP.
