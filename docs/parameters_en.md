@@ -73,11 +73,29 @@ This bandwidth values should not larger than your actual bandwidth, otherwise th
 | regular4     | 1024       |   1024    |      0    |   15       |   2      |   1   |
 | regular5     | 1024       |   1024    |      0    |   30       |   2      |   1   |
 
-Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency smoother.
+Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency jitter smoother.
 
 If you want to reduce traffic waste and also accept a little bit more latency increase, please try choosing regular modes.<br /> 
 For scenarios that do not require low latency but only need high throughput transmission, please use **regular 3 - 5**.<br /> 
 Enabling `blast=1` at this time is recommended.
+
+#### Pattern Interpretation (Simplified Version)
+First, the conclusion: the lower the number of the pattern, the faster the response speed. The fast mode is slightly different, please continue reading.
+
+kcp_sndwnd refers to the size of the sending buffer, and kcp_rcvwnd refers to the size of the receiving buffer. These two factors will affect the transmission rate.
+
+kcp_nodelay refers to the nodelay variable of KCP, which is used to select the growth rate of the waiting time for timeout retransmission. Originally, there were only two options, 0 and 1, where 0 means not using KCP's own fast retransmission and 1 means enabling it. 
+
+When the value is 0, the new time is simply multiplied by 2 based on the previous time.<br /> 
+When the value is 1, the new waiting time is only 1.5 times the previous time, not 2 times.<br /> 
+In May 2023, the author added a value of 2, similar to value 1. The difference is that value 1 uses the "previous time" calculated by the current packet itself, while value 2 uses the average delay time calculated separately within KCP.<br />
+That's why it was mentioned earlier that "kcp_nodelay=2 can make the network latency jitter smoother."
+
+kcp_interval refers to the internal update interval of KCP.
+
+kcp_resend refers to the value of the fastresend variable within KCP. If the value is 0, it means that the fast retransmission function is turned off. If the value is not 0, it means that after crossing the specified number of times, it will no longer wait and will directly transmit again.
+
+kcp_nc refers to the last parameter nc of kcp_nodelay, where 0 means not to close the flow control and 1 means to close the flow control. It should be set to 1, otherwise the transmission speed will be very slow.
 
 # Log File
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.

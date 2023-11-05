@@ -231,6 +231,8 @@ If you want to reduce traffic waste and also accept a little bit more latency in
 For scenarios that do not require low latency but only need high throughput transmission, please use **regular 3 - 5**.<br /> 
 Enabling `blast=1` at this time is recommended.
 
+For more details, please refer to [Parameter Details](docs/parameters_en.md).
+
 ### Log File
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.
 

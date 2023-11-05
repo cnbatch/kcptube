@@ -231,6 +231,8 @@ encryption_algorithm=AES-GCM
 对于不追求低延迟、只需要大流量传输的场景，请使用 **regular 3 ~ 5**。<br />
 建议同时开启 `blast=1` 设置。
 
+更多详解，请见[参数列表](docs/parameters_zh-hans.md)。
+
 ### Log 文件
 在首次获取打洞后的 IP 地址与端口后，以及打洞的 IP 地址与端口发生变化后，会向 Log 目录创建 ip_address.txt 文件（若存在就覆盖），将 IP 地址与端口写进去。
 
