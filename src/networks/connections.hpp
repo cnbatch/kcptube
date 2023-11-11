@@ -67,8 +67,8 @@ void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, 
 template<typename T>
 auto split_resolved_addresses(const asio::ip::basic_resolver_results<T> &input_addresses)
 {
-	std::vector<T::endpoint> stun_servers_ipv4;
-	std::vector<T::endpoint> stun_servers_ipv6;
+	std::vector<asio::ip::basic_endpoint<T>> stun_servers_ipv4;
+	std::vector<asio::ip::basic_endpoint<T>> stun_servers_ipv6;
 	for (auto &target_address : input_addresses)
 	{
 		auto ep = target_address.endpoint();
