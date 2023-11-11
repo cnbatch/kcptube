@@ -45,14 +45,21 @@ std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender,
 	if (ec)
 		return nullptr;
 
+	std::vector<udp::endpoint> stun_servers;
+	auto [stun_servers_ipv4, stun_servers_ipv6] = split_resolved_addresses(remote_addresses);
+	if (!stun_servers_ipv4.empty())
+		stun_servers.emplace_back(stun_servers_ipv4.front());
+	if (!stun_servers_ipv6.empty())
+		stun_servers.emplace_back(stun_servers_ipv4.front());
+
 	auto number = generate_random_number<uint64_t>();
 	std::unique_ptr<rfc3489::stun_header> header = rfc3489::create_stun_header(number);
 	size_t header_size = sizeof(rfc3489::stun_header);
-	for (auto &target_address : remote_addresses)
+	for (auto &target_endpoint : stun_servers)
 	{
 		std::vector<uint8_t> data(header_size);
 		std::copy_n((uint8_t *)(header.get()), header_size, data.begin());
-		sender.async_send_out(std::move(data), target_address);
+		sender.async_send_out(std::move(data), target_endpoint);
 	}
 
 	return header;
@@ -72,15 +79,21 @@ std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender,
 	if (ec)
 		return nullptr;
 
+	std::vector<udp::endpoint> stun_servers;
+	auto [stun_servers_ipv4, stun_servers_ipv6] = split_resolved_addresses(remote_addresses);
+	if (!stun_servers_ipv4.empty())
+		stun_servers.emplace_back(stun_servers_ipv4.front());
+	if (!stun_servers_ipv6.empty())
+		stun_servers.emplace_back(stun_servers_ipv4.front());
+
 	auto number = generate_random_number<uint64_t>();
 	std::unique_ptr<rfc8489::stun_header> header = rfc8489::create_stun_header(number);
 	size_t header_size = sizeof(rfc8489::stun_header);
-
-	for (auto &target_address : remote_addresses)
+	for (auto &target_endpoint : stun_servers)
 	{
 		std::vector<uint8_t> data(header_size);
 		std::copy_n((uint8_t *)header.get(), header_size, data.data());
-		sender.async_send_out(std::move(data), target_address);
+		sender.async_send_out(std::move(data), target_endpoint);
 	}
 
 	return header;
@@ -100,12 +113,19 @@ void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, 
 	if (ec)
 		return;
 
+	std::vector<udp::endpoint> stun_servers;
+	auto [stun_servers_ipv4, stun_servers_ipv6] = split_resolved_addresses(remote_addresses);
+	if (!stun_servers_ipv4.empty())
+		stun_servers.emplace_back(stun_servers_ipv4.front());
+	if (!stun_servers_ipv6.empty())
+		stun_servers.emplace_back(stun_servers_ipv4.front());
+
 	size_t header_size = sizeof(rfc8489::stun_header);
-	for (auto &target_address : remote_addresses)
+	for (auto &target_endpoint : stun_servers)
 	{
 		std::vector<uint8_t> data(header_size);
 		std::copy_n((uint8_t *)header, header_size, data.data());
-		sender.async_send_out(std::move(data), target_address);
+		sender.async_send_out(std::move(data), target_endpoint);
 	}
 
 	return;
@@ -618,7 +638,8 @@ void tcp_session::disconnect()
 	asio::error_code ec;
 	connection_socket.shutdown(asio::socket_base::shutdown_both, ec);
 	ec.clear();
-	connection_socket.close(ec);
+	if (connection_socket.is_open())
+		connection_socket.close(ec);
 }
 
 void tcp_session::async_read_data()

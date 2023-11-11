@@ -548,7 +548,7 @@ namespace KCP
 				if (auto um_iter = resendts_iter->second.find(sn); um_iter != resendts_iter->second.end())
 					resendts_iter->second.erase(um_iter);
 
-			if (auto fastack_iter = this->fastack_buf.find(seg->resendts); fastack_iter != this->fastack_buf.end())
+			if (auto fastack_iter = this->fastack_buf.find(seg->fastack); fastack_iter != this->fastack_buf.end())
 				if (auto um_iter = fastack_iter->second.find(sn); um_iter != fastack_iter->second.end())
 					fastack_iter->second.erase(um_iter);
 
@@ -569,7 +569,7 @@ namespace KCP
 					if (auto um_iter = resendts_iter->second.find(sn); um_iter != resendts_iter->second.end())
 						resendts_iter->second.erase(um_iter);
 
-				if (auto fastack_iter = this->fastack_buf.find(seg->resendts); fastack_iter != this->fastack_buf.end())
+				if (auto fastack_iter = this->fastack_buf.find(seg->fastack); fastack_iter != this->fastack_buf.end())
 					if (auto um_iter = fastack_iter->second.find(sn); um_iter != fastack_iter->second.end())
 						fastack_iter->second.erase(um_iter);
 
