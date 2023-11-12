@@ -918,7 +918,7 @@ void client_mode::mux_cancel_channel(protocol_type prtcl, kcp_mappings *kcp_mapp
 	std::shared_ptr<mux_records> mux_records_ptr = nullptr;
 
 	{
-		std::scoped_lock locker{mutex_id_map_to_mux_records, mutex_udp_map_to_mux_records};
+		std::scoped_lock locker{mutex_id_map_to_mux_records};
 
 		auto iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
 		if (iter_mux_records == id_map_to_mux_records.end())
@@ -942,6 +942,7 @@ void client_mode::mux_cancel_channel(protocol_type prtcl, kcp_mappings *kcp_mapp
 
 	if (prtcl == protocol_type::udp)
 	{
+		std::scoped_lock locker{ mutex_udp_map_to_mux_records };
 		udp_map_to_mux_records.erase(mux_records_ptr->source_endpoint);
 	}
 }
