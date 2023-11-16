@@ -69,6 +69,9 @@
     <ClCompile Include="..\..\src\networks\kcp_updater.cpp">
       <Filter>Source Files\networks</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\networks\mux_tunnel.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\shares\share_defines.hpp">
@@ -114,6 +117,9 @@
       <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\networks\kcp_updater.hpp">
+      <Filter>Header Files\networks</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\mux_tunnel.hpp">
       <Filter>Header Files\networks</Filter>
     </ClInclude>
   </ItemGroup>

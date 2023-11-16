@@ -96,6 +96,8 @@ bool server_mode::start()
 			timer_keep_alive.expires_after(gbv_keepalive_update_interval);
 			timer_keep_alive.async_wait([this](const asio::error_code &e) { keep_alive(e); });
 		}
+
+		mux_tunnels = std::make_unique<mux_tunnel>(kcp_updater, current_settings, this);
 	}
 	catch (std::exception &ex)
 	{
@@ -160,21 +162,12 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 	if (kcp_mappings_ptr == nullptr)
 		return;
 
+	if (kcp_mappings_ptr->ingress_source_endpoint == nullptr || *kcp_mappings_ptr->ingress_source_endpoint != peer)
+		kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
+
 	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_mappings_ptr->ingress_kcp;
 	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
 		return;
-
-	{
-		std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
-		udp::endpoint &ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-		if (ingress_source_endpoint != peer)
-		{
-			shared_lock_ingress.unlock();
-			std::unique_lock unique_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
-			if (ingress_source_endpoint != peer)
-				ingress_source_endpoint = peer;
-		}
-	}
 
 	while (true)
 	{
@@ -241,7 +234,7 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 			}
 			if (prtcl == protocol_type::mux)
 			{
-				delete_mux_records(conv);
+				mux_tunnels->delete_mux_records(conv);
 			}
 
 			std::scoped_lock lockers{ mutex_expiring_kcp, mutex_kcp_channels };
@@ -251,17 +244,17 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 		}
 		case feature::mux_transfer:
 		{
-			mux_transfer_data(prtcl, kcp_mappings_ptr, std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
+			mux_tunnels->mux_transfer_data(prtcl, kcp_mappings_ptr.get(), std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
 			break;
 		}
 		case feature::mux_cancel:
 		{
-			mux_cancel_channel(prtcl, kcp_mappings_ptr, unbacked_data_ptr, unbacked_data_size);
+			mux_tunnels->mux_cancel_channel(prtcl, kcp_mappings_ptr.get(), unbacked_data_ptr, unbacked_data_size);
 			break;
 		}
 		case feature::mux_pre_connect:
 		{
-			mux_pre_connect(prtcl, kcp_mappings_ptr, std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
+			mux_tunnels->mux_pre_connect(prtcl, kcp_mappings_ptr.get(), std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
 			break;
 		}
 		default:
@@ -312,97 +305,6 @@ void server_mode::udp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t
 	kcp_updater.submit(kcp_session, next_update_time);
 }
 
-void server_mode::tcp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::weak_ptr<KCP::KCP> kcp_session_weak, std::weak_ptr<mux_records> mux_records_weak)
-{
-	mux_move_cached_to_tunnel(true);
-
-	if (data == nullptr || incoming_session == nullptr)
-		return;
-
-	std::shared_ptr<KCP::KCP> kcp_session = kcp_session_weak.lock();
-	if (kcp_session == nullptr)
-		return;
-
-	std::shared_ptr<mux_records> mux_records_ptr = mux_records_weak.lock();
-	if (mux_records_ptr == nullptr)
-		return;
-
-	std::shared_lock tcp_cache_shared_locker{mutex_mux_tcp_cache};
-	auto cache_iter = mux_tcp_cache.find(kcp_session_weak);
-	auto size_iter = mux_tcp_cache_max_size.find(kcp_session_weak);
-	if (cache_iter == mux_tcp_cache.end() || size_iter == mux_tcp_cache_max_size.end())
-		return;
-	size_t tcp_cache_size = cache_iter->second.size();
-	uint32_t cache_max_size = size_iter->second;
-	tcp_cache_shared_locker.unlock();
-
-	if (!incoming_session->session_is_ending() && !incoming_session->is_pause() &&
-		tcp_cache_size > cache_max_size)
-	{
-		incoming_session->pause(true);
-	}
-
-	uint32_t connection_id = mux_records_ptr->connection_id;
-	uint8_t *data_ptr = data.get();
-	size_t new_data_size = packet::create_mux_data_packet(protocol_type::tcp, connection_id, data_ptr, data_size);
-
-	mux_data_cache data_cache = { std::move(data), data_ptr, new_data_size };
-
-	std::unique_lock tcp_cache_locker{mutex_mux_tcp_cache};
-	cache_iter = mux_tcp_cache.find(kcp_session_weak);
-	if (cache_iter == mux_tcp_cache.end())
-		return;
-	cache_iter->second.emplace_back(std::move(data_cache));
-	tcp_cache_locker.unlock();
-
-	mux_records_ptr->last_data_transfer_time.store(packet::right_now());
-	mux_move_cached_to_tunnel();
-}
-
-void server_mode::udp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, std::weak_ptr<KCP::KCP> kcp_session_weak, std::weak_ptr<mux_records> mux_records_weak)
-{
-	mux_move_cached_to_tunnel();
-
-	if (data == nullptr)
-		return;
-
-	std::shared_ptr<KCP::KCP> kcp_session = kcp_session_weak.lock();
-	if (kcp_session == nullptr)
-		return;
-
-	std::shared_ptr<mux_records> mux_records_ptr = mux_records_weak.lock();
-	if (mux_records_ptr == nullptr)
-		return;
-
-	std::shared_lock udp_cache_shared_locker{mutex_mux_udp_cache};
-	auto cache_iter = mux_udp_cache.find(kcp_session_weak);
-	auto size_iter = mux_udp_cache_max_size.find(kcp_session_weak);
-	if (cache_iter == mux_udp_cache.end() || size_iter == mux_udp_cache_max_size.end())
-		return;
-	size_t udp_cache_size = cache_iter->second.size();
-	uint32_t cache_max_size = size_iter->second;
-	udp_cache_shared_locker.unlock();
-
-	if (udp_cache_size > cache_max_size)
-		return;
-
-	uint32_t connection_id = mux_records_ptr->connection_id;
-	uint8_t *data_ptr = data.get();
-	size_t new_data_size = packet::create_mux_data_packet(protocol_type::udp, connection_id, data_ptr, data_size);
-
-	mux_data_cache data_cache = { std::move(data), data_ptr, new_data_size };
-
-	std::unique_lock udp_cache_locker{mutex_mux_udp_cache};
-	cache_iter = mux_udp_cache.find(kcp_session_weak);
-	if (cache_iter == mux_udp_cache.end())
-		return;
-	cache_iter->second.emplace_back(std::move(data_cache));
-	udp_cache_locker.unlock();
-
-	mux_records_ptr->last_data_transfer_time.store(packet::right_now());
-	mux_move_cached_to_tunnel();
-}
-
 void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 {
 	if (data_size == 0)
@@ -425,7 +327,7 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 			std::shared_ptr<kcp_mappings> handshake_kcp_mappings = std::make_shared<kcp_mappings>();
 			kcp_mappings *handshake_kcp_mappings_ptr = handshake_kcp_mappings.get();
 			handshake_kcp_mappings_ptr->ingress_kcp = handshake_kcp;
-			handshake_kcp_mappings_ptr->ingress_source_endpoint = peer;
+			handshake_kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 			handshake_kcp_mappings_ptr->ingress_listener.store(udp_servers[port_number].get());
 			handshake_kcp->SetUserData(handshake_kcp_mappings_ptr);
 			handshake_kcp->SetMTU(current_settings.kcp_mtu);
@@ -496,7 +398,7 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				case protocol_type::mux:
 				{
 					connect_success = true;
-					setup_mux_kcp(data_kcp);
+					mux_tunnels->setup_mux_kcp(data_kcp);
 					break;
 				}
 				case protocol_type::tcp:
@@ -537,7 +439,7 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 					expiring_handshakes.insert({ handshake_kcp_mappings, timestamp });
 
 					kcp_channels[new_id] = data_kcp_mappings;
-					kcp_keepalive[data_kcp].store(timestamp + current_settings.keep_alive);
+					kcp_keepalive[data_kcp].store(timestamp);
 				}
 				else
 				{
@@ -579,180 +481,6 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 		std::shared_ptr<KCP::KCP> handshake_kcp = kcp_mappings_ptr->ingress_kcp;
 
 		handshake_kcp->Input((const char *)data_ptr, (long)packet_data_size);
-	}
-}
-
-void server_mode::mux_transfer_data(protocol_type prtcl, std::shared_ptr<kcp_mappings> kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size)
-{
-	auto [mux_connection_id, mux_data, mux_data_size] = packet::extract_mux_data_from_unpacked_data(unbacked_data_ptr, unbacked_data_size);
-	uint64_t complete_connection_id = ((uint64_t)kcp_mappings_ptr->ingress_kcp->GetConv() << 32) + mux_connection_id;
-	std::shared_ptr<mux_records> mux_records_ptr = nullptr;
-
-	std::shared_lock locker_expiring_mux_records{mutex_expiring_mux_records};
-	if (expiring_mux_records.find(complete_connection_id) != expiring_mux_records.end())
-	{
-		std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
-		kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
-		uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
-		kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
-		return;
-	}
-	locker_expiring_mux_records.unlock();
-
-	{
-		std::shared_lock shared_locker_iter_mux_records{mutex_id_map_to_mux_records, std::defer_lock};
-		std::unique_lock unique_locker_iter_mux_records{mutex_id_map_to_mux_records, std::defer_lock};
-		shared_locker_iter_mux_records.lock();
-		auto iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
-		if (iter_mux_records == id_map_to_mux_records.end())
-		{
-			shared_locker_iter_mux_records.unlock();
-			unique_locker_iter_mux_records.lock();
-			iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
-			if (iter_mux_records == id_map_to_mux_records.end())
-			{
-				if (prtcl == protocol_type::tcp)
-					mux_records_ptr = create_mux_data_tcp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp, "", 0);
-				if (prtcl == protocol_type::udp)
-					mux_records_ptr = create_mux_data_udp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp);
-
-				if (mux_records_ptr == nullptr)
-				{
-					std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
-					kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
-					uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
-					kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
-					return;
-				}
-
-				id_map_to_mux_records[complete_connection_id] = mux_records_ptr;
-			}
-			else
-			{
-				mux_records_ptr = iter_mux_records->second;
-			}
-		}
-		else
-		{
-			mux_records_ptr = iter_mux_records->second;
-		}
-	}
-
-	if (prtcl == protocol_type::tcp)
-	{
-		std::shared_ptr<tcp_session> tcp_channel = mux_records_ptr->local_tcp;
-		if (tcp_channel != nullptr)
-			tcp_channel->async_send_data(std::move(buffer_cache), mux_data, mux_data_size);
-		mux_records_ptr->last_data_transfer_time.store(packet::right_now());
-	}
-
-	if (prtcl == protocol_type::udp)
-	{
-		std::shared_ptr<udp_client> udp_channel = mux_records_ptr->local_udp;
-		if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
-			udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, kcp_mappings_ptr->egress_target_endpoint);
-		else
-			udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, *udp_target);
-		mux_records_ptr->last_data_transfer_time.store(packet::right_now());
-	}
-}
-
-void server_mode::mux_cancel_channel(protocol_type prtcl, std::shared_ptr<kcp_mappings> kcp_mappings_ptr, uint8_t *unbacked_data_ptr, size_t unbacked_data_size)
-{
-	auto [mux_connection_id, mux_data, mux_data_size] = packet::extract_mux_data_from_unpacked_data(unbacked_data_ptr, unbacked_data_size);
-	uint64_t complete_connection_id = ((uint64_t)kcp_mappings_ptr->ingress_kcp->GetConv() << 32) + mux_connection_id;
-	std::shared_ptr<mux_records> mux_records_ptr = nullptr;
-
-	{
-		std::scoped_lock locker{mutex_id_map_to_mux_records, mutex_expiring_mux_records};
-		if (expiring_mux_records.find(complete_connection_id) != expiring_mux_records.end())
-			return;
-
-		auto iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
-		if (iter_mux_records == id_map_to_mux_records.end())
-			return;
-
-		mux_records_ptr = iter_mux_records->second;
-		id_map_to_mux_records.erase(iter_mux_records);
-		expiring_mux_records[complete_connection_id] = mux_records_ptr;
-	}
-
-	if (prtcl == protocol_type::tcp)
-	{
-		std::shared_ptr<tcp_session> session = mux_records_ptr->local_tcp;
-		if (session == nullptr)
-			return;
-
-		session->when_disconnect(empty_tcp_disconnect);
-		session->session_is_ending(true);
-		session->pause(false);
-		session->stop();
-	}
-
-	if (prtcl == protocol_type::udp)
-	{
-		std::shared_ptr<udp_client> &udp_channel = mux_records_ptr->local_udp;
-		udp_channel->stop();
-	}
-}
-
-void server_mode::mux_pre_connect(protocol_type prtcl, std::shared_ptr<kcp_mappings> kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size)
-{
-	auto [mux_connection_id, user_input_port, user_input_ip] = packet::extract_mux_pre_connect_from_unpacked_data(unbacked_data_ptr, unbacked_data_size);
-	uint64_t complete_connection_id = ((uint64_t)kcp_mappings_ptr->ingress_kcp->GetConv() << 32) + mux_connection_id;
-	std::shared_ptr<mux_records> mux_records_ptr = nullptr;
-
-	std::shared_lock locker_expiring_mux_records{ mutex_expiring_mux_records };
-	if (expiring_mux_records.find(complete_connection_id) != expiring_mux_records.end())
-	{
-		std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
-		kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
-		uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
-		kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
-		return;
-	}
-	locker_expiring_mux_records.unlock();
-
-	{
-		std::shared_lock shared_locker_iter_mux_records{ mutex_id_map_to_mux_records, std::defer_lock };
-		std::unique_lock unique_locker_iter_mux_records{ mutex_id_map_to_mux_records, std::defer_lock };
-		shared_locker_iter_mux_records.lock();
-		auto iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
-		if (iter_mux_records == id_map_to_mux_records.end())
-		{
-			shared_locker_iter_mux_records.unlock();
-			unique_locker_iter_mux_records.lock();
-			iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
-			if (iter_mux_records == id_map_to_mux_records.end())
-			{
-				if (prtcl == protocol_type::tcp)
-					mux_records_ptr = create_mux_data_tcp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp, user_input_ip, user_input_port);
-				
-				if (prtcl == protocol_type::udp)
-				{
-					asio::error_code ec;
-					mux_records_ptr = create_mux_data_udp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp);
-					udp::resolver::results_type udp_endpoints = mux_records_ptr->local_udp->get_remote_hostname(user_input_ip, user_input_port, ec);
-					asio::ip::address user_input_address = asio::ip::address::from_string(user_input_ip);
-
-					if (ec || udp_endpoints.size() == 0 || (current_settings.ipv4_only && !user_input_address.is_v4()))
-						mux_records_ptr = nullptr;
-					else
-						kcp_mappings_ptr->egress_target_endpoint = *udp_endpoints.begin();
-				}
-
-				if (mux_records_ptr == nullptr)
-				{
-					std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(prtcl, mux_connection_id);
-					kcp_mappings_ptr->ingress_kcp->Send((const char *)mux_cancel_data.data(), mux_cancel_data.size());
-					uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
-					kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
-					return;
-				}
-
-				id_map_to_mux_records[complete_connection_id] = mux_records_ptr;
-			}
-		}
 	}
 }
 
@@ -889,7 +617,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	{
 		target_connector->async_receive();
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->GetUserData();
-		kcp_mappings_ptr->ingress_source_endpoint = peer;
+		kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 		kcp_mappings_ptr->local_udp = target_connector;
 		data_kcp->Flush();
 		connect_success = true;
@@ -933,27 +661,11 @@ void server_mode::set_kcp_windows(std::weak_ptr<KCP::KCP> handshake_kcp, std::we
 	data_kcp_ptr->ResetWindowValues(handshake_kcp_ptr->GetRxSRTT());
 
 	uint32_t cache_max_size = std::max(data_kcp_ptr->GetSendWindowSize() / gbv_mux_min_cache_slice, gbv_mux_min_cache_size);
-	std::scoped_lock mux_locks{mutex_mux_tcp_cache, mutex_mux_udp_cache};
-	if (auto iter = mux_tcp_cache_max_size.find(data_ptr_weak); iter != mux_tcp_cache_max_size.end())
+	std::scoped_lock mux_locks{ mux_tunnels->mutex_mux_tcp_cache, mux_tunnels->mutex_mux_udp_cache };
+	if (auto iter = mux_tunnels->mux_tcp_cache_max_size.find(data_ptr_weak); iter != mux_tunnels->mux_tcp_cache_max_size.end())
 		iter->second = cache_max_size;
-	if (auto iter = mux_udp_cache_max_size.find(data_ptr_weak); iter != mux_udp_cache_max_size.end())
+	if (auto iter = mux_tunnels->mux_udp_cache_max_size.find(data_ptr_weak); iter != mux_tunnels->mux_udp_cache_max_size.end())
 		iter->second = cache_max_size;
-}
-
-void server_mode::setup_mux_kcp(std::shared_ptr<KCP::KCP> data_kcp)
-{
-	data_kcp->SetOutput([this](const char *buf, int len, void *user) -> int { return kcp_sender(buf, len, user); });
-	data_kcp->SetPostUpdate([this](void *user)
-		{
-			std::weak_ptr data_kcp = ((kcp_mappings *)user)->ingress_kcp;
-			refresh_mux_queue(data_kcp);
-		});
-
-	std::scoped_lock lockers{ mutex_mux_tcp_cache, mutex_mux_udp_cache};
-	mux_tcp_cache[data_kcp].clear();
-	mux_udp_cache[data_kcp].clear();
-	mux_tcp_cache_max_size[data_kcp] = data_kcp->GetSendWindowSize();
-	mux_udp_cache_max_size[data_kcp] = data_kcp->GetSendWindowSize();
 }
 
 std::shared_ptr<mux_records> server_mode::create_mux_data_tcp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak, const std::string &user_input_address, asio::ip::port_type user_input_port)
@@ -961,9 +673,9 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_tcp_connection(uint32_
 	std::shared_ptr<mux_records> mux_records_ptr = std::make_shared<mux_records>();
 	std::weak_ptr<mux_records> mux_records_ptr_weak = mux_records_ptr;
 	auto callback_function = [this, kcp_session_weak, mux_records_ptr_weak](std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> target_session)
-	{
-		tcp_connector_incoming(std::move(data), data_size, target_session, kcp_session_weak, mux_records_ptr_weak);
-	};
+		{
+			mux_tunnels->read_tcp_data_to_cache(std::move(data), data_size, target_session, kcp_session_weak, mux_records_ptr_weak);
+		};
 	tcp_client target_connector(io_context, callback_function, current_settings.ipv4_only);
 	std::string destination_address = current_settings.destination_address;
 	uint16_t destination_port = current_settings.destination_port;
@@ -1007,7 +719,7 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_udp_connection(uint32_
 
 	udp_callback_t udp_func_ap = [this, kcp_session_weak, mux_records_ptr_weak](std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
 	{
-		udp_connector_incoming(std::move(data), data_size, peer, port_number, kcp_session_weak, mux_records_ptr_weak);
+		mux_tunnels->server_udp_data_to_cache(std::move(data), data_size, peer, port_number, kcp_session_weak, mux_records_ptr_weak);
 	};
 
 	std::shared_ptr<udp_client> target_connector = nullptr;
@@ -1050,106 +762,15 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_udp_connection(uint32_
 	return mux_records_ptr;
 }
 
-void server_mode::mux_move_cached_to_tunnel(bool skip_kcp_update)
-{
-	if (skip_kcp_update)
-	{
-		std::scoped_lock cache_lockers{mutex_mux_tcp_cache, mutex_mux_udp_cache};
-		mux_move_cached_to_tunnel(mux_udp_cache, 2);
-		mux_move_cached_to_tunnel(mux_tcp_cache, 2);
-		return;
-	}
-
-	std::unordered_set<std::shared_ptr<KCP::KCP>> kcp_ptr_list;
-	{
-		std::scoped_lock cache_lockers{mutex_mux_tcp_cache, mutex_mux_udp_cache};
-		std::list<std::shared_ptr<KCP::KCP>> kcp_ptr_udp = mux_move_cached_to_tunnel(mux_udp_cache, 2);
-		std::list<std::shared_ptr<KCP::KCP>> kcp_ptr_tcp = mux_move_cached_to_tunnel(mux_tcp_cache, 2);
-
-		kcp_ptr_list.insert(kcp_ptr_tcp.begin(), kcp_ptr_tcp.end());
-		kcp_ptr_list.insert(kcp_ptr_udp.begin(), kcp_ptr_udp.end());
-	}
-
-	for (std::shared_ptr<KCP::KCP> kcp_ptr : kcp_ptr_list)
-	{
-		uint32_t next_update_time = kcp_ptr->Check();
-		kcp_updater.submit(kcp_ptr, next_update_time);
-	}
-}
-
-std::list<std::shared_ptr<KCP::KCP>>
-server_mode::mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, int one_x)
-{
-	std::list<std::shared_ptr<KCP::KCP>> kcp_ptr_list;
-	if (one_x <= 0)
-		one_x = 1;
-
-	for (auto &[kcp_ptr_weak, data_cache] : data_queues)
-	{
-		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_weak.lock();
-		if (kcp_ptr == nullptr)
-			continue;
-
-		int available_spaces = (int)((int64_t)kcp_ptr->GetSendWindowSize() - kcp_ptr->WaitingForSend());
-		if (available_spaces <= 0)
-			continue;
-
-		available_spaces = available_spaces / one_x - 2;
-		if (available_spaces == 0)
-			continue;
-		size_t pickup_size = data_cache.size();
-		if (pickup_size > available_spaces)
-			pickup_size = (size_t)available_spaces;
-
-		for (size_t i = 0; i < pickup_size; i++)
-		{
-			mux_data_cache cached_data = std::move(data_cache.front());
-			kcp_ptr->Send((const char *)cached_data.sending_ptr, cached_data.data_size);
-			data_cache.pop_front();
-		}
-
-		kcp_ptr_list.emplace_back(std::move(kcp_ptr));
-	}
-
-	return kcp_ptr_list;
-}
-
-void server_mode::refresh_mux_queue(std::weak_ptr<KCP::KCP> kcp_ptr_weak)
-{
-	mux_move_cached_to_tunnel(true);
-	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_ptr_weak.lock();
-	if (kcp_ptr == nullptr)
-		return;
-
-	std::shared_lock tcp_cache_shared_locker{mutex_mux_tcp_cache};
-	auto cache_iter = mux_tcp_cache.find(kcp_ptr_weak);
-	auto size_iter = mux_tcp_cache_max_size.find(kcp_ptr_weak);
-	if (cache_iter == mux_tcp_cache.end() || size_iter == mux_tcp_cache_max_size.end())
-		return;
-	size_t tcp_cache_size = cache_iter->second.size();
-	uint32_t cache_max_size = size_iter->second;
-	tcp_cache_shared_locker.unlock();
-
-	if (tcp_cache_size > cache_max_size / gbv_mux_min_cache_available)
-		return;
-
-	std::shared_lock locker{mutex_id_map_to_mux_records};
-	for (auto &[connection_id, record_ptr] : id_map_to_mux_records)
-	{
-		std::shared_ptr session = record_ptr->local_tcp;
-		if (session != nullptr && session->is_pause())
-		{
-			session->pause(false);
-		}
-	}
-	locker.unlock();
-}
-
 int server_mode::kcp_sender(const char *buf, int len, void *user)
 {
 	if (user == nullptr)
 		return 0;
+
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)user;
+	if (kcp_mappings_ptr->ingress_source_endpoint == nullptr)
+		return 0;
+
 	int buffer_size = 0;
 	std::unique_ptr<uint8_t[]> new_buffer = packet::create_packet((const uint8_t *)buf, len, buffer_size);
 
@@ -1160,9 +781,7 @@ int server_mode::kcp_sender(const char *buf, int len, void *user)
 			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), buffer_size);
 			if (!error_message.empty() || cipher_size == 0)
 				return;
-			std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
-			udp::endpoint ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-			shared_lock_ingress.unlock();
+			udp::endpoint ingress_source_endpoint = *kcp_mappings_ptr->ingress_source_endpoint;
 			kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
 		};
 		kcp_data_sender->push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
@@ -1172,9 +791,7 @@ int server_mode::kcp_sender(const char *buf, int len, void *user)
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), buffer_size);
 	if (!error_message.empty() || cipher_size == 0)
 		return 0;
-	std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
-	udp::endpoint ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-	shared_lock_ingress.unlock();
+	udp::endpoint ingress_source_endpoint = *kcp_mappings_ptr->ingress_source_endpoint;
 	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
 	return 0;
 }
@@ -1235,8 +852,8 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP
 	uint64_t complete_connection_id = ((uint64_t)kcp_ptr->GetConv() << 32) + mux_connection_id;
 	std::vector<uint8_t> mux_cancel_data = packet::inform_mux_cancel_packet(protocol_type::tcp, mux_connection_id);
 
-	std::unique_lock locker{mutex_mux_tcp_cache};
-	if (auto iter = mux_tcp_cache.find(kcp_ptr); iter != mux_tcp_cache.end())
+	std::unique_lock locker{ mux_tunnels->mutex_mux_tcp_cache};
+	if (auto iter = mux_tunnels->mux_tcp_cache.find(kcp_ptr); iter != mux_tunnels->mux_tcp_cache.end())
 	{
 		std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(mux_cancel_data.size());
 		uint8_t *data_ptr = data.get();
@@ -1247,7 +864,7 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP
 	locker.unlock();
 
 	std::unique_ptr<uint8_t[]> empty_ptr;
-	auto func = [this, kcp_ptr_weak](std::unique_ptr<uint8_t[]> data) mutable { refresh_mux_queue(kcp_ptr_weak); };
+	auto func = [this, kcp_ptr_weak](std::unique_ptr<uint8_t[]> data) mutable { mux_tunnels->refresh_mux_queue(kcp_ptr_weak); };
 	sequence_task_pool_local.push_task((size_t)this, func, std::move(empty_ptr));
 
 	session->when_disconnect(empty_tcp_disconnect);
@@ -1255,9 +872,9 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP
 	session->pause(false);
 	session->stop();
 
-	std::scoped_lock lockers{mutex_id_map_to_mux_records, mutex_expiring_mux_records};
-	id_map_to_mux_records.erase(complete_connection_id);
-	expiring_mux_records.erase(complete_connection_id);
+	std::scoped_lock lockers{ mux_tunnels->mutex_id_map_to_mux_records, mux_tunnels->mutex_expiring_mux_records};
+	mux_tunnels->id_map_to_mux_records.erase(complete_connection_id);
+	mux_tunnels->expiring_mux_records.erase(complete_connection_id);
 }
 
 bool server_mode::update_local_udp_target(std::shared_ptr<udp_client> target_connector)
@@ -1332,58 +949,6 @@ void server_mode::save_external_ip_address(uint32_t ipv4_address, uint16_t ipv4_
 	}
 }
 
-void server_mode::delete_mux_records(uint32_t conv)
-{
-	std::scoped_lock locker{mutex_id_map_to_mux_records, mutex_expiring_mux_records};
-	for (auto iter = id_map_to_mux_records.begin(), next_iter = iter; iter != id_map_to_mux_records.end(); iter = next_iter)
-	{
-		++next_iter;
-		uint64_t connection_id = iter->first;
-		uint32_t kcp_conv = connection_id >> 32;
-		if (kcp_conv != conv)
-			continue;
-
-		std::shared_ptr<mux_records> mux_records_ptr = iter->second;
-
-		if (mux_records_ptr->local_tcp != nullptr)
-		{
-			mux_records_ptr->local_tcp->when_disconnect(empty_tcp_disconnect);
-			mux_records_ptr->local_tcp->stop();
-			mux_records_ptr->local_tcp = nullptr;
-		}
-
-		if (mux_records_ptr->local_udp != nullptr)
-		{
-			mux_records_ptr->local_udp->stop();
-			mux_records_ptr->local_udp = nullptr;
-		}
-
-		id_map_to_mux_records.erase(iter);
-	}
-
-	for (auto iter = expiring_mux_records.begin(), next_iter = iter; iter != expiring_mux_records.end(); iter = next_iter)
-	{
-		++next_iter;
-		uint64_t connection_id = iter->first;
-		std::shared_ptr<mux_records> mux_records_ptr = iter->second;
-		if (mux_records_ptr->local_tcp != nullptr)
-		{
-			mux_records_ptr->local_tcp->when_disconnect(empty_tcp_disconnect);
-			mux_records_ptr->local_tcp->stop();
-			mux_records_ptr->local_tcp = nullptr;
-		}
-
-		if (mux_records_ptr->local_udp != nullptr)
-		{
-			mux_records_ptr->local_udp->stop();
-			mux_records_ptr->local_udp->disconnect();
-			mux_records_ptr->local_udp = nullptr;
-		}
-
-		expiring_mux_records.erase(iter);
-	}
-}
-
 void server_mode::cleanup_expiring_handshake_connections()
 {
 	auto time_right_now = packet::right_now();
@@ -1406,9 +971,7 @@ void server_mode::cleanup_expiring_handshake_connections()
 
 		kcp_mappings_ptr->mapping_function();
 		kcp_updater.remove(kcp_ptr);
-		std::shared_lock locker_endpoint{kcp_mappings_ptr->mutex_ingress_endpoint};
-		udp::endpoint ep = kcp_mappings_ptr->ingress_source_endpoint;
-		locker_endpoint.unlock();
+		udp::endpoint ep = *kcp_mappings_ptr->ingress_source_endpoint;
 		handshake_channels.erase(ep);
 		expiring_handshakes.erase(iter);
 	}
@@ -1463,72 +1026,6 @@ void server_mode::cleanup_expiring_data_connections()
 	}
 }
 
-void server_mode::cleanup_expiring_mux_records()
-{
-	auto time_right_now = packet::right_now();
-	std::map<uint32_t, std::vector<std::vector<uint8_t>>> waiting_for_inform;	// kcp_conv, inform_data
-
-	{
-		std::scoped_lock lockers{ mutex_id_map_to_mux_records, mutex_expiring_mux_records };
-		for (auto iter = id_map_to_mux_records.begin(), next_iter = iter; iter != id_map_to_mux_records.end(); iter = next_iter)
-		{
-			++next_iter;
-			uint64_t connection_id = iter->first;
-			std::shared_ptr<mux_records> mux_records_ptr = iter->second;
-			std::shared_ptr<tcp_session> local_tcp = mux_records_ptr->local_tcp;
-			std::shared_ptr<udp_client> local_udp = mux_records_ptr->local_udp;
-
-			if (local_tcp != nullptr && !local_tcp->is_stop())
-				continue;
-
-			if (local_udp != nullptr)
-			{
-				if (calculate_difference(mux_records_ptr->last_data_transfer_time.load(), time_right_now) < current_settings.udp_timeout)
-					continue;
-
-				local_udp->stop();
-
-				std::vector<uint8_t> data = packet::inform_mux_cancel_packet(protocol_type::udp, mux_records_ptr->connection_id);
-				waiting_for_inform[mux_records_ptr->kcp_conv].emplace_back(std::move(data));
-			}
-
-			id_map_to_mux_records.erase(iter);
-			expiring_mux_records[connection_id] = mux_records_ptr;
-		}
-	}
-
-	for (auto &[kcp_conv, data_list] : waiting_for_inform)
-	{
-		std::shared_ptr<kcp_mappings> kcp_mappings_ptr = nullptr;
-		std::shared_lock locker{mutex_kcp_channels};
-		auto iter = kcp_channels.find(kcp_conv);
-		if (iter == kcp_channels.end())
-			continue;
-		kcp_mappings_ptr = iter->second;
-		locker.unlock();
-		for (std::vector<uint8_t> &data : data_list)
-		{
-			kcp_mappings_ptr->ingress_kcp->Send((const char *)data.data(), data.size());
-		}
-		uint32_t next_update_time = kcp_mappings_ptr->ingress_kcp->Check();
-		kcp_updater.submit(kcp_mappings_ptr->ingress_kcp, next_update_time);
-	}
-
-	std::unique_lock locker_expireing_mux_records{ mutex_expiring_mux_records };
-	for (auto iter = expiring_mux_records.begin(), next_iter = iter; iter != expiring_mux_records.end(); iter = next_iter)
-	{
-		++next_iter;
-		uint64_t connection_id = iter->first;
-		std::shared_ptr<mux_records> mux_records_ptr = iter->second;
-
-		if (calculate_difference(mux_records_ptr->last_data_transfer_time.load(), time_right_now) < gbv_cleanup_waits)
-			continue;
-
-		expiring_mux_records.erase(iter);
-	}
-	locker_expireing_mux_records.unlock();
-}
-
 void server_mode::loop_find_expires()
 {
 	std::scoped_lock lockers{ mutex_kcp_channels, mutex_expiring_kcp };
@@ -1538,9 +1035,10 @@ void server_mode::loop_find_expires()
 		uint32_t conv = iter->first;
 		std::shared_ptr<kcp_mappings> kcp_mappings_ptr = iter->second;
 		std::shared_ptr<KCP::KCP> kcp_ptr = kcp_mappings_ptr->ingress_kcp;
+		int64_t kcp_last_activity_gap = calculate_difference(kcp_ptr->LastInputTime(), packet::right_now());
+		int64_t kcp_keep_alive_gap = calculate_difference(kcp_ptr->keep_alive_response_time.load(), kcp_ptr->keep_alive_send_time.load());
 		int32_t timeout_seconds = gbv_keepalive_timeout + current_settings.keep_alive;
-		bool keep_alive_timed_out = current_settings.keep_alive > 0 &&
-			calculate_difference(kcp_ptr->keep_alive_response_time.load(), kcp_ptr->keep_alive_send_time.load()) > timeout_seconds;
+		bool keep_alive_timed_out = current_settings.keep_alive > 0 && std::min(kcp_last_activity_gap, kcp_keep_alive_gap) > timeout_seconds;
 
 		bool do_erase = false;
 		bool normal_delete = false;
@@ -1575,12 +1073,8 @@ void server_mode::loop_find_expires()
 			{
 				do_erase = true;
 				kcp_ptr->SetOutput(empty_kcp_output);
-				delete_mux_records(kcp_ptr->GetConv());
-				std::scoped_lock mux_locks{mutex_mux_tcp_cache, mutex_mux_udp_cache};
-				mux_tcp_cache.erase(kcp_ptr);
-				mux_tcp_cache_max_size.erase(kcp_ptr);
-				mux_udp_cache.erase(kcp_ptr);
-				mux_udp_cache_max_size.erase(kcp_ptr);
+				mux_tunnels->delete_mux_records(kcp_ptr->GetConv());
+				mux_tunnels->remove_cached_kcp(kcp_ptr);
 			}
 		}
 
@@ -1664,7 +1158,7 @@ void server_mode::expiring_kcp_loops(const asio::error_code &e)
 
 	cleanup_expiring_handshake_connections();
 	cleanup_expiring_data_connections();
-	cleanup_expiring_mux_records();
+	mux_tunnels->cleanup_expiring_mux_records();
 
 	timer_expiring_kcp.expires_after(gbv_expring_update_interval);
 	timer_expiring_kcp.async_wait([this](const asio::error_code &e) { expiring_kcp_loops(e); });

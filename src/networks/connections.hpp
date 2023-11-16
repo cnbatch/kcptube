@@ -517,8 +517,7 @@ private:
 struct kcp_mappings
 {
 	protocol_type connection_protocol;
-	std::shared_mutex mutex_ingress_endpoint;
-	udp::endpoint ingress_source_endpoint;
+	std::shared_ptr<udp::endpoint> ingress_source_endpoint;
 	std::shared_mutex mutex_egress_endpoint;
 	udp::endpoint egress_target_endpoint;
 	udp::endpoint egress_previous_target_endpoint;

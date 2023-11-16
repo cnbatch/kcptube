@@ -162,24 +162,15 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 	if (kcp_mappings_ptr == nullptr)
 		return;
 
+	if (kcp_mappings_ptr->ingress_source_endpoint == nullptr || *kcp_mappings_ptr->ingress_source_endpoint != peer)
+		kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
+
 	std::shared_ptr<KCP::KCP> kcp_ptr_ingress = kcp_mappings_ptr->ingress_kcp;
 	std::shared_ptr<KCP::KCP> kcp_ptr_egress = kcp_mappings_ptr->egress_kcp;
 	std::shared_ptr<forwarder> forwarder_ptr_egress = kcp_mappings_ptr->egress_forwarder;
 
 	if (kcp_ptr_ingress->Input((const char *)data_ptr, (long)packet_data_size) < 0)
 		return;
-
-	{
-		std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
-		udp::endpoint &ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-		if (ingress_source_endpoint != peer)
-		{
-			shared_lock_ingress.unlock();
-			std::unique_lock unique_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
-			if (ingress_source_endpoint != peer)
-				ingress_source_endpoint = peer;
-		}
-	}
 
 	while (true)
 	{
@@ -266,7 +257,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 			std::shared_ptr<kcp_mappings> handshake_kcp_mappings_ptr = std::make_shared<kcp_mappings>();
 			handshake_ingress_map_to_channels[peer] = handshake_kcp_mappings_ptr;
 			kcp_mappings *handshake_kcp_mappings = handshake_kcp_mappings_ptr.get();
-			handshake_kcp_mappings->ingress_source_endpoint = peer;
+			handshake_kcp_mappings->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 			handshake_kcp_mappings->ingress_listener.store(udp_servers[port_number].get());
 
 			std::shared_ptr<KCP::KCP> handshake_kcp_ingress = std::make_shared<KCP::KCP>(0);
@@ -684,13 +675,13 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 	if (current_settings.ingress->keep_alive > 0)
 	{
 		std::scoped_lock locker { mutex_kcp_keepalive_ingress };
-		kcp_keepalive_ingress[kcp_ptr_ingress].store(timestamp + current_settings.ingress->keep_alive);
+		kcp_keepalive_ingress[kcp_ptr_ingress].store(timestamp);
 	}
 
 	if (current_settings.egress->keep_alive > 0)
 	{
 		std::scoped_lock locker { mutex_kcp_keepalive_egress };
-		kcp_keepalive_egress[kcp_ptr_egress].store(timestamp + current_settings.egress->keep_alive);
+		kcp_keepalive_egress[kcp_ptr_egress].store(timestamp);
 	}
 
 	std::weak_ptr hs_ingress_weak = handshake_kcp_mappings_ptr->ingress_kcp;
@@ -714,7 +705,11 @@ int relay_mode::kcp_sender_via_listener(const char *buf, int len, void *user)
 {
 	if (user == nullptr)
 		return 0;
+
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)user;
+	if (kcp_mappings_ptr->ingress_source_endpoint == nullptr)
+		return 0;
+
 	int buffer_size = 0;
 	std::unique_ptr<uint8_t[]> new_buffer = packet::create_packet((const uint8_t *)buf, len, buffer_size);
 
@@ -725,11 +720,8 @@ int relay_mode::kcp_sender_via_listener(const char *buf, int len, void *user)
 			auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), buffer_size);
 			if (!error_message.empty() || cipher_size == 0)
 				return;
-			std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
-			udp::endpoint ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-			shared_lock_ingress.unlock();
-
-			kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
+			std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+			kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
 			change_new_port(kcp_mappings_ptr);
 		};
 		kcp_data_sender->push_task((size_t)kcp_mappings_ptr->ingress_kcp.get(), func, std::move(new_buffer));
@@ -739,11 +731,8 @@ int relay_mode::kcp_sender_via_listener(const char *buf, int len, void *user)
 	auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), buffer_size);
 	if (!error_message.empty() || cipher_size == 0)
 		return 0;
-	std::shared_lock shared_lock_ingress{kcp_mappings_ptr->mutex_ingress_endpoint};
-	udp::endpoint ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-	shared_lock_ingress.unlock();
-
-	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
+	std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
 	change_new_port(kcp_mappings_ptr);
 	return 0;
 }
@@ -926,10 +915,7 @@ void relay_mode::cleanup_expiring_handshake_connections()
 		handshakes_kcp_mappings_ptr->mapping_function();
 		kcp_updater.remove(handshakes_kcp_mappings_ptr->ingress_kcp);
 		kcp_updater.remove(handshakes_kcp_mappings_ptr->egress_kcp);
-		std::shared_lock locker_ep{handshakes_kcp_mappings_ptr->mutex_ingress_endpoint};
-		udp::endpoint ep = handshakes_kcp_mappings_ptr->ingress_source_endpoint;
-		locker_ep.unlock();
-		handshake_ingress_map_to_channels.erase(ep);
+		handshake_ingress_map_to_channels.erase(*handshakes_kcp_mappings_ptr->ingress_source_endpoint);
 		expiring_handshakes.erase(iter);
 	}
 }
@@ -1006,14 +992,18 @@ void relay_mode::loop_find_expires()
 		std::shared_ptr<kcp_mappings> kcp_mappings_ptr = iter->second;
 		std::shared_ptr<KCP::KCP> kcp_ptr_ingress = kcp_mappings_ptr->ingress_kcp;
 		std::shared_ptr<KCP::KCP> kcp_ptr_egress = kcp_mappings_ptr->egress_kcp;
+
+		int64_t ingress_last_activity_gap = calculate_difference(kcp_ptr_ingress->LastInputTime(), packet::right_now());
+		int64_t ingress_keep_alive_gap = calculate_difference(kcp_ptr_ingress->keep_alive_response_time.load(), kcp_ptr_ingress->keep_alive_send_time.load());
 		int32_t ingress_timeout_seconds = gbv_keepalive_timeout + current_settings.ingress->keep_alive;
+
+		int64_t egress_last_activity_gap = calculate_difference(kcp_ptr_egress->LastInputTime(), packet::right_now());
+		int64_t egress_keep_alive_gap = calculate_difference(kcp_ptr_egress->keep_alive_response_time.load(), kcp_ptr_egress->keep_alive_send_time.load());
 		int32_t egress_timeout_seconds = gbv_keepalive_timeout + current_settings.egress->keep_alive;
 
-		bool ingress_keep_alive_timed_out = current_settings.ingress->keep_alive > 0 &&
-			calculate_difference(kcp_ptr_ingress->keep_alive_response_time.load(), kcp_ptr_ingress->keep_alive_send_time.load()) > ingress_timeout_seconds;
+		bool ingress_keep_alive_timed_out = current_settings.ingress->keep_alive > 0 && std::min(ingress_last_activity_gap, ingress_keep_alive_gap) > ingress_timeout_seconds;
 
-		bool egress_keep_alive_timed_out = current_settings.egress->keep_alive > 0 &&
-			calculate_difference(kcp_ptr_egress->keep_alive_response_time.load(), kcp_ptr_egress->keep_alive_send_time.load()) > egress_timeout_seconds;
+		bool egress_keep_alive_timed_out = current_settings.egress->keep_alive > 0 && std::min(egress_last_activity_gap, egress_keep_alive_gap) > egress_timeout_seconds;
 
 		if (ingress_keep_alive_timed_out || egress_keep_alive_timed_out ||
 			(calculate_difference(time_right_now, kcp_mappings_ptr->last_data_transfer_time.load()) > current_settings.egress->udp_timeout &&

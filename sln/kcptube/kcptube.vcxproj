@@ -33,6 +33,7 @@
     <ClCompile Include="..\..\src\networks\connections.cpp" />
     <ClCompile Include="..\..\src\networks\kcp.cpp" />
     <ClCompile Include="..\..\src\networks\kcp_updater.cpp" />
+    <ClCompile Include="..\..\src\networks\mux_tunnel.cpp" />
     <ClCompile Include="..\..\src\networks\relay.cpp" />
     <ClCompile Include="..\..\src\networks\server.cpp" />
     <ClCompile Include="..\..\src\networks\stun.cpp" />
@@ -47,6 +48,7 @@
     <ClInclude Include="..\..\src\networks\connections.hpp" />
     <ClInclude Include="..\..\src\networks\kcp.hpp" />
     <ClInclude Include="..\..\src\networks\kcp_updater.hpp" />
+    <ClInclude Include="..\..\src\networks\mux_tunnel.hpp" />
     <ClInclude Include="..\..\src\networks\relay.hpp" />
     <ClInclude Include="..\..\src\networks\server.hpp" />
     <ClInclude Include="..\..\src\networks\stun.hpp" />

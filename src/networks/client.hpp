@@ -1,12 +1,14 @@
 #pragma once
 #include "connections.hpp"
 #include "kcp_updater.hpp"
+#include "mux_tunnel.hpp"
 
 #ifndef __CLIENT_HPP__
 #define __CLIENT_HPP__
 
 class client_mode
 {
+	friend struct mux_tunnel;
 	asio::io_context &io_context;
 	KCP::KCPUpdater &kcp_updater;
 	const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender;
@@ -41,18 +43,7 @@ class client_mode
 	std::shared_mutex mutex_kcp_keepalive;
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive;
 
-	std::shared_mutex mutex_id_map_to_mux_records;
-	std::unordered_map<uint64_t, std::shared_ptr<mux_records>> id_map_to_mux_records;	// (KCP conv << 32) + connection uid
-	std::shared_mutex mutex_udp_map_to_mux_records;
-	std::map<udp::endpoint, std::weak_ptr<mux_records>> udp_map_to_mux_records;
-
-	std::shared_mutex mutex_mux_tcp_cache;
-	std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> mux_tcp_cache;
-	std::map<std::weak_ptr<KCP::KCP>, uint32_t, std::owner_less<>> mux_tcp_cache_max_size;
-
-	std::shared_mutex mutex_mux_udp_cache;
-	std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> mux_udp_cache;
-	std::map<std::weak_ptr<KCP::KCP>, uint32_t, std::owner_less<>> mux_udp_cache_max_size;
+	std::unique_ptr<mux_tunnel> mux_tunnels;
 
 	asio::steady_timer timer_find_expires;
 	asio::steady_timer timer_expiring_kcp;
@@ -74,17 +65,6 @@ class client_mode
 	void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 
-	void tcp_listener_accept_incoming_mux(std::shared_ptr<tcp_session> incoming_session, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
-	void tcp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::weak_ptr<KCP::KCP> kcp_ptr_weak, std::weak_ptr<mux_records> mux_records_ptr_weak);
-
-	void udp_listener_incoming_mux(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
-
-	void mux_transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
-	void mux_cancel_channel(protocol_type prtcl, kcp_mappings *kcp_mappings_ptr, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);
-	void mux_move_cached_to_tunnel(bool skip_kcp_update = false);
-	std::list<std::shared_ptr<KCP::KCP>> mux_move_cached_to_tunnel(std::map<std::weak_ptr<KCP::KCP>, std::deque<mux_data_cache>, std::owner_less<>> &data_queues, int one_x);
-	void refresh_mux_queue(std::weak_ptr<KCP::KCP> kcp_ptr_weak);
-
 	std::shared_ptr<KCP::KCP> pick_one_from_kcp_channels(protocol_type prtcl);
 	int kcp_sender(const char *buf, int len, void *user);
 	bool get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
@@ -96,11 +76,9 @@ class client_mode
 	void change_new_port(kcp_mappings *kcp_mappings_ptr);
 	bool handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr);
 
-	void delete_mux_records(uint32_t conv);
 	void cleanup_expiring_forwarders();
 	void cleanup_expiring_data_connections();
 	void cleanup_expiring_handshake_connections();
-	void cleanup_expiring_mux_records();
 	void loop_find_expires();
 	void loop_keep_alive();
 	void expiring_connection_loops(const asio::error_code &e);
@@ -112,7 +90,6 @@ class client_mode
 	std::shared_ptr<kcp_mappings> create_handshake(feature ftr, protocol_type prtcl, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
 	void resume_tcp(kcp_mappings *kcp_mappings_ptr);
 	void set_kcp_windows(std::weak_ptr<KCP::KCP> handshake_kcp, std::weak_ptr<KCP::KCP> data_ptr_weak);
-	void setup_mux_kcp(std::shared_ptr<KCP::KCP> kcp_ptr);
 	void establish_mux_channels(uint16_t counts);
 	void on_handshake_success(kcp_mappings *handshake_ptr, const packet::settings_wrapper &basic_settings);
 	void on_handshake_failure(kcp_mappings *handshake_ptr, const std::string &error_message);
