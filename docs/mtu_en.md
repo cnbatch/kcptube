@@ -1,25 +1,25 @@
-# Set MTU Value
+# Setting MTU Value
 
-If the MTU value needs to be specified, it can be calculated by subtracting the IP header size from the MTU value of the network link where the device is located.
+(Applicable for versions after 20231126)
 
-For example, the network for IPoE may have an MTU value of 1500, while the network for PPPoE may have an MTU value of 1492. The size of the IP header is approximately 40 bytes. Thus, KCPTube's MTU value can be calculated as follows:
+KCPTube has two parameters for setting the MTU value, which are `mtu` and `kcp_mtu`. You only need to set one of them. If both values are set, KCPTube will only use the `kcp_mtu` during runtime.
 
-- IPoE
-    - MTU = 1500 - 40 = 1460
-- PPPoE
-    - MTU = 1492 - 40 = 1452
+`mtu` represents the actual MTU value of the current network. To use it, please measure the MTU value of your network beforehand. Once set, KCPTube will automatically calculate the value of `kcp_mtu`.
 
-## Transfer VPN data in KCPTube tunnel
+`kcp_mtu` represents the value of the `mtu` variable within ikcp, which is the size of the data inside UDP packets.
 
-To avoid traffic fragmentation and ensure that each packet transmitted matches the MTU value exactly, the following calculation can be used:
+## Forwarding VPN through KCPTube Channels
 
-VPN MTU = KCPTube MTU - KCP Header - KCPTube Header - 2 bytes (tail)
+If you wish to minimize packet fragmentation and ensure that each sent data matches the MTU value precisely, please consider the following overheads and subtract the corresponding values:
 
-If encryption options are enabled:
+KCP data header occupies 24 bytes.
 
-> VPN MTU = 1440 - 24 - 5 - 2 = 1409
+KCPTube's own data header occupies 5 bytes.
 
-If encryption options are disabled:
+If the `mux_tunnels` option is enabled, an additional 4 bytes will be used.
 
-> VPN MTU = 1440 - 24 - 9 - 2 = 1405
+If FEC (Forward Error Correction) is enabled, an additional 9 bytes will be used.
 
+Encryption Option:
+- If encryption is enabled, an additional 48 bytes will be used.
+- If encryption is not enabled, only an additional 2 bytes will be used (for checksum).

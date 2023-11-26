@@ -291,6 +291,10 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				}
 				break;
 
+			case strhash("mtu"):
+				current_settings->mtu = std::stoi(value);
+				break;
+
 			case strhash("kcp_mtu"):
 				current_settings->kcp_mtu = std::stoi(value);
 				break;
@@ -382,6 +386,41 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				current_settings->blast = yes;
 				break;
 			}
+
+			case strhash("fec"):
+				if (auto pos = value.find(":"); pos == std::string::npos)
+				{
+					error_msg.emplace_back("invalid fec format: " + value);
+				}
+				else
+				{
+					std::string fec_data_part = value.substr(0, pos);
+					std::string fec_redundant_part = value.substr(pos + 1);
+					trim(fec_data_part);
+					trim(fec_redundant_part);
+
+					if (fec_data_part.empty() || fec_redundant_part.empty())
+					{
+						error_msg.emplace_back("invalid fec setting: " + value);
+						break;
+					}
+
+					int fec_data_number = std::stoi(fec_data_part);
+					int fec_redundant_number = std::stoi(fec_redundant_part);
+
+					if (fec_data_number > 0 && fec_data_number <= UCHAR_MAX)
+						current_settings->fec_data = static_cast<uint8_t>(fec_data_number);
+
+					if (fec_redundant_number > 0 && fec_redundant_number <= UCHAR_MAX)
+						current_settings->fec_redundant = static_cast<uint8_t>(fec_redundant_number);
+
+					if (int sum = fec_data_number + fec_redundant_number; sum > UCHAR_MAX)
+						error_msg.emplace_back("the sum of fec value is too large: " + std::to_string(sum) + " (" + arg + ")");
+
+					if (current_settings->fec_data == 0 || current_settings->fec_redundant == 0)
+						current_settings->fec_data = current_settings->fec_redundant = 0;
+				}
+				break;
 
 			case strhash("[listener]"):
 			{
@@ -770,6 +809,15 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 
 void copy_settings(user_settings &inner, user_settings &outter)
 {
+	if (outter.mtu > 0)
+		inner.mtu = outter.mtu;
+
+	if (outter.fec_data > 0)
+		inner.fec_data = outter.fec_data;
+
+	if (outter.fec_redundant > 0)
+		inner.fec_redundant = outter.fec_redundant;
+
 	if (outter.kcp_setting != kcp_mode::unknow)
 		inner.kcp_setting = outter.kcp_setting;
 
@@ -978,6 +1026,23 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 			current_user_settings.kcp_rcvwnd = constant_values::kcp_receive_window;
 		break;
 	}
+	}
+
+	if (current_user_settings.mtu > 0)
+	{
+		int outter_verify_size = current_user_settings.encryption_password.empty() ?
+			constant_values::iv_checksum_block_size : constant_values::encryption_block_reserve;
+		int headers_length = constant_values::ip_header + constant_values::udp_header + constant_values::data_layer_header;
+
+		if (current_user_settings.fec_data > 0 && current_user_settings.fec_redundant > 0)
+			headers_length += constant_values::packet_layer_fec_header + constant_values::fec_container_header;
+		else
+			headers_length = constant_values::packet_layer_header;
+
+		if (current_user_settings.mux_tunnels > 0)
+			headers_length += constant_values::mux_data_wrapper_header;
+
+		current_user_settings.kcp_mtu = current_user_settings.mtu - outter_verify_size - headers_length;
 	}
 
 	if (current_user_settings.kcp_mtu < 0)

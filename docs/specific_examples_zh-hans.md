@@ -52,6 +52,10 @@ route 123.45.67.89 255.255.255.255 net_gateway
 ```
 这里的 123.45.67.89 请替换成实际服务器的 IP 地址。
 
+#### 大流量传输
+
+请考虑使用 [UDP Hop](https://github.com/cnbatch/udphop)，这样可以避免受到 KCP 的流控限制，并减少流量浪费。
+
 ## Python3 HTTP Server 传文件
 首先运行 `python3 -m http.server`，此时 python3 的 http 服务器监听 8000 端口。以下假设 http 服务器及KCPTube 都运行在相同的机器，服务器域名是 `http-server.domain.com`，下载的文件为 test.bin。
 

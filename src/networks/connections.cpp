@@ -253,6 +253,7 @@ namespace packet
 
 		return converted_value;
 	}
+
 	int64_t right_now()
 	{
 		auto right_now = system_clock::now();
@@ -270,6 +271,43 @@ namespace packet
 			std::copy_n(input_data, data_size, data_ptr);
 
 		new_size = sizeof(packet_layer) - 1 + data_size;
+		return new_buffer;
+	}
+
+	std::unique_ptr<uint8_t[]> create_fec_data_packet(const uint8_t *input_data, int data_size, int &new_size, uint32_t fec_sn, uint8_t fec_sub_sn)
+	{
+		int64_t timestamp = right_now();
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + sizeof(packet_layer_fec) + gbv_buffer_expand_size);
+		packet_layer_data *pkt_data_ptr = (packet_layer_data *)new_buffer.get();
+		uint8_t *data_ptr = pkt_data_ptr->data;
+
+		pkt_data_ptr->timestamp = htonl((uint32_t)timestamp);
+		pkt_data_ptr->sn = htonl(fec_sn);
+		pkt_data_ptr->sub_sn = fec_sub_sn;
+		data_ptr = pkt_data_ptr->data;
+		if (data_size > 0)
+			std::copy_n(input_data, data_size, data_ptr);
+
+		new_size = sizeof(packet_layer_data) - 1 + data_size;
+		return new_buffer;
+	}
+
+	std::unique_ptr<uint8_t[]> create_fec_redundant_packet(const uint8_t * input_data, int data_size, int & new_size, uint32_t fec_sn, uint8_t fec_sub_sn, uint32_t kcp_conv)
+	{
+		int64_t timestamp = right_now();
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + sizeof(packet_layer_fec) + gbv_buffer_expand_size);
+		packet_layer_fec *pkt_fec_ptr = (packet_layer_fec *)new_buffer.get();
+		uint8_t *data_ptr = pkt_fec_ptr->data;
+
+		pkt_fec_ptr->timestamp = htonl((uint32_t)timestamp);
+		pkt_fec_ptr->sn = htonl(fec_sn);
+		pkt_fec_ptr->sub_sn = fec_sub_sn;
+		pkt_fec_ptr->kcp_conv = htonl(kcp_conv);
+		data_ptr = pkt_fec_ptr->data;
+		if (data_size > 0)
+			std::copy_n(input_data, data_size, data_ptr);
+
+		new_size = sizeof(packet_layer_fec) - 1 + data_size;
 		return new_buffer;
 	}
 
@@ -326,7 +364,32 @@ namespace packet
 		uint32_t timestamp = ntohl(ptr->timestamp);
 		uint8_t *data_ptr = ptr->data;
 		size_t data_size = length - (data_ptr - data);
-		return { timestamp , data_ptr, data_size };
+		return { timestamp, data_ptr, data_size };
+	}
+
+	std::tuple<packet_layer_data, uint8_t*, size_t> unpack_fec(uint8_t *data, size_t length)
+	{
+		packet_layer_data packet_header{};
+		packet_layer_data *ptr = (packet_layer_data *)data;
+		packet_header.timestamp = ntohl(ptr->timestamp);
+		packet_header.sn = ntohl(ptr->sn);
+		packet_header.sub_sn = ptr->sub_sn;
+		uint8_t *data_ptr = ptr->data;
+		size_t data_size = length - (data_ptr - data);
+		return { packet_header, data_ptr, data_size };
+	}
+
+	std::tuple<packet_layer_fec, uint8_t*, size_t> unpack_fec_redundant(uint8_t *data, size_t length)
+	{
+		packet_layer_fec packet_header{};
+		packet_layer_fec *ptr = (packet_layer_fec *)data;
+		packet_header.timestamp = ntohl(ptr->timestamp);
+		packet_header.sn = ntohl(ptr->sn);
+		packet_header.sub_sn = ptr->sub_sn;
+		packet_header.kcp_conv = ntohl(ptr->kcp_conv);
+		uint8_t *data_ptr = ptr->data;
+		size_t data_size = length - (data_ptr - data);
+		return { packet_header, data_ptr, data_size };
 	}
 
 	std::tuple<feature, protocol_type, std::vector<uint8_t>> unpack_inner(const std::vector<uint8_t> &data)
@@ -513,14 +576,14 @@ namespace packet
 
 	std::vector<uint8_t> mux_tell_server_connect_address(protocol_type prtcl, uint32_t connection_id, const std::string &connect_address, asio::ip::port_type connect_port)
 	{
-		const auto new_size = sizeof(data_layer) - 1 + sizeof(mux_pre_connect) + connect_address.size();
+		const auto new_size = sizeof(data_layer) - 1 + sizeof(pre_connect_custom_address) + connect_address.size();
 		std::vector<uint8_t> new_data(new_size);
 
 		data_layer *ptr = (data_layer *)new_data.data();
-		ptr->feature_value = feature::mux_pre_connect;
+		ptr->feature_value = feature::pre_connect_custom_address;
 		ptr->protocol_value = prtcl;
 
-		mux_pre_connect *mux_ptr = (mux_pre_connect *)ptr->data;
+		pre_connect_custom_address *mux_ptr = (pre_connect_custom_address *)ptr->data;
 		mux_ptr->connection_id = htonl(connection_id);
 		mux_ptr->user_input_port = htons(connect_port);
 		char *ip_str = mux_ptr->user_input_ip;
@@ -542,7 +605,7 @@ namespace packet
 
 	std::tuple<uint32_t, uint16_t, std::string> extract_mux_pre_connect_from_unpacked_data(uint8_t * data, size_t length)
 	{
-		mux_pre_connect *ptr = (mux_pre_connect *)data;
+		pre_connect_custom_address *ptr = (pre_connect_custom_address *)data;
 		uint32_t connection_id = ntohl(ptr->connection_id);
 		uint16_t user_input_port = ntohs(ptr->user_input_port);
 		char *str = ptr->user_input_ip;

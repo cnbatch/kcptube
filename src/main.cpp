@@ -19,7 +19,7 @@
 int main(int argc, char *argv[])
 {
 	char app_name[] = "kcptube";
-	printf("%s version 20231116\n", app_name);
+	printf("%s version 20231126\n", app_name);
 
 	if (argc <= 1)
 	{
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
-	constexpr size_t task_count_limit = (size_t)std::numeric_limits<int16_t>::max() >> 3;
+	constexpr size_t task_count_limit = 8192u;
 	uint16_t thread_group_count = 1;
 	int io_thread_count = 1;
 	if (std::thread::hardware_concurrency() > 3)

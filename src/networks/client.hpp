@@ -66,7 +66,12 @@ class client_mode
 	void udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 
 	std::shared_ptr<KCP::KCP> pick_one_from_kcp_channels(protocol_type prtcl);
+	std::shared_ptr<KCP::KCP> verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv, const udp::endpoint &peer);
 	int kcp_sender(const char *buf, int len, void *user);
+	void data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
+	void fec_maker(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size);
+	void fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
+
 	bool get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
 	bool update_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
 	void local_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, std::shared_ptr<tcp_session> session);

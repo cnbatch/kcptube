@@ -91,11 +91,10 @@ namespace KCP
 		uint32_t dead_link, incr;
 		std::list<std::unique_ptr<segment>> snd_queue;
 		std::list<segment> rcv_queue;
-		//std::list<std::shared_ptr<segment>> snd_buf;
 		std::map<uint32_t, std::shared_ptr<segment>> snd_buf;	// SN -> segment
 		std::map<uint32_t, std::unordered_map<uint32_t, std::weak_ptr<segment>>> resendts_buf;	// resendts -> segment
 		std::map<uint32_t, std::unordered_map<uint32_t, std::weak_ptr<segment>>> fastack_buf;	// fastack -> segment
-		std::list<segment> rcv_buf;
+		std::map<uint32_t, std::unique_ptr<segment>> rcv_buf;	// SN -> segment
 		std::vector<std::pair<uint32_t, uint32_t>> acklist;
 		void *user;
 		std::unique_ptr<char[]> buffer;

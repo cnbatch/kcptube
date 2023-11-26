@@ -15,7 +15,8 @@
 | mux_tunnels  | 0 - 65535 |No | The default value is 0, which means that multiplexing is disabled. This option means how many multiplexing tunnels between two KCP endpoints.<br>Client Mode only.|
 | stun_server  | STUN Server's address |No| Cannot be used if listen_port option is port range mode|
 | log_path  | The directory where the Logs are stored |No|Cannot point to the file itself|
-| mtu  | Positive Integer |No|Default value is 1440|
+| fec  | uint8:uint8 |No|The format is `fec=D:R, for example `fec=20:4`. <br>Note: The maximum total value of D + R is 255 and cannot exceed this number.<br>A value of 0 on either side of the colon indicates that the option is not used. Must be the same value on both side.<br>Please refer to [The Usage of FEC](fec_en.md)|
+| mtu  | Positive Integer |No|MTU Value of current network, is to automatically calculate the value of `kcp_mtu`|
 | kcp_mtu  | Positive Integer |No|This option refers to the length of the data content within a UDP packet. <br>The value set for this option refers to the value set by calling ikcp_setmtu(). <br>Default value is 1440.|
 | kcp  | manual<br>fast1 - 6<br>regular1 - 5<br> &nbsp; |Yes|Setup Manually<br>Fast Modes<br>Regular Speeds<br>(the number at the end: the smaller the value, the faster the speed)|
 | kcp_sndwnd  | Positive Integer |No|See the table below for default values, which can be overridden individually|
@@ -55,6 +56,9 @@ Please note that it is bps (Bits Per Second), not Bps (Bytes Per Second).
 
 This bandwidth values should not larger than your actual bandwidth, otherwise this will cause the sending window to be congested and cause blocking.
 
+**Important Notice**:<br>
+KCPTube will calculate and set the KCP sending window size based on the delay value of the handshake packet and the values of outbound_bandwidth and inbound_bandwidth about 5 seconds after the KCP link is established. Within a period of time after the setup is completed, there is a high chance that the traffic will fluctuate significantly, or even the traffic may suddenly drop to 0, and it will take several seconds to recover.
+
 ## KCP Mode Default Values
 | Fast Mode    | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
@@ -75,9 +79,10 @@ This bandwidth values should not larger than your actual bandwidth, otherwise th
 
 Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 may better than kcp_nodelay=2. If the packet loss rate is not too high, kcp_nodelay=2 can make the network latency jitter smoother.
 
-If you want to reduce traffic waste and also accept a little bit more latency increase, please try choosing regular modes.<br /> 
-For scenarios that do not require low latency but only need high throughput transmission, please use **regular 3 - 5**.<br /> 
-Enabling `blast=1` at this time is recommended.
+### High-traffic transmission
+For low packet loss environments, each mode is suitable for use. The difference lies only in the amount of wasted traffic and the slightly different upper limit of the highest speed.<br />Among them, regular3 wastes less traffic.<br />It is recommended to enable the `blast=1` setting at the same time.
+
+For high packet loss environments, consider using FEC settings at the same time. For more details, please refer to the [The Usage of FEC](fec_en.md).
 
 #### Pattern Interpretation (Simplified Version)
 First, the conclusion: the lower the number of the pattern, the faster the response speed. The fast mode is slightly different, please continue reading.
@@ -96,6 +101,47 @@ That's why this page was mentioned earlier that ‘kcp_nodelay=2 can make the ne
 `kcp_resend` refers to the value of the `fastresend` variable within KCP. If the value is 0, it means that the fast retransmission function is turned off. If the value is not 0, it means that after crossing the specified number of times, it will no longer wait and will directly transmit again.
 
 `kcp_nc` refers to the last parameter `nc` of `ikcp_nodelay()`, where 0 means not to close the flow control and 1 means to close the flow control. It should be set to 1, otherwise the transmission speed will be very slow.
+
+## Encryption and Data verification
+Since TCP data transmission is required, data verification cannot be ignored, just like TCP itself.
+
+Regardless of whether encryption is enabled or not, this program will reduce the MTU by 2 bytes and append 2-byte data at the end.
+
+If the encryption option is used, then the 2-byte data appended at the end will be a temporarily generated IV.
+
+If the encryption feature is not selected, the 2-byte data appended at the end will be the checksum, consisting of two different 8-bit checksums:
+
+- Longitudinal Redundancy Check (LRC)
+- 8-bit checksum
+
+This is because the Botan library used in this program does not come with a 16-bit checksum algorithm. Therefore, this program simultaneously utilizes these two 8-bit checksums.
+
+The calculation speed of these two checksums is fast enough, concise and practical, and is not an obscure calculation method. For example, Modbus uses LRC.
+
+It should be reminded that using two checksums still cannot completely avoid content errors, just like TCP itself. If you really need accuracy, please enable the encryption option.
+
+## Multiplexing (mux_tunnels=N)
+The function of multiplexing is not automatically enabled by default. Without using this feature, for each incoming connection accepted, a corresponding outgoing connection is created.
+
+The reason is to avoid the QoS of operators. Once a port number is affected by QoS in multiplexing mode, other sessions sharing the same port number will also be blocked until the port number is changed.
+
+The connections are independent of each other. Even if a port number is affected by QoS, only this session will be affected, not other sessions.
+
+Unless the carried program generates many independent connections. In this case, KCP Tube will create many KCP channels and consume more CPU resources during communication.
+
+If you really need to use the ‘multiplexing’ function, you can refer to the following classifications:
+
+- Scenarios suitable for using multiplexing:
+    - Proxy forwarding programs, such as Shadowsocks
+
+- Scenarios that do not require using multiplexing:
+    - VPN, such as
+        - OpenVPN
+        - Wireguard
+
+When "Multiplexing" is enabled, KCPTube will pre-create N links, and all inbound new connections will transmit data from the existing links instead of creating new links separately. At this time, the KCP channel timeout is 30 seconds.
+
+In most cases, setting `mux_tunnels` to 3 - 10 is enough, and there is no need to set an excessively high value.
 
 # Log File
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.

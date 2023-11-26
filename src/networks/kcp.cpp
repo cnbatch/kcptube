@@ -278,6 +278,31 @@ namespace KCP
 	{
 		kcp_ptr->user = user_data;
 	}
+	
+	bool KCP::WaitQueueIsFull()
+	{
+		return kcp_ptr->snd_queue.size() >= kcp_ptr->snd_wnd;
+	}
+
+	bool KCP::WaitQueueIsEmpty()
+	{
+		return kcp_ptr->snd_queue.empty();
+	}
+
+	bool KCP::WaitQueueAboveHalfCapacity()
+	{
+		return kcp_ptr->snd_queue.size() > kcp_ptr->snd_wnd / 2;
+	}
+
+	bool KCP::WaitQueueBelowHalfCapacity()
+	{
+		return kcp_ptr->snd_queue.size() < kcp_ptr->snd_wnd / 2;
+	}
+
+	int64_t KCP::GetWaitQueueAvailableCapacity()
+	{
+		return (int64_t)kcp_ptr->snd_wnd - (int64_t)kcp_ptr->snd_queue.size();
+	}
 }
 
 int64_t right_now()

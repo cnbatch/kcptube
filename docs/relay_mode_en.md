@@ -94,6 +94,7 @@ The following configuration options can be used outside `[listener]` and `[forwa
 - keep_alive
 - ipv4_only=1
 - blast
+- fec
 
 If these options appear outside of sections label, they override all corresponding values inside the section label. Among them, `ipv4_only=1` is a special case, it is only covered when `ipv4_only=1`, and it is not covered when `ipv4_only=0`.
 

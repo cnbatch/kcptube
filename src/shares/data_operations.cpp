@@ -1,4 +1,5 @@
 #include <map>
+#include <asio.hpp>
 #include "data_operations.hpp"
 #include "aead.hpp"
 #include "simple_hashing.hpp"
@@ -504,4 +505,119 @@ void bitwise_not(uint8_t *input_data, size_t length)
 			*ending_ptr = ~(*ending_ptr);
 		}
 	}
+}
+
+std::pair<std::unique_ptr<uint8_t[]>, size_t> clone_into_pair(const uint8_t *original, size_t data_size)
+{
+	std::pair<std::unique_ptr<uint8_t[]>, size_t> cloned;
+	cloned.first = std::make_unique<uint8_t[]>(data_size);
+	cloned.second = data_size;
+	std::copy_n(original, data_size, cloned.first.get());
+	return cloned;
+}
+
+const std::map<size_t, const uint8_t*> mapped_pair_to_mapped_pointer(const std::map<size_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>& mapped_container)
+{
+	std::map<size_t, const uint8_t*> results;
+
+	for (auto &[i, data] : mapped_container)
+		results.insert({ i, data.first.get() });
+
+	return results;
+}
+
+std::tuple<std::unique_ptr<uint8_t[]>, size_t, size_t> compact_into_container(const std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> &fec_snd_data_cache)
+{
+	size_t align_length = 0;
+	for (auto &[data_ptr, data_size] : fec_snd_data_cache)
+		align_length = std::max(align_length, data_size);
+	align_length += constant_values::fec_container_header;
+
+	size_t total_size = fec_snd_data_cache.size() * align_length;
+	std::unique_ptr<uint8_t[]> final_array = std::make_unique<uint8_t[]>(total_size);
+
+	for (uint16_t i = 0; i < fec_snd_data_cache.size(); ++i)
+	{
+		const uint8_t *original_data_ptr = fec_snd_data_cache[i].first.get();
+		uint16_t data_size = (uint16_t)fec_snd_data_cache[i].second;
+		fec_container *fec_packet = (fec_container *)(final_array.get() + i * align_length);
+		uint8_t *fec_data_ptr = fec_packet->data;
+		fec_packet->data_length = htons(data_size);
+		std::copy_n(original_data_ptr, data_size, fec_data_ptr);
+	}
+
+	return { std::move(final_array), align_length, total_size };
+}
+
+std::pair<std::map<size_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>, size_t>
+compact_into_container(const std::map<uint16_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>> &fec_rcv_data_cache, size_t data_max_count)
+{
+	size_t align_length = 0;
+	std::map<size_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>> final_array;
+	for (auto &[i, data] : fec_rcv_data_cache)
+	{
+		size_t data_size = data.second;
+		if (i < data_max_count)
+			align_length = std::max(align_length, data_size + constant_values::fec_container_header);
+		else
+			align_length = std::max(align_length, data_size);
+	}
+
+	for (auto &[i, data] : fec_rcv_data_cache)
+	{
+		uint8_t *original_data_ptr = data.first.get();
+		uint16_t data_size = (uint16_t)data.second;
+		std::unique_ptr<uint8_t[]> cache_piece = std::make_unique<uint8_t[]>(align_length);
+		if (i < data_max_count)
+		{
+			fec_container *fec_packet = (fec_container *)(cache_piece.get());
+			uint8_t *data_ptr = fec_packet->data;
+			fec_packet->data_length = htons(data_size);
+			std::copy_n(original_data_ptr, data_size, data_ptr);
+		}
+		else
+		{
+			std::copy_n(original_data_ptr, data_size, cache_piece.get());
+		}
+		final_array.insert(std::pair{ i, std::pair{std::move(cache_piece), data_size} });
+	}
+
+	return { std::move(final_array), align_length };
+}
+
+std::vector<std::vector<uint8_t>> extract_from_container(const std::vector<std::vector<uint8_t>> &recovered_container)
+{
+	std::vector<std::vector<uint8_t>> recovered_data(recovered_container.size());
+
+	for (uint16_t i = 0; i < recovered_container.size(); ++i)
+	{
+		fec_container *fec_packet = (fec_container *)(recovered_container[i].data());
+		uint8_t *data_ptr = fec_packet->data;
+		size_t data_length = ntohs(fec_packet->data_length);
+		recovered_data[i].resize(data_length);
+		std::copy_n(data_ptr, data_length, recovered_data[i].data());
+	}
+
+	return recovered_data;
+}
+
+std::vector<uint8_t> copy_from_container(const std::vector<uint8_t> &recovered_container)
+{
+	std::vector<uint8_t> recovered_data;
+	fec_container *fec_packet = (fec_container *)(recovered_container.data());
+	uint8_t *data_ptr = fec_packet->data;
+	size_t data_length = ntohs(fec_packet->data_length);
+	recovered_data.resize(data_length);
+	std::copy_n(data_ptr, data_length, recovered_data.data());
+
+	return recovered_data;
+}
+
+std::pair<uint8_t*, size_t> extract_from_container(const std::vector<uint8_t> &recovered_container)
+{
+	fec_container *fec_packet = (fec_container *)(recovered_container.data());
+	uint8_t *data_ptr = fec_packet->data;
+	size_t data_length = ntohs(fec_packet->data_length);
+
+	return { data_ptr, data_length };
 }

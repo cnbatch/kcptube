@@ -22,6 +22,9 @@
 - 中继节点模式
 
 ## 用法
+
+**注意**，客户端的时间与服务端的时间务必同步，时间相差不能大于 255 秒。
+
 ### 全部用法
 请前往 [Wiki 页面](https://github.com/cnbatch/kcptube/wiki)，或前往[文档页面](docs/README.md)。
 
@@ -168,6 +171,8 @@ encryption_algorithm=AES-GCM
 | mux_tunnels  | 0 - 65535 |否 | 预设值为 0，等于不使用多路复用通道<br>该选项是指两个KCP端之间的多路复用通道数<br>仅限客户端启用|
 | stun_server  | STUN 服务器地址 |否|listen_port 为端口范围模式时不可使用|
 | log_path  | 存放 Log 的目录 |否|不能指向文件本身|
+| fec  | uint8:uint8 |否|格式为 `fec=D:R`，例如可以填入 `fec=20:3`。<br>注意：D + R 的总数最大值为 255，不能超过这个数。<br>冒号两侧任意一个值为 0 表示不使用该选项。两端的设置必须相同。<br>详情请参考 [FEC使用介绍](docs/fec_zh-hans.md)|
+| mtu  | 正整数 |否|当前网络 MTU 数值，用以自动计算 kcp_mtu|
 | kcp_mtu  | 正整数 |否|预设值1440。调用 ikcp_setmtu() 设置的值，亦即 UDP 数据包内数据内容的长度|
 | kcp  | manual<br>fast1 - 6<br>regular1 - 5<br> &nbsp; |是|手动设置<br>快速<br>常速<br>(末尾数字：数值越小，速度越快)|
 | kcp_sndwnd  | 正整数 |否|预设值见下表，可以单独覆盖|
@@ -182,9 +187,9 @@ encryption_algorithm=AES-GCM
 | blast | yes<br>true<br>1<br>no<br>false<br>0 |否|尝试忽略 KCP 流控设置，尽可能迅速地转发数据包。可能会导致负载过大|
 | \[listener\] | N/A |是<br>(仅限中继模式)|中继模式的标签，用于指定监听模式的 KCP 设置<br>该标签表示与客户端交互数据|
 | \[forwarder\] | N/A  |是<br>(仅限中继模式)|中继模式的标签，用于指定转运模式的 KCP 设置<br>该标签表示与服务端交互数据|
-| \[custom_input\] | N/A  |否|自定义映射模式的标签，使用方法请参考 [自定义映射使用方法](docs/custom_ip_mappings_zh-cn.md)|
-| \[custom_input_tcp\] | N/A  |否|自定义映射模式的标签，使用方法请参考 [自定义映射使用方法](docs/custom_ip_mappings_zh-cn.md)|
-| \[custom_input_udp\] | N/A  |否|自定义映射模式的标签，使用方法请参考 [自定义映射使用方法](docs/custom_ip_mappings_zh-cn.md)|
+| \[custom_input\] | N/A  |否|自定义映射模式的标签，使用方法请参考 [自定义映射使用方法](docs/custom_ip_mappings_zh-hans.md)|
+| \[custom_input_tcp\] | N/A  |否|自定义映射模式的标签，使用方法请参考 [自定义映射使用方法](docs/custom_ip_mappings_zh-hans.md)|
+| \[custom_input_udp\] | N/A  |否|自定义映射模式的标签，使用方法请参考 [自定义映射使用方法](docs/custom_ip_mappings_zh-hans.md)|
 
 其中，`encryption_algorithm` 以及 `encryption_password` 在通讯的两端必须保持一致。
 
@@ -207,6 +212,9 @@ encryption_algorithm=AES-GCM
 
 需要提醒的是，填写的带宽值不应超出实际带宽，以免造成发送窗口拥堵导致阻塞。
 
+**重要提示**：<br>
+KCPTube 会在 KCP 链路建立后的 5 秒左右，根据握手包的延迟值以及 outbound_bandwidth 与 inbound_bandwidth 的数值，计算并设置 KCP 的发送窗口大小。设置完成后的一段时间内，有很大机率出现流量大幅度波动的情况，甚至会出现流量突然降至 0，需要好几秒才能恢复。
+
 #### KCP 模式预设值
 | 快速模式      | kcp_sndwnd | kcp_rcvwnd|kcp_nodelay|kcp_interval|kcp_resend|kcp_nc |
 |  ----        | :----:     | :----:    | :----:    | :----:     | :----:   |:----: |
@@ -227,9 +235,11 @@ encryption_algorithm=AES-GCM
 
 其中，丢包率越高（高于 10%），kcp_nodelay=1 就比 kcp_nodelay=2 越有优势。在丢包率不特别高的情况下，kcp_nodelay=2 可使延迟抖动更为平滑。
 
-如果想减少流量浪费、不介意延迟稍微增加，可以选择 regular 模式。<br />
-对于不追求低延迟、只需要大流量传输的场景，请使用 **regular 3 ~ 5**。<br />
+### 大流量传输
+对于低丢包环境，每个模式都适合使用，区别只在于浪费的流量是多还是少，以及最高速的上限有所不同。其中 regular3 浪费的流量没那么多。<br />
 建议同时开启 `blast=1` 设置。
+
+对于高丢包环境，请考虑叠加使用 FEC 设置。详情请参考 [FEC使用介绍](docs/fec_zh-hans.md)
 
 更多详解，请见[参数列表](docs/parameters_zh-hans.md)。
 
@@ -505,7 +515,7 @@ root      soft    nofile       300000
 需要提醒的是，使用两种校验码仍然无法 100% 避免内容错误，TCP 本身也是一样。如果确实需要精确无误，请启用加密选项。
 
 ## 多路复用 (mux_tunnels=N)
-KCP Tube 虽然有“多路复用”的功能，但默认并不主动打开。每接受一个入站连接，就会创建一个对应的出站连接。
+KCP Tube 虽然有“多路复用”的功能，但默认并不主动打开。在不使用该功能的情况下，每接受一个入站连接，就会创建一个对应的出站连接。
 
 原因是为了躲避运营商的 QoS。多路复用状态下，一旦某个端口号被 QoS，就会导致共用端口号的其它会话同时受阻，直到更换端口号为止。
 
@@ -523,7 +533,9 @@ KCP Tube 虽然有“多路复用”的功能，但默认并不主动打开。�
         - OpenVPN
         - Wireguard
 
-启用“多路复用”后，KCP 通道的超时时间为 30 秒。一般来说，`mux_tunnels 设置成 3 ~ 10 就够用了，不需要设置过高的数值。
+启用“多路复用”后，KCPTube 会预创建 N 条链路，所有入站新连接都会从已有链路中传送数据，而不再单独创建新链路。此时 KCP 通道的超时时间为 30 秒。
+
+一般来说，`mux_tunnels 设置成 3 ~ 10 就够用了，不需要设置过高的数值。
 
 ## 关于代码
 ### TCP

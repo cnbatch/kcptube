@@ -96,6 +96,7 @@ sequenceDiagram
 - keep_alive
 - ipv4_only=1
 - blast
+- fec
 
 若出现在节点标签外，就会覆盖所有节点标签内的对应值。其中`ipv4_only=1`是特例，只有`ipv4_only=1`时才覆盖，`ipv4_only=0`时并不会覆盖。
 

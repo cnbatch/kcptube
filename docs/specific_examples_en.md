@@ -52,6 +52,9 @@ route 123.45.67.89 255.255.255.255 net_gateway
 ```
 And replace `123.45.67.89` with your server's IP.
 
+#### High-traffic transmission
+
+Please consider using [UDP Hop](https://github.com/cnbatch/udphop) to avoid being subject to the flow control restrictions of KCP and reduce traffic waste.
 
 ## Transfer File with Python3 HTTP Server
 Run `python3 -m http.server` first, and python3 will listen port# 8000. The following assumes that http server and KCPTube are both running on the same machine. Server's domain: `http-server.domain.com`, file to be downloaded: test.bin.

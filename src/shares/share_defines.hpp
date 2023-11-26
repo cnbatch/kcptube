@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <atomic>
 #include <limits>
 #include <random>
 #include <set>
@@ -31,6 +32,14 @@ namespace constant_values
 	constexpr int iv_checksum_block_size = 2;
 	constexpr int kcp_mtu = packet_length - iv_checksum_block_size;
 	constexpr int encryption_block_reserve = 48;
+	constexpr int packet_layer_header = 4;
+	constexpr int packet_layer_data_header = 9;
+	constexpr int packet_layer_fec_header = 13;
+	constexpr int fec_container_header = 2;
+	constexpr int data_layer_header = 1;
+	constexpr int mux_data_wrapper_header = 4;
+	constexpr int ip_header = 36;
+	constexpr int udp_header = 4;
 };
 
 
@@ -69,9 +78,12 @@ struct user_settings
 	uint16_t udp_timeout = 0;	 // seconds
 	uint16_t keep_alive = 0;	// seconds
 	uint16_t mux_tunnels = 0;	// client only
+	uint8_t fec_data = 0;
+	uint8_t fec_redundant = 0;
 	encryption_mode encryption = encryption_mode::empty;
 	running_mode mode = running_mode::unknow;
 	kcp_mode kcp_setting = kcp_mode::unknow;
+	int mtu = -1;
 	int kcp_mtu = -1;
 	int kcp_nodelay = -1;
 	int kcp_interval = -1;
@@ -101,6 +113,14 @@ struct user_settings
 	std::shared_ptr<user_input_address_mapping> user_input_mappings_tcp;
 	std::shared_ptr<user_input_address_mapping> user_input_mappings_udp;
 };
+
+#pragma pack (push, 1)
+struct fec_container
+{
+	uint16_t data_length;
+	uint8_t data[1];
+};
+#pragma pack(pop)
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
 std::set<uint16_t> convert_to_port_list(const user_settings &current_settings);

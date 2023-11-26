@@ -2,6 +2,7 @@
 //
 // KCP - A Better ARQ Protocol Implementation
 // skywind3000 (at) gmail.com, 2010-2011
+// Modifier: cnbatch, 2023
 //  
 // Features:
 // + Average RTT reduce 30% - 40% vs traditional ARQ like tcp.
@@ -329,7 +330,7 @@ namespace KCP
 	//---------------------------------------------------------------------
 	int kcp_core::receive(char *buffer, int len)
 	{
-		int ispeek = (len < 0) ? 1 : 0;
+		bool ispeek = (len < 0);
 		int peeksize;
 		int recover = 0;
 
@@ -370,7 +371,7 @@ namespace KCP
 				ikcp_log(IKCP_LOG_RECV, "recv sn=%lu", (unsigned long)seg->sn);
 			}
 
-			if (ispeek == 0)
+			if (ispeek == false)
 				this->rcv_queue.erase(seg);
 
 			if (fragment == 0)
@@ -382,11 +383,14 @@ namespace KCP
 		// move available data from rcv_buf -> rcv_queue
 		while (!this->rcv_buf.empty())
 		{
-			auto seg = this->rcv_buf.begin();
+			auto iter = this->rcv_buf.begin();
+			uint32_t seg_sn = iter->first;
+			segment *seg = iter->second.get();
 			if (seg->sn == this->rcv_nxt && this->rcv_queue.size() < this->rcv_wnd)
 			{
-				this->rcv_queue.splice(this->rcv_queue.end(), this->rcv_buf, seg);
+				this->rcv_queue.emplace_back(std::move(*seg));
 				this->rcv_nxt++;
+				rcv_buf.erase(iter);
 			}
 			else break;
 		}
@@ -589,7 +593,10 @@ namespace KCP
 			if (sn < seg_sn) break;
 			else if (sn != seg_sn)
 			{
-				this->fastack_buf[seg->fastack].erase(seg_sn);
+				if (auto fastack_iter = this->fastack_buf.find(seg->fastack); fastack_iter != this->fastack_buf.end())
+					if (auto um_iter = fastack_iter->second.find(seg_sn); um_iter != fastack_iter->second.end())
+						fastack_iter->second.erase(um_iter);
+
 				seg->fastack++;
 				this->fastack_buf[seg->fastack][seg_sn] = seg;
 			}
@@ -602,25 +609,12 @@ namespace KCP
 	void kcp_core::parse_data(segment &newseg)
 	{
 		uint32_t sn = newseg.sn;
-		bool repeat = false;
 
 		if (sn >= this->rcv_nxt + this->rcv_wnd || sn < this->rcv_nxt)
 			return;
 
-		decltype(this->rcv_buf.rbegin()) seg_riter;
-		for (seg_riter = this->rcv_buf.rbegin(); seg_riter != this->rcv_buf.rend(); ++seg_riter)
-		{
-			if (seg_riter->sn == sn)
-			{
-				repeat = true;
-				break;
-			}
-			if (sn > seg_riter->sn)
-				break;
-		}
-
-		if (!repeat)
-			this->rcv_buf.insert(seg_riter.base(), std::move(newseg));
+		if (auto iter = this->rcv_buf.find(sn); iter == this->rcv_buf.end())
+			this->rcv_buf.insert({ sn, std::make_unique<segment>(std::move(newseg))});
 
 #if 0
 		PrintQueue("rcvbuf", &this->rcv_buf);
@@ -630,14 +624,18 @@ namespace KCP
 		// move available data from rcv_buf -> rcv_queue
 		while (!this->rcv_buf.empty())
 		{
-			auto seg = this->rcv_buf.begin();
+			auto iter = this->rcv_buf.begin();
+			uint32_t seg_sn = iter->first;
+			segment *seg = iter->second.get();
 			if (seg->sn == this->rcv_nxt && this->rcv_queue.size() < this->rcv_wnd)
 			{
-				this->rcv_queue.splice(this->rcv_queue.end(), this->rcv_buf, seg);
+				this->rcv_queue.emplace_back(std::move(*seg));
 				this->rcv_nxt++;
+				rcv_buf.erase(iter);
 			}
 			else break;
 		}
+
 
 #if 0
 		PrintQueue("queue", &this->rcv_queue);
@@ -1043,7 +1041,11 @@ namespace KCP
 
 					seg_list.erase(seg_iter);
 					this->fastack_buf[segptr->fastack][seg_sn] = segptr;
-					this->resendts_buf[old_resendtrs].erase(seg_sn);
+
+					if (auto resendts_iter = this->resendts_buf.find(old_resendtrs); resendts_iter != this->resendts_buf.end())
+						if (auto um_iter = resendts_iter->second.find(seg_sn); um_iter != resendts_iter->second.end())
+							resendts_iter->second.erase(um_iter);
+
 					this->resendts_buf[segptr->resendts][seg_sn] = segptr;
 
 					segptr->ts = current;

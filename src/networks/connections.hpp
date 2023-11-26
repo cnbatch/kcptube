@@ -20,6 +20,7 @@
 
 #include "../shares/share_defines.hpp"
 #include "../3rd_party/thread_pool.hpp"
+#include "../3rd_party/fecpp.hpp"
 #include "stun.hpp"
 #include "kcp.hpp"
 
@@ -31,6 +32,7 @@ constexpr uint32_t gbv_mux_min_cache_available = 16u;
 constexpr uint32_t gbv_mux_min_cache_slice = 8u;
 constexpr uint32_t gbv_tcp_slice = 2u;
 constexpr uint32_t gbv_half_time = 2u;
+constexpr uint32_t gbv_fec_waits = 3u;
 constexpr size_t gbv_buffer_size = 2048u;
 constexpr size_t gbv_buffer_expand_size = 128u;
 constexpr size_t gbv_retry_times = 30u;
@@ -56,7 +58,7 @@ enum class feature : uint8_t
 	raw_data,
 	mux_transfer,
 	mux_cancel,
-	mux_pre_connect
+	pre_connect_custom_address
 };
 
 enum class protocol_type : uint8_t { not_care, mux, tcp, udp };
@@ -74,6 +76,23 @@ namespace packet
 	struct packet_layer
 	{
 		uint32_t timestamp;
+		uint8_t data[1];
+	};
+
+	struct packet_layer_data
+	{
+		uint32_t timestamp;
+		uint32_t sn;
+		uint8_t sub_sn;
+		uint8_t data[1];
+	};
+
+	struct packet_layer_fec
+	{
+		uint32_t timestamp;
+		uint32_t sn;
+		uint8_t sub_sn;
+		uint32_t kcp_conv;
 		uint8_t data[1];
 	};
 
@@ -101,7 +120,7 @@ namespace packet
 		uint8_t data[1];
 	};
 
-	struct mux_pre_connect
+	struct pre_connect_custom_address
 	{
 		uint32_t connection_id;
 		uint16_t user_input_port;
@@ -118,11 +137,15 @@ namespace packet
 	int64_t right_now();
 
 	std::unique_ptr<uint8_t[]> create_packet(const uint8_t *input_data, int data_size, int &new_size);
+	std::unique_ptr<uint8_t[]> create_fec_data_packet(const uint8_t *input_data, int data_size, int &new_size, uint32_t fec_sn, uint8_t fec_sub_sn);
+	std::unique_ptr<uint8_t[]> create_fec_redundant_packet(const uint8_t *input_data, int data_size, int &new_size, uint32_t fec_sn, uint8_t fec_sub_sn, uint32_t kcp_conv);
 	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data);
 	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const uint8_t *input_data, size_t data_size);
 	size_t create_inner_packet(feature ftr, protocol_type prtcl, uint8_t *input_data, size_t data_size);
 
 	std::tuple<uint32_t, uint8_t*, size_t> unpack(uint8_t *data, size_t length);
+	std::tuple<packet_layer_data, uint8_t*, size_t> unpack_fec(uint8_t *data, size_t length);
+	std::tuple<packet_layer_fec, uint8_t*, size_t> unpack_fec_redundant(uint8_t *data, size_t length);
 	std::tuple<feature, protocol_type, std::vector<uint8_t>> unpack_inner(const std::vector<uint8_t> &data);
 	std::tuple<feature, protocol_type, uint8_t*, size_t> unpack_inner(uint8_t *data, size_t length);
 
@@ -514,6 +537,15 @@ private:
 	process_data_t callback;
 };
 
+struct fec_control_data
+{
+	std::atomic<uint32_t> fec_snd_sn;
+	std::atomic<uint32_t> fec_snd_sub_sn;
+	std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> fec_snd_cache;
+	std::map<uint32_t, std::map<uint16_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>> fec_rcv_cache;	// uint32_t = snd_sn, uint16_t = sub_sn
+	fecpp::fec_code fecc;
+};
+
 struct kcp_mappings
 {
 	protocol_type connection_protocol;
@@ -534,6 +566,8 @@ struct kcp_mappings
 	asio::ip::port_type remote_output_port;	// client mode only
 	std::string remote_output_address;	// client mode only
 	std::function<void()> mapping_function = []() {};
+	fec_control_data fec_ingress_control;
+	fec_control_data fec_egress_control;
 };
 
 struct mux_records

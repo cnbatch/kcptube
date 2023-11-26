@@ -144,6 +144,45 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 	if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
 		return;
 
+	std::pair<std::unique_ptr<uint8_t[]>, size_t> original_data;
+	uint32_t fec_sn = 0;
+	uint8_t fec_sub_sn = 0;
+	if (current_settings.ingress->fec_data > 0 && current_settings.ingress->fec_redundant > 0)
+	{
+		auto [packet_header, kcp_data_ptr, kcp_data_size] = packet::unpack_fec(data.get(), plain_size);
+		if (packet_header.sub_sn >= current_settings.ingress->fec_data)
+		{
+			auto [packet_header_redundant, redundant_data_ptr, redundant_data_size] = packet::unpack_fec_redundant(data.get(), plain_size);
+			std::shared_ptr<kcp_mappings> kcp_mappings_ptr = nullptr;
+			std::shared_lock locker_id_map_to_both_sides{ mutex_id_map_to_both_sides };
+			if (auto kcp_channels_iter = id_map_to_both_sides.find(packet_header_redundant.kcp_conv); kcp_channels_iter == id_map_to_both_sides.end())
+				return;
+			else
+				kcp_mappings_ptr = kcp_channels_iter->second;
+			locker_id_map_to_both_sides.unlock();
+
+			if (kcp_mappings_ptr == nullptr)
+				return;
+
+			original_data.first = std::make_unique<uint8_t[]>(redundant_data_size);
+			original_data.second = redundant_data_size;
+			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
+			kcp_mappings_ptr->fec_ingress_control.fec_rcv_cache[packet_header_redundant.sn][packet_header_redundant.sub_sn] = std::move(original_data);
+
+			return;
+		}
+		else
+		{
+			fec_sn = packet_header.sn;
+			fec_sub_sn = packet_header.sub_sn;
+			data_ptr = kcp_data_ptr;
+			packet_data_size = kcp_data_size;
+			original_data.first = std::make_unique<uint8_t[]>(kcp_data_size);
+			original_data.second = kcp_data_size;
+			std::copy_n(kcp_data_ptr, kcp_data_size, original_data.first.get());
+		}
+	}
+
 	uint32_t conv = KCP::KCP::GetConv(data_ptr);
 	if (conv == 0)
 	{
@@ -168,6 +207,12 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 	std::shared_ptr<KCP::KCP> kcp_ptr_ingress = kcp_mappings_ptr->ingress_kcp;
 	std::shared_ptr<KCP::KCP> kcp_ptr_egress = kcp_mappings_ptr->egress_kcp;
 	std::shared_ptr<forwarder> forwarder_ptr_egress = kcp_mappings_ptr->egress_forwarder;
+
+	if (current_settings.ingress->fec_data > 0 && current_settings.ingress->fec_redundant > 0)
+	{
+		kcp_mappings_ptr->fec_ingress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
+		fec_find_missings(kcp_ptr_ingress.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.ingress->fec_data);
+	}
 
 	if (kcp_ptr_ingress->Input((const char *)data_ptr, (long)packet_data_size) < 0)
 		return;
@@ -207,7 +252,7 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 			[[fallthrough]];
 		case feature::mux_cancel:
 			[[fallthrough]];
-		case feature::mux_pre_connect:
+		case feature::pre_connect_custom_address:
 		{
 			kcp_ptr_egress->Send((const char *)buffer_ptr, kcp_data_size);
 
@@ -239,6 +284,14 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 		return;
 
 	auto [packet_timestamp, data_ptr, packet_data_size] = packet::unpack(data.get(), data_size);
+
+	if (current_settings.ingress->fec_data > 0 && current_settings.ingress->fec_redundant > 0)
+	{
+		auto [packet_header, kcp_data_ptr, kcp_data_size] = packet::unpack_fec(data.get(), data_size);
+		data_ptr = kcp_data_ptr;
+		packet_data_size = kcp_data_size;
+	}
+
 	if (packet_data_size == 0)
 		return;
 	std::shared_lock shared_locker_handshake_channels{ mutex_handshake_ingress_map_to_channels, std::defer_lock };
@@ -259,6 +312,12 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 			kcp_mappings *handshake_kcp_mappings = handshake_kcp_mappings_ptr.get();
 			handshake_kcp_mappings->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 			handshake_kcp_mappings->ingress_listener.store(udp_servers[port_number].get());
+			if (current_settings.ingress->fec_data > 0 && current_settings.ingress->fec_redundant > 0)
+			{
+				size_t K = current_settings.ingress->fec_data;
+				size_t N = K + current_settings.ingress->fec_redundant;
+				handshake_kcp_mappings->fec_ingress_control.fecc.reset_martix(K, N);
+			}
 
 			std::shared_ptr<KCP::KCP> handshake_kcp_ingress = std::make_shared<KCP::KCP>(0);
 			handshake_kcp_ingress->SetMTU(current_settings.ingress->kcp_mtu);
@@ -315,6 +374,13 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 				handshake_kcp_mappings->egress_kcp = handshake_kcp_egress;
 				handshake_kcp_mappings->egress_forwarder = udp_forwarder;
 				handshake_kcp_mappings->changeport_timestamp.store(LLONG_MAX);
+				if (current_settings.egress->fec_data > 0 && current_settings.egress->fec_redundant > 0)
+				{
+					size_t K = current_settings.egress->fec_data;
+					size_t N = K + current_settings.egress->fec_redundant;
+					handshake_kcp_mappings->fec_egress_control.fecc.reset_martix(K, N);
+				}
+
 				handshake_kcp_egress->SetUserData(handshake_kcp_mappings);
 				handshake_kcp_egress->SetMTU(current_settings.egress->kcp_mtu);
 				handshake_kcp_egress->NoDelay(0, 2, 0, 1);
@@ -423,28 +489,48 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 	if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
 		return;
 
-	uint32_t conv = KCP::KCP::GetConv(data_ptr);
-	if (kcp_ptr->GetConv() != conv)
+	std::pair<std::unique_ptr<uint8_t[]>, size_t> original_data;
+	uint32_t fec_sn = 0;
+	uint8_t fec_sub_sn = 0;
+	if (current_settings.egress->fec_data > 0 && current_settings.egress->fec_redundant > 0)
 	{
-		std::shared_lock locker_kcp_channels{ mutex_id_map_to_both_sides };
-		auto iter = id_map_to_both_sides.find(conv);
-		if (iter == id_map_to_both_sides.end())
+		auto [packet_header, kcp_data_ptr, kcp_data_size] = packet::unpack_fec(data.get(), plain_size);
+		if (packet_header.sub_sn >= current_settings.egress->fec_data)
 		{
-			locker_kcp_channels.unlock();
-			std::string error_message = time_to_string_with_square_brackets() +
-				"UDP<->KCP, conv is not the same as record : conv = " + std::to_string(conv) +
-				", local kcp : " + std::to_string(kcp_ptr->GetConv()) + "\n";
-			std::cerr << error_message;
-			print_message_to_file(error_message, current_settings.log_messages);
+			auto [packet_header_redundant, redundant_data_ptr, redundant_data_size] = packet::unpack_fec_redundant(data.get(), plain_size);
+			kcp_ptr = verify_kcp_conv(kcp_ptr, packet_header_redundant.kcp_conv, peer);
+			kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+			original_data.first = std::make_unique<uint8_t[]>(redundant_data_size);
+			original_data.second = redundant_data_size;
+			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
+			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[packet_header_redundant.sn][packet_header_redundant.sub_sn] = std::move(original_data);
 			return;
 		}
-		kcp_ptr = iter->second->egress_kcp;
+		else
+		{
+			fec_sn = packet_header.sn;
+			fec_sub_sn = packet_header.sub_sn;
+			data_ptr = kcp_data_ptr;
+			packet_data_size = kcp_data_size;
+			original_data.first = std::make_unique<uint8_t[]>(kcp_data_size);
+			original_data.second = kcp_data_size;
+			std::copy_n(kcp_data_ptr, kcp_data_size, original_data.first.get());
+		}
 	}
 
-	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
-		return;
+	uint32_t conv = KCP::KCP::GetConv(data_ptr);
+	kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+
+	if (current_settings.egress->fec_data > 0 && current_settings.egress->fec_redundant > 0)
+	{
+		kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
+		fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.egress->fec_data);
+	}
+	
+	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
+		return;
 
 	while (true)
 	{
@@ -520,7 +606,7 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 			[[fallthrough]];
 		case feature::mux_cancel:
 			[[fallthrough]];
-		case feature::mux_pre_connect:
+		case feature::pre_connect_custom_address:
 		{
 			kcp_mappings_ptr->ingress_kcp->Send((const char *)buffer_ptr, kcp_data_size);
 
@@ -605,6 +691,19 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 	locker_id_map_to_both_sides.unlock();
 	kcp_mappings_ptr->connection_protocol = handshake_kcp_mappings_ptr->connection_protocol;
 	kcp_mappings_ptr->last_data_transfer_time.store(timestamp);
+	if (current_settings.ingress->fec_data > 0 && current_settings.ingress->fec_redundant > 0)
+	{
+		size_t K = current_settings.ingress->fec_data;
+		size_t N = K + current_settings.ingress->fec_redundant;
+		kcp_mappings_ptr->fec_ingress_control.fecc.reset_martix(K, N);
+	}
+
+	if (current_settings.egress->fec_data > 0 && current_settings.egress->fec_redundant > 0)
+	{
+		size_t K = current_settings.egress->fec_data;
+		size_t N = K + current_settings.egress->fec_redundant;
+		kcp_mappings_ptr->fec_egress_control.fecc.reset_martix(K, N);
+	}
 
 	std::shared_ptr<KCP::KCP> kcp_ptr_ingress = std::make_shared<KCP::KCP>(new_id);
 	kcp_ptr_ingress->SetMTU(current_settings.ingress->kcp_mtu);
@@ -710,30 +809,16 @@ int relay_mode::kcp_sender_via_listener(const char *buf, int len, void *user)
 	if (kcp_mappings_ptr->ingress_source_endpoint == nullptr)
 		return 0;
 
-	int buffer_size = 0;
-	std::unique_ptr<uint8_t[]> new_buffer = packet::create_packet((const uint8_t *)buf, len, buffer_size);
-
-	if (kcp_data_sender != nullptr)
+	if (current_settings.fec_data == 0 || current_settings.fec_redundant == 0)
 	{
-		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
-		{
-			auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), buffer_size);
-			if (!error_message.empty() || cipher_size == 0)
-				return;
-			std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-			kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
-			change_new_port(kcp_mappings_ptr);
-		};
-		kcp_data_sender->push_task((size_t)kcp_mappings_ptr->ingress_kcp.get(), func, std::move(new_buffer));
-		return 0;
+		int buffer_size = 0;
+		std::unique_ptr<uint8_t[]> new_buffer = packet::create_packet((const uint8_t *)buf, len, buffer_size);
+		data_sender_via_listener(kcp_mappings_ptr, std::move(new_buffer), buffer_size);
 	}
-
-	auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), buffer_size);
-	if (!error_message.empty() || cipher_size == 0)
-		return 0;
-	std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
-	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
-	change_new_port(kcp_mappings_ptr);
+	else
+	{
+		fec_maker_via_listener(kcp_mappings_ptr, (const uint8_t *)buf, len);
+	}
 	return 0;
 }
 
@@ -742,37 +827,195 @@ int relay_mode::kcp_sender_via_forwarder(const char *buf, int len, void *user)
 	if (user == nullptr)
 		return 0;
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)user;
-	int buffer_size = 0;
-	std::unique_ptr<uint8_t[]> new_buffer = packet::create_packet((const uint8_t *)buf, len, buffer_size);
 
+	if (current_settings.fec_data == 0 || current_settings.fec_redundant == 0)
+	{
+		int buffer_size = 0;
+		std::unique_ptr<uint8_t[]> new_buffer = packet::create_packet((const uint8_t *)buf, len, buffer_size);
+		data_sender_via_forwarder(kcp_mappings_ptr, std::move(new_buffer), buffer_size);
+	}
+	else
+	{
+		fec_maker_via_forwarder(kcp_mappings_ptr, (const uint8_t *)buf, len);
+	}
+	return 0;
+}
+
+std::shared_ptr<KCP::KCP> relay_mode::verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv, const udp::endpoint & peer)
+{
+	if (kcp_ptr->GetConv() != conv)
+	{
+		std::shared_lock locker_kcp_channels{ mutex_id_map_to_both_sides };
+		auto iter = id_map_to_both_sides.find(conv);
+		if (iter == id_map_to_both_sides.end())
+		{
+			locker_kcp_channels.unlock();
+			std::string error_message = time_to_string_with_square_brackets() +
+				"UDP<->KCP, conv is not the same as record : conv = " + std::to_string(conv) +
+				", local kcp : " + std::to_string(kcp_ptr->GetConv()) + "\n";
+			std::cerr << error_message;
+			print_message_to_file(error_message, current_settings.log_messages);
+			return kcp_ptr;
+		}
+		kcp_ptr = iter->second->egress_kcp;
+	}
+	return kcp_ptr;
+}
+
+void relay_mode::data_sender_via_listener(kcp_mappings * kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
+{
 	if (kcp_data_sender != nullptr)
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
-		{
-			auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), buffer_size);
-			if (!error_message.empty() || cipher_size == 0)
-				return;
-			std::shared_lock locker{kcp_mappings_ptr->mutex_egress_endpoint};
-			udp::endpoint peer = kcp_mappings_ptr->egress_target_endpoint;
-			locker.unlock();
-
-			kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, peer);
-			change_new_port(kcp_mappings_ptr);
-		};
-		kcp_data_sender->push_task((size_t)kcp_mappings_ptr->egress_kcp.get(), func, std::move(new_buffer));
-		return 0;
+			{
+				auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), (int)buffer_size);
+				if (!error_message.empty() || cipher_size == 0)
+					return;
+				std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+				kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
+				change_new_port(kcp_mappings_ptr);
+			};
+		kcp_data_sender->push_task((size_t)kcp_mappings_ptr->ingress_kcp.get(), func, std::move(new_buffer));
+		return;
 	}
 
-	auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), buffer_size);
+	auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), (int)buffer_size);
 	if (!error_message.empty() || cipher_size == 0)
-		return 0;
-	std::shared_lock locker{kcp_mappings_ptr->mutex_egress_endpoint};
+		return;
+	std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
+	change_new_port(kcp_mappings_ptr);
+}
+
+void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
+{
+	if (kcp_data_sender != nullptr)
+	{
+		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
+			{
+				auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), (int)buffer_size);
+				if (!error_message.empty() || cipher_size == 0)
+					return;
+				std::shared_lock locker{ kcp_mappings_ptr->mutex_egress_endpoint };
+				udp::endpoint peer = kcp_mappings_ptr->egress_target_endpoint;
+				locker.unlock();
+
+				kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, peer);
+				change_new_port(kcp_mappings_ptr);
+			};
+		kcp_data_sender->push_task((size_t)kcp_mappings_ptr->egress_kcp.get(), func, std::move(new_buffer));
+		return;
+	}
+
+	auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), (int)buffer_size);
+	if (!error_message.empty() || cipher_size == 0)
+		return;
+	std::shared_lock locker{ kcp_mappings_ptr->mutex_egress_endpoint };
 	udp::endpoint peer = kcp_mappings_ptr->egress_target_endpoint;
 	locker.unlock();
 
 	kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, peer);
 	change_new_port(kcp_mappings_ptr);
-	return 0;
+}
+
+void relay_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
+{
+	for (auto iter = fec_controllor.fec_rcv_cache.begin(), next_iter = iter; iter != fec_controllor.fec_rcv_cache.end(); iter = next_iter)
+	{
+		++next_iter;
+		auto sn = iter->first;
+		if (fec_sn == sn)
+			continue;
+
+		auto &mapped_data = iter->second;
+		if (mapped_data.size() < max_fec_data_count)
+		{
+			if (fec_sn - sn > gbv_fec_waits)
+				fec_controllor.fec_rcv_cache.erase(iter);
+			continue;
+		}
+		auto [recv_data, fec_align_length] = compact_into_container(mapped_data, max_fec_data_count);
+		auto array_data = mapped_pair_to_mapped_pointer(recv_data);
+		auto restored_data = fec_controllor.fecc.decode(array_data, fec_align_length);
+
+		for (auto &[i, data] : restored_data)
+		{
+			auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
+			kcp_ptr->Input((const char *)missed_data_ptr, (long)missed_data_size);
+		}
+
+		fec_controllor.fec_rcv_cache.erase(iter);
+	}
+}
+
+void relay_mode::fec_maker_via_listener(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size)
+{
+	fec_control_data &fec_controllor = kcp_mappings_ptr->fec_egress_control;
+
+	int conv = kcp_mappings_ptr->ingress_kcp->GetConv();
+	int fec_data_buffer_size = 0;
+	std::unique_ptr<uint8_t[]> fec_data_buffer = packet::create_fec_data_packet(input_data, data_size, fec_data_buffer_size,
+		fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
+	data_sender_via_listener(kcp_mappings_ptr, std::move(fec_data_buffer), fec_data_buffer_size);
+
+	if (conv == 0)
+	{
+		fec_controllor.fec_snd_sub_sn.store(0);
+		return;
+	}
+
+	fec_controllor.fec_snd_cache.emplace_back(clone_into_pair(input_data, data_size));
+
+	if (fec_controllor.fec_snd_cache.size() == current_settings.ingress->fec_data)
+	{
+		auto [array_data, fec_align_length, total_size] = compact_into_container(fec_controllor.fec_snd_cache);
+		auto redundants = fec_controllor.fecc.encode(array_data.get(), total_size, fec_align_length);
+		for (auto &data_ptr : redundants)
+		{
+			int fec_redundant_buffer_size = 0;
+			auto fec_redundant_buffer = packet::create_fec_redundant_packet(data_ptr.get(), (int)fec_align_length,
+				fec_redundant_buffer_size, fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++, conv);
+			data_sender_via_listener(kcp_mappings_ptr, std::move(fec_redundant_buffer), fec_redundant_buffer_size);
+		}
+		fec_controllor.fec_snd_cache.clear();
+		fec_controllor.fec_snd_sub_sn.store(0);
+		fec_controllor.fec_snd_sn++;
+	}
+}
+
+void relay_mode::fec_maker_via_forwarder(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size)
+{
+	fec_control_data &fec_controllor = kcp_mappings_ptr->fec_egress_control;
+
+	int conv = kcp_mappings_ptr->egress_kcp->GetConv();
+	int fec_data_buffer_size = 0;
+	std::unique_ptr<uint8_t[]> fec_data_buffer = packet::create_fec_data_packet(input_data, data_size, fec_data_buffer_size,
+		fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++);
+	data_sender_via_forwarder(kcp_mappings_ptr, std::move(fec_data_buffer), fec_data_buffer_size);
+
+	if (conv == 0)
+	{
+		fec_controllor.fec_snd_sub_sn.store(0);
+		return;
+	}
+
+	fec_controllor.fec_snd_cache.emplace_back(clone_into_pair(input_data, data_size));
+
+	if (fec_controllor.fec_snd_cache.size() == current_settings.egress->fec_data)
+	{
+		auto [array_data, fec_align_length, total_size] = compact_into_container(fec_controllor.fec_snd_cache);
+		auto redundants = fec_controllor.fecc.encode(array_data.get(), total_size, fec_align_length);
+		for (auto &data_ptr : redundants)
+		{
+			int fec_redundant_buffer_size = 0;
+			auto fec_redundant_buffer = packet::create_fec_redundant_packet(data_ptr.get(), (int)fec_align_length,
+				fec_redundant_buffer_size, fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn++, conv);
+			data_sender_via_forwarder(kcp_mappings_ptr, std::move(fec_redundant_buffer), fec_redundant_buffer_size);
+		}
+		fec_controllor.fec_snd_cache.clear();
+		fec_controllor.fec_snd_sub_sn.store(0);
+		fec_controllor.fec_snd_sn++;
+	}
 }
 
 void relay_mode::process_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, const char *buffer, size_t len)
@@ -781,15 +1024,15 @@ void relay_mode::process_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, const cha
 	uint32_t next_update_time = kcp_ptr->Refresh();
 	kcp_updater.submit(kcp_ptr, next_update_time);
 
-	std::scoped_lock lockers{ mutex_id_map_to_both_sides };
+	std::unique_lock locker_id_map_to_both_sides{ mutex_id_map_to_both_sides };
 	if (auto kcp_channels_iter = id_map_to_both_sides.find(kcp_ptr->GetConv());
 		kcp_channels_iter != id_map_to_both_sides.end())
 	{
 		std::shared_ptr<kcp_mappings> kcp_mappings_ptr_original = kcp_channels_iter->second;
-		id_map_to_both_sides.erase(kcp_channels_iter);
+		locker_id_map_to_both_sides.unlock();
 		if (std::scoped_lock lockers{ mutex_expiring_kcp };
 			expiring_kcp.find(kcp_mappings_ptr_original) == expiring_kcp.end())
-			expiring_kcp[kcp_mappings_ptr_original] = packet::right_now();
+			expiring_kcp[kcp_mappings_ptr_original] = packet::right_now() + gbv_keepalive_timeout;
 	}
 }
 
@@ -902,7 +1145,7 @@ void relay_mode::cleanup_expiring_handshake_connections()
 		}
 
 		int64_t expire_time = iter->second;
-		if (calculate_difference(time_right_now, expire_time) < gbv_kcp_cleanup_waits)
+		if (time_right_now - expire_time < gbv_kcp_cleanup_waits)
 			continue;
 
 		if (handshakes_kcp_mappings_ptr->egress_forwarder != nullptr)
@@ -913,6 +1156,8 @@ void relay_mode::cleanup_expiring_handshake_connections()
 		}
 		
 		handshakes_kcp_mappings_ptr->mapping_function();
+		handshakes_kcp_mappings_ptr->ingress_kcp->SetOutput(empty_kcp_output);
+		handshakes_kcp_mappings_ptr->egress_kcp->SetOutput(empty_kcp_output);
 		kcp_updater.remove(handshakes_kcp_mappings_ptr->ingress_kcp);
 		kcp_updater.remove(handshakes_kcp_mappings_ptr->egress_kcp);
 		handshake_ingress_map_to_channels.erase(*handshakes_kcp_mappings_ptr->ingress_source_endpoint);
@@ -950,15 +1195,17 @@ void relay_mode::cleanup_expiring_data_connections()
 {
 	auto time_right_now = packet::right_now();
 
-	std::scoped_lock locker{ mutex_expiring_kcp };
+	std::scoped_lock locker{ mutex_expiring_kcp, mutex_id_map_to_both_sides };
 	for (auto iter = expiring_kcp.begin(), next_iter = iter; iter != expiring_kcp.end(); iter = next_iter)
 	{
 		++next_iter;
 		auto &[kcp_mappings_ptr, expire_time] = *iter;
 		std::shared_ptr<KCP::KCP> ingress_kcp_ptr = kcp_mappings_ptr->ingress_kcp;
 		std::shared_ptr<KCP::KCP> egress_kcp_ptr = kcp_mappings_ptr->ingress_kcp;
+		uint32_t ingress_conv = ingress_kcp_ptr->GetConv();
+		uint32_t egress_conv = egress_kcp_ptr->GetConv();
 
-		if (calculate_difference(time_right_now, expire_time) < gbv_kcp_cleanup_waits)
+		if (time_right_now - expire_time < gbv_kcp_cleanup_waits)
 			continue;
 
 		ingress_kcp_ptr->SetOutput(empty_kcp_output);
@@ -977,6 +1224,14 @@ void relay_mode::cleanup_expiring_data_connections()
 		kcp_updater.remove(egress_kcp_ptr);
 
 		expiring_kcp.erase(iter);
+
+		if (auto kcp_channels_iter = id_map_to_both_sides.find(ingress_conv);
+			kcp_channels_iter != id_map_to_both_sides.end())
+			id_map_to_both_sides.erase(kcp_channels_iter);
+
+		if (auto kcp_channels_iter = id_map_to_both_sides.find(egress_conv);
+			kcp_channels_iter != id_map_to_both_sides.end())
+			id_map_to_both_sides.erase(kcp_channels_iter);
 	}
 }
 
@@ -1023,8 +1278,6 @@ void relay_mode::loop_find_expires()
 			kcp_updater.remove(kcp_ptr_egress);
 
 			id_map_to_both_sides.erase(iter);
-			kcp_ptr_ingress->SetOutput(empty_kcp_output);
-			kcp_ptr_egress->SetOutput(empty_kcp_output);
 		}
 	}
 }
