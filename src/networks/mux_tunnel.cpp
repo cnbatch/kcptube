@@ -521,14 +521,12 @@ void mux_tunnel::refresh_mux_queue(const std::shared_ptr<KCP::KCP> &kcp_ptr)
 
 	std::shared_lock tcp_cache_shared_locker{ mutex_mux_tcp_cache };
 	auto cache_iter = mux_tcp_cache.find(kcp_ptr);
-	auto size_iter = mux_tcp_cache_max_size.find(kcp_ptr);
-	if (cache_iter == mux_tcp_cache.end() || size_iter == mux_tcp_cache_max_size.end())
+	if (cache_iter == mux_tcp_cache.end())
 		return;
 	size_t tcp_cache_size = cache_iter->second.size();
-	uint32_t cache_max_size = size_iter->second;
 	tcp_cache_shared_locker.unlock();
 
-	if (tcp_cache_size > cache_max_size / gbv_tcp_slice)
+	if (tcp_cache_size > 0)
 		return;
 
 	std::shared_lock locker{ mutex_id_map_to_mux_records };

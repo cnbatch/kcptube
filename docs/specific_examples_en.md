@@ -37,6 +37,12 @@ Here, it is assumed that the OpenVPN client and the KCPTube client are both runn
 
 And then, OpenVPN client just need to connect to port# 1194 of KCP Client.
 
+### If the VPN is a dedicated channel for gaming
+
+For a dedicated channel for game data transmission, please add `blast=1` and change fast6 to a more responsive mode, like fast1 ~ fast4.
+
+Then consider using [forward error correction (FEC)](fec_en.md) based on the packet loss rate.
+
 ### Additional matters that require attention
 
 Due to the fact that the OpenVPN client is currently connected to the local IP address, it is necessary to selectively allow the IP address of the actual server in the routing table.

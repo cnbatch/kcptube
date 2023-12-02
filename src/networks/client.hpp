@@ -70,7 +70,7 @@ class client_mode
 	int kcp_sender(const char *buf, int len, void *user);
 	void data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
 	void fec_maker(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size);
-	void fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
+	bool fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 
 	bool get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
 	bool update_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);

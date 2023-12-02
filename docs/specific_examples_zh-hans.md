@@ -37,6 +37,12 @@ encryption_algorithm=AES-GCM
 
 然后，OpenVPN 客户端程序只需要连接 KCPTube 客户端的 1194 端口即可。
 
+### 如果 VPN 是游戏专用通道
+
+对于专用于游戏数据传输的通道，请加上 `blast=1`，并把 fast6 改成更灵敏的模式，即 fast1 ~ fast4。
+
+然后根据丢包率状况考虑是否使用[前向纠错，即 FEC](fec_zh-hans.md)。
+
 ### 额外注意事项
 
 由于 OpenVPN 客户端此时连接的是本机 IP 地址，因此需要在路由表中针对性地放行实际服务器的 IP 地址。

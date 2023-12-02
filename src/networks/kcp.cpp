@@ -35,14 +35,14 @@ namespace KCP
 	{
 		kcp_ptr = std::make_unique<kcp_core>();
 		kcp_ptr->initialise(conv, this);
-		last_input_time.store(right_now());
+		last_input_time = right_now();
 		post_update = empty_function;
 	}
 
 	void KCP::MoveKCP(KCP &other) noexcept
 	{
 		kcp_ptr = std::move(other.kcp_ptr);
-		last_input_time.store(other.last_input_time.load());
+		last_input_time = other.last_input_time;
 		post_update = other.post_update;
 	}
 
@@ -92,7 +92,12 @@ namespace KCP
 
 	void KCP::SetOutput(std::function<int(const char *, int, void *)> output_func)
 	{
-		kcp_ptr->set_output(output_func);
+		//output = output_func;
+		kcp_ptr->set_output([this, output_func](const char *buf, int len, void *user) -> int
+			{
+				sent_data_average_peak = (7 * sent_data_average_peak + len) / 8;
+				return output_func(buf, len, user);
+			});
 	}
 
 	void KCP::SetPostUpdate(std::function<void(void *)> post_update_func)
@@ -121,17 +126,19 @@ namespace KCP
 	void KCP::Update(uint32_t current)
 	{
 		std::unique_lock locker{ mtx };
-		kcp_ptr->update(current);
+		int ret = kcp_ptr->update(current);
 		locker.unlock();
-		post_update(kcp_ptr->user);
+		if (ret >= 0)
+			post_update(kcp_ptr->user);
 	}
 
 	void KCP::Update()
 	{
 		std::unique_lock locker{ mtx };
-		kcp_ptr->update(TimeNowForKCP());
+		int ret = kcp_ptr->update(TimeNowForKCP());
 		locker.unlock();
-		post_update(kcp_ptr->user);
+		if (ret >= 0)
+			post_update(kcp_ptr->user);
 	}
 
 	uint32_t KCP::Check(uint32_t current)
@@ -150,7 +157,9 @@ namespace KCP
 	{
 		std::unique_lock unique_locker{ mtx };
 		kcp_ptr->flush(TimeNowForKCP());
-		return kcp_ptr->check(TimeNowForKCP());
+		uint32_t ret = kcp_ptr->check(TimeNowForKCP());
+		unique_locker.unlock();
+		return ret;
 	}
 
 	// when you received a low level packet (eg. UDP packet), call it
@@ -159,7 +168,9 @@ namespace KCP
 		std::unique_lock locker{ mtx };
 		auto ret = kcp_ptr->input(data, size);
 		locker.unlock();
-		last_input_time.store(right_now());
+		last_input_time = right_now();
+		if (ret > 0)
+			received_data_average_peak = (7 * received_data_average_peak + size) / 8;	// same as rx_srtt calculation in update_ack()
 		return ret;
 	}
 
@@ -264,12 +275,22 @@ namespace KCP
 		inbound_bandwidth = in_bw;
 	}
 
-	int64_t KCP::LastInputTime()
+	int64_t KCP::LastInputTime() const
 	{
-		return last_input_time.load();
+		return last_input_time;
 	}
 
-	void* KCP::GetUserData()
+	int64_t KCP::ReceivedDataAveragePeak() const
+	{
+		return received_data_average_peak;
+	}
+
+	int64_t KCP::SentDataAveragePeak() const
+	{
+		return sent_data_average_peak;
+	}
+
+	void* KCP::GetUserData() const
 	{
 		return kcp_ptr->user;
 	}

@@ -32,7 +32,7 @@ constexpr uint32_t gbv_mux_min_cache_available = 16u;
 constexpr uint32_t gbv_mux_min_cache_slice = 8u;
 constexpr uint32_t gbv_tcp_slice = 2u;
 constexpr uint32_t gbv_half_time = 2u;
-constexpr uint32_t gbv_fec_waits = 3u;
+constexpr uint16_t gbv_fec_waits = 3u;
 constexpr size_t gbv_buffer_size = 2048u;
 constexpr size_t gbv_buffer_expand_size = 128u;
 constexpr size_t gbv_retry_times = 30u;
@@ -543,6 +543,7 @@ struct fec_control_data
 	std::atomic<uint32_t> fec_snd_sub_sn;
 	std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> fec_snd_cache;
 	std::map<uint32_t, std::map<uint16_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>> fec_rcv_cache;	// uint32_t = snd_sn, uint16_t = sub_sn
+	std::unordered_set<uint32_t> fec_rcv_restored;
 	fecpp::fec_code fecc;
 };
 

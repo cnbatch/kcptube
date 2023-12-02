@@ -136,7 +136,7 @@ namespace KCP
 		// update state (call it repeatedly, every 10ms-100ms), or you can ask 
 		// ikcp_check when to call it again (without ikcp_input/_send calling).
 		// 'current' - current timestamp in millisec. 
-		void update(uint32_t current);
+		int update(uint32_t current);
 
 		// Determine when should you invoke ikcp_update:
 		// returns when you should invoke ikcp_update in millisec, if there 

@@ -403,48 +403,54 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 	if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
 		return;
 
+	uint32_t conv = 0;
+	kcp_mappings *kcp_mappings_ptr = nullptr;
 	std::pair<std::unique_ptr<uint8_t[]>, size_t> original_data;
 	uint32_t fec_sn = 0;
 	uint8_t fec_sub_sn = 0;
 	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
 	{
 		auto [packet_header, kcp_data_ptr, kcp_data_size] = packet::unpack_fec(data.get(), plain_size);
-		if (packet_header.sub_sn >= current_settings.fec_data)
+		fec_sn = packet_header.sn;
+		fec_sub_sn = packet_header.sub_sn;
+		if (fec_sub_sn >= current_settings.fec_data)
 		{
 			auto [packet_header_redundant, redundant_data_ptr, redundant_data_size] = packet::unpack_fec_redundant(data.get(), plain_size);
 			kcp_ptr = verify_kcp_conv(kcp_ptr, packet_header_redundant.kcp_conv, peer);
-			kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+			kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 			original_data.first = std::make_unique<uint8_t[]>(redundant_data_size);
 			original_data.second = redundant_data_size;
 			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
 			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[packet_header_redundant.sn][packet_header_redundant.sub_sn] = std::move(original_data);
-			return;
+			if (!fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.fec_data))
+				return;
+			data_ptr = nullptr;
+			packet_data_size = 0;
 		}
 		else
 		{
-			fec_sn = packet_header.sn;
-			fec_sub_sn = packet_header.sub_sn;
 			data_ptr = kcp_data_ptr;
 			packet_data_size = kcp_data_size;
 			original_data.first = std::make_unique<uint8_t[]>(kcp_data_size);
 			original_data.second = kcp_data_size;
 			std::copy_n(kcp_data_ptr, kcp_data_size, original_data.first.get());
+
+			conv = KCP::KCP::GetConv(data_ptr);
+			kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
+			kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
+			fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.fec_data);
 		}
 	}
-
-	uint32_t conv = KCP::KCP::GetConv(data_ptr);
-	kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
-
-	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
-
-	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
+	else
 	{
-		kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
-		fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.fec_data);
+		conv = KCP::KCP::GetConv(data_ptr);
+		kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
+		kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 	}
 
-	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
-		return;
+	if (data_ptr != nullptr && packet_data_size != 0)
+		kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size);
 
 	while (true)
 	{
@@ -698,24 +704,38 @@ std::shared_ptr<KCP::KCP> client_mode::pick_one_from_kcp_channels(protocol_type 
 	}
 	else
 	{
-		size_t index = generate_random_number<size_t>(0, kcp_channels.size() - 1);
-		if (prtcl == protocol_type::tcp && index % 2 != 0)
+		std::map<int64_t, uint32_t> peaks_of_recv, peaks_of_sent;	// peak value, kcp conv
+		std::map<uint32_t, int32_t> recv_peaks_by_index, sent_peaks_by_index;	// kcp conv, peak-sorted index
+		for (auto iter = kcp_channels.begin(); iter != kcp_channels.end(); ++iter)
 		{
-			while (index % 2 != 0)
-			{
-				index = generate_random_number<size_t>(0, kcp_channels.size() - 1);
-			}
+			int64_t recv_peak_value = iter->second->egress_kcp->ReceivedDataAveragePeak();
+			int64_t sent_peak_value = iter->second->egress_kcp->SentDataAveragePeak();
+			peaks_of_recv[recv_peak_value] = iter->first;
+			peaks_of_sent[sent_peak_value] = iter->first;
 		}
-		if (prtcl == protocol_type::udp && index % 2 == 0)
+
+		int32_t index = 0;
+		for (auto [peak_value, conv] : peaks_of_recv)
+			recv_peaks_by_index[conv] = index++;
+
+		index = 0;
+		for (auto [peak_value, conv] : peaks_of_sent)
+			sent_peaks_by_index[conv] = index++;
+
+		recv_peaks_by_index.rbegin()->second = -1;
+		sent_peaks_by_index.rbegin()->second = -1;
+
+		std::multimap<int32_t, uint32_t> index_sum_of_conv;	// index_sum, kcp conv
+		for (auto &[conv, mappings] : kcp_channels)
 		{
-			while (index % 2 == 0)
-			{
-				index = generate_random_number<size_t>(0, kcp_channels.size() - 1);
-			}
+			if (recv_peaks_by_index[conv] < 0 || sent_peaks_by_index[conv] < 0)
+				continue;
+			int32_t index_sum = recv_peaks_by_index[conv] + sent_peaks_by_index[conv];
+			index_sum_of_conv.insert({ index_sum, conv });
 		}
-		auto iter = kcp_channels.begin();
-		std::advance(iter, index);
-		kcp_ptr = iter->second->egress_kcp;
+
+		auto conv = index_sum_of_conv.begin()->second;
+		kcp_ptr = kcp_channels[conv]->egress_kcp;
 	}
 	locker_kcp_channels.unlock();
 
@@ -822,19 +842,32 @@ void client_mode::fec_maker(kcp_mappings *kcp_mappings_ptr, const uint8_t *input
 	}
 }
 
-void client_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
+bool client_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
 {
+	bool recovered = false;
 	for (auto iter = fec_controllor.fec_rcv_cache.begin(), next_iter = iter; iter != fec_controllor.fec_rcv_cache.end(); iter = next_iter)
 	{
 		++next_iter;
 		auto sn = iter->first;
-		if (fec_sn == sn)
-			continue;;
 		auto &mapped_data = iter->second;
 		if (mapped_data.size() < max_fec_data_count)
 		{
 			if (fec_sn - sn > gbv_fec_waits)
+			{
 				fec_controllor.fec_rcv_cache.erase(iter);
+				if (auto rcv_sn_iter = fec_controllor.fec_rcv_restored.find(sn);
+					rcv_sn_iter != fec_controllor.fec_rcv_restored.end())
+					fec_controllor.fec_rcv_restored.erase(rcv_sn_iter);
+			}
+			continue;
+		}
+		if (auto rcv_sn_iter = fec_controllor.fec_rcv_restored.find(sn); rcv_sn_iter != fec_controllor.fec_rcv_restored.end())
+		{
+			if (fec_sn - sn > gbv_fec_waits)
+			{
+				fec_controllor.fec_rcv_cache.erase(iter);
+				fec_controllor.fec_rcv_restored.erase(rcv_sn_iter);
+			}
 			continue;
 		}
 		auto [recv_data, fec_align_length] = compact_into_container(mapped_data, max_fec_data_count);
@@ -847,8 +880,10 @@ void client_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_con
 			kcp_ptr->Input((const char *)missed_data_ptr, (long)missed_data_size);
 		}
 
-		fec_controllor.fec_rcv_cache.erase(iter);
+		fec_controllor.fec_rcv_restored.insert(sn);
+		recovered = true;
 	}
+	return recovered;
 }
 
 bool client_mode::get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target)

@@ -20,6 +20,8 @@ The FEC settings of the sender and receiver **must** be exactly the same, otherw
 
 - The amount of original data (D value) should not be too small. Setting the value too low is almost equivalent to having no effect. This value should be greater than 15.
     - Of course, greater is not better, because it will take a very long time to generate redundant data at low traffic.
+    - **Game data transmission is a special case**, and the lower the value of this option, the better, preferably **set to 1**. Game traffic itself is not high, and if the packet sending interval of the game program is longer than the link latency, FEC will have no effect. As it is sensitive to latency, this value can be set to 1.
+        - For gaming applications, it is preferable to set up a dedicated channel (such as a dedicated VPN tunnel) separately and avoid mixing with other applications.
 
 - The higher amount of redundant data (R value) is not always better. Excessive amount of redundant data will cause unnecessary waste.
 

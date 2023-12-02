@@ -38,7 +38,9 @@ namespace KCP
 		std::unique_ptr<kcp_core> kcp_ptr;
 		uint64_t outbound_bandwidth = 0;
 		uint64_t inbound_bandwidth = 0;
-		std::atomic<int64_t> last_input_time{0};
+		int64_t last_input_time = 0;
+		int64_t received_data_average_peak = 0;
+		int64_t sent_data_average_peak = 0;
 		mutable std::shared_mutex mtx;
 		//std::function<int(const char *, int, void *)> output;	// int(*output)(const char *buf, int len, void *user)
 		//std::function<void(const char *, void *)> writelog;	//void(*writelog)(const char *log, void *user)
@@ -140,9 +142,11 @@ namespace KCP
 
 		int32_t& RxMinRTO();
 		void SetBandwidth(uint64_t out_bw, uint64_t in_bw);
-		int64_t LastInputTime();
+		int64_t LastInputTime() const;
+		int64_t ReceivedDataAveragePeak() const;
+		int64_t SentDataAveragePeak() const;
 
-		void* GetUserData();
+		void* GetUserData() const;
 		void SetUserData(void *user_data);
 		bool WaitQueueIsFull();
 		bool WaitQueueIsEmpty();

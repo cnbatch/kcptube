@@ -1119,7 +1119,7 @@ namespace KCP
 	// ikcp_check when to call it again (without ikcp_input/_send calling).
 	// 'current' - current timestamp in millisec. 
 	//---------------------------------------------------------------------
-	void kcp_core::update(uint32_t current)
+	int kcp_core::update(uint32_t current)
 	{
 		int32_t slap;
 
@@ -1147,6 +1147,8 @@ namespace KCP
 
 			flush();
 		}
+
+		return slap;
 	}
 
 
