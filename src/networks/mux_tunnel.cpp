@@ -427,7 +427,9 @@ void mux_tunnel::setup_mux_kcp(std::shared_ptr<KCP::KCP> kcp_ptr)
 		kcp_ptr->SetOutput([this](const char *buf, int len, void *user) -> int { return server_ptr->kcp_sender(buf, len, user); });
 		kcp_ptr->SetPostUpdate([this](void *user)
 			{
+				if (user == nullptr) return;
 				std::shared_ptr<KCP::KCP> &data_kcp = ((kcp_mappings *)user)->ingress_kcp;
+				if (data_kcp == nullptr) return;
 				refresh_mux_queue(data_kcp);
 			});
 	}
@@ -437,7 +439,9 @@ void mux_tunnel::setup_mux_kcp(std::shared_ptr<KCP::KCP> kcp_ptr)
 		kcp_ptr->SetOutput([this](const char *buf, int len, void *user) -> int { return client_ptr->kcp_sender(buf, len, user); });
 		kcp_ptr->SetPostUpdate([this](void *user)
 			{
+				if (user == nullptr) return;
 				std::shared_ptr<KCP::KCP> &data_kcp = ((kcp_mappings *)user)->egress_kcp;
+				if (data_kcp == nullptr) return;
 				refresh_mux_queue(data_kcp);
 			});
 	}

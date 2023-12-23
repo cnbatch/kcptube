@@ -222,6 +222,8 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 		kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size);
 	}
 
+	resume_tcp(kcp_mappings_ptr.get());
+
 	while (kcp_ptr != nullptr)
 	{
 		int buffer_size = kcp_ptr->PeekSize();
@@ -1132,6 +1134,7 @@ void server_mode::cleanup_expiring_handshake_connections()
 
 		kcp_mappings_ptr->mapping_function();
 		kcp_ptr->SetOutput(empty_kcp_output);
+		kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
 		kcp_updater.remove(kcp_ptr);
 		udp::endpoint ep = *kcp_mappings_ptr->ingress_source_endpoint;
 		handshake_channels.erase(ep);
@@ -1158,6 +1161,7 @@ void server_mode::cleanup_expiring_data_connections()
 		}
 
 		kcp_ptr->SetOutput(empty_kcp_output);
+		kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
 
 		switch (kcp_mappings_ptr->connection_protocol)
 		{
@@ -1241,6 +1245,7 @@ void server_mode::loop_find_expires()
 			{
 				do_erase = true;
 				kcp_ptr->SetOutput(empty_kcp_output);
+				kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
 				mux_tunnels->delete_mux_records(kcp_ptr->GetConv());
 				mux_tunnels->remove_cached_kcp(kcp_ptr);
 			}

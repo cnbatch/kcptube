@@ -452,6 +452,8 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 	if (data_ptr != nullptr && packet_data_size != 0)
 		kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size);
 
+	resume_tcp(kcp_mappings_ptr);
+
 	while (true)
 	{
 		int buffer_size = kcp_ptr->PeekSize();
@@ -1178,6 +1180,7 @@ void client_mode::cleanup_expiring_data_connections()
 			continue;
 
 		kcp_ptr->SetOutput(empty_kcp_output);
+		kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
 
 		{
 			std::scoped_lock locker_expiring_forwarders{ mutex_expiring_forwarders };
@@ -1289,6 +1292,7 @@ void client_mode::loop_find_expires()
 
 				kcp_channels.erase(iter);
 				kcp_ptr->SetOutput(empty_kcp_output);
+				kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
 			}
 		}
 
@@ -1308,6 +1312,7 @@ void client_mode::loop_find_expires()
 
 				kcp_channels.erase(iter);
 				kcp_ptr->SetOutput(empty_kcp_output);
+				kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
 			}
 		}
 
@@ -1322,6 +1327,7 @@ void client_mode::loop_find_expires()
 
 				kcp_channels.erase(iter);
 				kcp_ptr->SetOutput(empty_kcp_output);
+				kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
 
 				mux_tunnels->delete_mux_records(conv);
 				establish_mux_channels(1);
@@ -1480,6 +1486,9 @@ std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protoco
 
 void client_mode::resume_tcp(kcp_mappings *kcp_mappings_ptr)
 {
+	if (kcp_mappings_ptr->local_tcp == nullptr)
+		return;
+
 	if (kcp_data_sender != nullptr)
 	{
 		kcp_data_sender->push_task((size_t)kcp_mappings_ptr, [kcp_mappings_ptr]()

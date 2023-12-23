@@ -26,6 +26,10 @@ int empty_kcp_output(const char *, int, void *)
 	return 0;
 }
 
+void empty_kcp_postupdate(void *)
+{
+}
+
 void empty_task_callback(std::unique_ptr<uint8_t[]> null_data)
 {
 }
@@ -701,13 +705,11 @@ void tcp_session::disconnect()
 	asio::error_code ec;
 	connection_socket.shutdown(asio::socket_base::shutdown_both, ec);
 	ec.clear();
-	if (connection_socket.is_open())
-		connection_socket.close(ec);
 }
 
 void tcp_session::async_read_data()
 {
-	if (paused.load() || stopped.load() || !connection_socket.is_open())
+	if (paused.load())
 		return;
 
 	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(gbv_buffer_size);
@@ -721,7 +723,7 @@ void tcp_session::async_read_data()
 
 size_t tcp_session::send_data(const std::vector<uint8_t> &buffer_data)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data.empty())
+	if (buffer_data.empty())
 		return 0;
 
 	size_t sent_size = connection_socket.send(asio::buffer(buffer_data));
@@ -731,7 +733,7 @@ size_t tcp_session::send_data(const std::vector<uint8_t> &buffer_data)
 
 size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || size_in_bytes == 0)
+	if (buffer_data == nullptr || size_in_bytes == 0)
 		return 0;
 
 	size_t sent_size = connection_socket.send(asio::buffer(buffer_data, size_in_bytes));
@@ -741,7 +743,7 @@ size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes)
 
 size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes, asio::error_code &ec)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || size_in_bytes == 0)
+	if (buffer_data == nullptr || size_in_bytes == 0)
 		return 0;
 
 	size_t sent_size = connection_socket.send(asio::buffer(buffer_data, size_in_bytes), 0, ec);
@@ -751,7 +753,7 @@ size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes, 
 
 void tcp_session::async_send_data(std::unique_ptr<std::vector<uint8_t>> data)
 {
-	if (stopped.load() || !connection_socket.is_open() || data == nullptr || data->empty())
+	if (data == nullptr || data->empty())
 		return;
 
 	auto asio_buffer = asio::buffer(*data);
@@ -764,7 +766,7 @@ void tcp_session::async_send_data(std::unique_ptr<std::vector<uint8_t>> data)
 
 void tcp_session::async_send_data(std::vector<uint8_t> &&data)
 {
-	if (stopped.load() || !connection_socket.is_open() || data.empty())
+	if (data.empty())
 		return;
 
 	auto asio_buffer = asio::buffer(data);
@@ -775,7 +777,7 @@ void tcp_session::async_send_data(std::vector<uint8_t> &&data)
 
 void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, size_t size_in_bytes)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || size_in_bytes == 0)
+	if (buffer_data == nullptr || size_in_bytes == 0)
 		return;
 
 	auto asio_buffer = asio::buffer(buffer_data.get(), size_in_bytes);
@@ -786,7 +788,7 @@ void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, size_t
 
 void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, uint8_t *start_pos, size_t size_in_bytes)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || start_pos == nullptr || size_in_bytes == 0)
+	if (buffer_data == nullptr || start_pos == nullptr || size_in_bytes == 0)
 		return;
 
 	asio::async_write(connection_socket, asio::buffer(start_pos, size_in_bytes),
@@ -796,7 +798,7 @@ void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, uint8_
 
 void tcp_session::async_send_data(const uint8_t *buffer_data, size_t size_in_bytes)
 {
-	if (stopped.load() || !connection_socket.is_open() || buffer_data == nullptr || size_in_bytes == 0)
+	if (buffer_data == nullptr || size_in_bytes == 0)
 		return;
 
 	asio::async_write(connection_socket, asio::buffer(buffer_data, size_in_bytes),
@@ -831,17 +833,34 @@ int64_t tcp_session::time_gap_of_send()
 
 void tcp_session::after_write_completed(const asio::error_code &error, size_t bytes_transferred)
 {
+	if (error && stopped.load())
+	{
+		if (connection_socket.is_open())
+		{
+			asio::error_code ec;
+			connection_socket.close(ec);
+		}
+		return;
+	}
+
 	last_send_time.store(packet::right_now());
 }
 
 void tcp_session::after_read_completed(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, size_t bytes_transferred)
 {
-	if (stopped.load())
-		return;
-
 	if (error)
 	{
 		transfer_data_to_next_function(std::move(buffer_cache), bytes_transferred);
+		if (stopped.load())
+		{
+			if (connection_socket.is_open())
+			{
+				asio::error_code ec;
+				connection_socket.close(ec);
+			}
+			return;
+		}
+
 		callback_for_disconnect(shared_from_this());
 		if (connection_socket.is_open())
 			this->disconnect();

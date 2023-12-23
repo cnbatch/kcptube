@@ -202,6 +202,7 @@ void empty_tcp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, std::share
 void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
 void empty_tcp_disconnect(std::shared_ptr<tcp_session> tmp);
 int empty_kcp_output(const char *, int, void *);
+void empty_kcp_postupdate(void *);
 void empty_task_callback(std::unique_ptr<uint8_t[]> null_data);
 
 class tcp_session : public std::enable_shared_from_this<tcp_session>
