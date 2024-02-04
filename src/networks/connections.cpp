@@ -680,7 +680,6 @@ void tcp_session::pause(bool set_as_pause)
 void tcp_session::stop()
 {
 	stopped.store(true);
-	callback = empty_tcp_callback;
 	if (is_open())
 		disconnect();
 }
@@ -704,12 +703,11 @@ void tcp_session::disconnect()
 {
 	asio::error_code ec;
 	connection_socket.shutdown(asio::socket_base::shutdown_both, ec);
-	ec.clear();
 }
 
 void tcp_session::async_read_data()
 {
-	if (paused.load())
+	if (paused.load() || stopped.load())
 		return;
 
 	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(gbv_buffer_size);
@@ -723,7 +721,7 @@ void tcp_session::async_read_data()
 
 size_t tcp_session::send_data(const std::vector<uint8_t> &buffer_data)
 {
-	if (buffer_data.empty())
+	if (stopped.load() || buffer_data.empty())
 		return 0;
 
 	size_t sent_size = connection_socket.send(asio::buffer(buffer_data));
@@ -733,7 +731,7 @@ size_t tcp_session::send_data(const std::vector<uint8_t> &buffer_data)
 
 size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes)
 {
-	if (buffer_data == nullptr || size_in_bytes == 0)
+	if (stopped.load() || buffer_data == nullptr || size_in_bytes == 0)
 		return 0;
 
 	size_t sent_size = connection_socket.send(asio::buffer(buffer_data, size_in_bytes));
@@ -743,7 +741,7 @@ size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes)
 
 size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes, asio::error_code &ec)
 {
-	if (buffer_data == nullptr || size_in_bytes == 0)
+	if (stopped.load() || buffer_data == nullptr || size_in_bytes == 0)
 		return 0;
 
 	size_t sent_size = connection_socket.send(asio::buffer(buffer_data, size_in_bytes), 0, ec);
@@ -753,7 +751,7 @@ size_t tcp_session::send_data(const uint8_t *buffer_data, size_t size_in_bytes, 
 
 void tcp_session::async_send_data(std::unique_ptr<std::vector<uint8_t>> data)
 {
-	if (data == nullptr || data->empty())
+	if (stopped.load() || data == nullptr || data->empty())
 		return;
 
 	auto asio_buffer = asio::buffer(*data);
@@ -766,7 +764,7 @@ void tcp_session::async_send_data(std::unique_ptr<std::vector<uint8_t>> data)
 
 void tcp_session::async_send_data(std::vector<uint8_t> &&data)
 {
-	if (data.empty())
+	if (stopped.load() || data.empty())
 		return;
 
 	auto asio_buffer = asio::buffer(data);
@@ -777,7 +775,7 @@ void tcp_session::async_send_data(std::vector<uint8_t> &&data)
 
 void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, size_t size_in_bytes)
 {
-	if (buffer_data == nullptr || size_in_bytes == 0)
+	if (stopped.load() || buffer_data == nullptr || size_in_bytes == 0)
 		return;
 
 	auto asio_buffer = asio::buffer(buffer_data.get(), size_in_bytes);
@@ -788,7 +786,7 @@ void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, size_t
 
 void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, uint8_t *start_pos, size_t size_in_bytes)
 {
-	if (buffer_data == nullptr || start_pos == nullptr || size_in_bytes == 0)
+	if (stopped.load() || buffer_data == nullptr || start_pos == nullptr || size_in_bytes == 0)
 		return;
 
 	asio::async_write(connection_socket, asio::buffer(start_pos, size_in_bytes),
@@ -798,7 +796,7 @@ void tcp_session::async_send_data(std::unique_ptr<uint8_t[]> buffer_data, uint8_
 
 void tcp_session::async_send_data(const uint8_t *buffer_data, size_t size_in_bytes)
 {
-	if (buffer_data == nullptr || size_in_bytes == 0)
+	if (stopped.load() || buffer_data == nullptr || size_in_bytes == 0)
 		return;
 
 	asio::async_write(connection_socket, asio::buffer(buffer_data, size_in_bytes),
@@ -811,9 +809,13 @@ void tcp_session::when_disconnect(std::function<void(std::shared_ptr<tcp_session
 	callback_for_disconnect = callback_before_disconnect;
 }
 
-void tcp_session::replace_callback(tcp_callback_t callback_func)
+bool tcp_session::replace_callback(tcp_callback_t callback_func)
 {
+	if (session_ending.load() || stopped.load())
+		return false;
+
 	callback = callback_func;
+	return true;
 }
 
 tcp::socket& tcp_session::socket()
@@ -834,20 +836,16 @@ int64_t tcp_session::time_gap_of_send()
 void tcp_session::after_write_completed(const asio::error_code &error, size_t bytes_transferred)
 {
 	if (error && stopped.load())
-	{
-		if (connection_socket.is_open())
-		{
-			asio::error_code ec;
-			connection_socket.close(ec);
-		}
 		return;
-	}
 
 	last_send_time.store(packet::right_now());
 }
 
 void tcp_session::after_read_completed(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, size_t bytes_transferred)
 {
+	if (session_ending.load())
+		return;
+
 	if (error)
 	{
 		transfer_data_to_next_function(std::move(buffer_cache), bytes_transferred);
@@ -861,7 +859,13 @@ void tcp_session::after_read_completed(std::unique_ptr<uint8_t[]> buffer_cache, 
 			return;
 		}
 
-		callback_for_disconnect(shared_from_this());
+		try
+		{
+			if (!session_ending.load())
+				callback_for_disconnect(shared_from_this());
+		}
+		catch (...) {}
+
 		if (connection_socket.is_open())
 			this->disconnect();
 		return;

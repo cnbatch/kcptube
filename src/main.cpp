@@ -18,18 +18,17 @@
 
 int main(int argc, char *argv[])
 {
-	char app_name[] = "kcptube";
-	printf("%s version 20231223\n", app_name);
+	printf("%.*s version 20240204\n", (int)app_name.length(), app_name.data());
 
 	if (argc <= 1)
 	{
-		printf("Usage: %s config1.conf\n", app_name);
-		printf("       %s config1.conf config2.conf...\n", app_name);
+		printf("Usage: %.*s config1.conf\n", (int)app_name.length(), app_name.data());
+		printf("       %.*s config1.conf config2.conf...\n", (int)app_name.length(), app_name.data());
 		printf("Connectivity Testing:\n");
-		printf("       %s --try config1.conf\n", app_name);
-		printf("       %s --try config1.conf config2.conf...\n", app_name);
-		printf("       %s config1.conf --try\n", app_name);
-		printf("       %s config1.conf config2.conf... --try\n", app_name);
+		printf("       %.*s --try config1.conf\n", (int)app_name.length(), app_name.data());
+		printf("       %.*s --try config1.conf config2.conf...\n", (int)app_name.length(), app_name.data());
+		printf("       %.*s config1.conf --try\n", (int)app_name.length(), app_name.data());
+		printf("       %.*s config1.conf config2.conf... --try\n", (int)app_name.length(), app_name.data());
 		return 0;
 	}
 

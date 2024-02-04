@@ -254,7 +254,7 @@ public:
 
 	void when_disconnect(std::function<void(std::shared_ptr<tcp_session>)> callback_before_disconnect);
 
-	void replace_callback(tcp_callback_t callback_func);
+	bool replace_callback(tcp_callback_t callback_func);
 
 	tcp::socket& socket();
 
@@ -275,11 +275,11 @@ private:
 	tcp::socket connection_socket;
 	tcp_callback_t callback;
 	std::function<void(std::shared_ptr<tcp_session>)> callback_for_disconnect;
-	std::atomic<int64_t> last_receive_time;
-	std::atomic<int64_t> last_send_time;
-	std::atomic<bool> paused;
-	std::atomic<bool> stopped;
-	std::atomic<bool> session_ending;
+	alignas(64) std::atomic<int64_t> last_receive_time;
+	alignas(64) std::atomic<int64_t> last_send_time;
+	alignas(64) std::atomic<bool> paused;
+	alignas(64) std::atomic<bool> stopped;
+	alignas(64) std::atomic<bool> session_ending;
 	const size_t task_limit;
 };
 
@@ -483,10 +483,10 @@ protected:
 	udp::resolver resolver;
 	udp::endpoint incoming_endpoint;
 	udp_callback_t callback;
-	std::atomic<int64_t> last_receive_time;
-	std::atomic<int64_t> last_send_time;
-	std::atomic<bool> paused;
-	std::atomic<bool> stopped;
+	alignas(64) std::atomic<int64_t> last_receive_time;
+	alignas(64) std::atomic<int64_t> last_send_time;
+	alignas(64) std::atomic<bool> paused;
+	alignas(64) std::atomic<bool> stopped;
 	const size_t task_limit;
 	const bool ipv4_only;
 };
@@ -530,7 +530,11 @@ private:
 
 		std::shared_ptr<KCP::KCP> kcp_ptr = kcp.lock();
 		if (kcp_ptr == nullptr)
+		{
+			stopped.store(true);
 			return;
+		}
+
 		callback(kcp_ptr, std::move(data), data_size, peer, local_port_number);
 	}
 
@@ -540,8 +544,8 @@ private:
 
 struct fec_control_data
 {
-	std::atomic<uint32_t> fec_snd_sn;
-	std::atomic<uint32_t> fec_snd_sub_sn;
+	alignas(64) std::atomic<uint32_t> fec_snd_sn;
+	alignas(64) std::atomic<uint32_t> fec_snd_sub_sn;
 	std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> fec_snd_cache;
 	std::map<uint32_t, std::map<uint16_t, std::pair<std::unique_ptr<uint8_t[]>, size_t>>> fec_rcv_cache;	// uint32_t = snd_sn, uint16_t = sub_sn
 	std::unordered_set<uint32_t> fec_rcv_restored;
@@ -557,13 +561,13 @@ struct kcp_mappings
 	udp::endpoint egress_previous_target_endpoint;
 	std::shared_ptr<KCP::KCP> ingress_kcp;
 	std::shared_ptr<KCP::KCP> egress_kcp;
-	std::atomic<udp_server *> ingress_listener;
+	alignas(64) std::atomic<udp_server *> ingress_listener;
 	std::shared_ptr<forwarder> egress_forwarder;
 	std::shared_ptr<tcp_session> local_tcp;
 	std::shared_ptr<udp_client> local_udp;
-	std::atomic<int64_t> changeport_timestamp;
-	std::atomic<int64_t> handshake_setup_time;
-	std::atomic<int64_t> last_data_transfer_time;
+	alignas(64) std::atomic<int64_t> changeport_timestamp;
+	alignas(64) std::atomic<int64_t> handshake_setup_time;
+	alignas(64) std::atomic<int64_t> last_data_transfer_time;
 	asio::ip::port_type ingress_listen_port;	// client mode only
 	asio::ip::port_type remote_output_port;	// client mode only
 	std::string remote_output_address;	// client mode only
@@ -581,7 +585,7 @@ struct mux_records
 	udp::endpoint source_endpoint;
 	asio::ip::port_type custom_output_port;
 	std::string custom_output_address;
-	std::atomic<int64_t> last_data_transfer_time;
+	alignas(64) std::atomic<int64_t> last_data_transfer_time;
 };
 
 struct mux_data_cache

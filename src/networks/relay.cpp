@@ -17,7 +17,7 @@ relay_mode::~relay_mode()
 
 bool relay_mode::start()
 {
-	printf("start_up() running in relay mode\n");
+	printf("%.*s running in relay mode\n", (int)app_name.length(), app_name.data());
 
 	auto func = std::bind(&relay_mode::udp_listener_incoming, this, _1, _2, _3, _4);
 
@@ -511,6 +511,8 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 			auto [packet_header_redundant, redundant_data_ptr, redundant_data_size] = packet::unpack_fec_redundant(data.get(), plain_size);
 			kcp_ptr = verify_kcp_conv(kcp_ptr, packet_header_redundant.kcp_conv, peer);
 			kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+			if (kcp_mappings_ptr == nullptr)
+				return;
 			original_data.first = std::make_unique<uint8_t[]>(redundant_data_size);
 			original_data.second = redundant_data_size;
 			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
@@ -530,6 +532,8 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 			conv = KCP::KCP::GetConv(data_ptr);
 			kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
 			kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+			if (kcp_mappings_ptr == nullptr)
+				return;
 			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
 			fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.egress->fec_data);
 		}
@@ -539,6 +543,8 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 		conv = KCP::KCP::GetConv(data_ptr);
 		kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
 		kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+		if (kcp_mappings_ptr == nullptr)
+			return;
 	}
 
 	if (data_ptr != nullptr && packet_data_size != 0)
@@ -1183,7 +1189,11 @@ void relay_mode::cleanup_expiring_handshake_connections()
 		
 		handshakes_kcp_mappings_ptr->mapping_function();
 		handshakes_kcp_mappings_ptr->ingress_kcp->SetOutput(empty_kcp_output);
+		handshakes_kcp_mappings_ptr->ingress_kcp->SetPostUpdate(empty_kcp_postupdate);
+		handshakes_kcp_mappings_ptr->ingress_kcp->SetUserData(nullptr);
 		handshakes_kcp_mappings_ptr->egress_kcp->SetOutput(empty_kcp_output);
+		handshakes_kcp_mappings_ptr->egress_kcp->SetPostUpdate(empty_kcp_postupdate);
+		handshakes_kcp_mappings_ptr->egress_kcp->SetUserData(nullptr);
 		kcp_updater.remove(handshakes_kcp_mappings_ptr->ingress_kcp);
 		kcp_updater.remove(handshakes_kcp_mappings_ptr->egress_kcp);
 		handshake_ingress_map_to_channels.erase(*handshakes_kcp_mappings_ptr->ingress_source_endpoint);
@@ -1235,7 +1245,11 @@ void relay_mode::cleanup_expiring_data_connections()
 			continue;
 
 		ingress_kcp_ptr->SetOutput(empty_kcp_output);
+		ingress_kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
+		ingress_kcp_ptr->SetUserData(nullptr);
 		egress_kcp_ptr->SetOutput(empty_kcp_output);
+		egress_kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
+		egress_kcp_ptr->SetUserData(nullptr);
 
 		{
 			std::scoped_lock locker_expiring_forwarders{ mutex_expiring_forwarders };

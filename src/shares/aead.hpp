@@ -3,10 +3,9 @@
 #include <functional>
 #include <iostream>
 #include <random>
-#include <botan/gcm.h>
-#include <botan/ocb.h>
-#include <botan/sha3.h>
-#include <botan/chacha20poly1305.h>
+#include <botan/cipher_mode.h>
+#include <botan/hash.h>
+#include <botan/aead.h>
 
 #ifndef __AEAD_HPP__
 #define __AEAD_HPP__
@@ -248,14 +247,14 @@ private:
 			return;
 		}
 
-		Botan::SHA_3_256 sha3;
-		Botan::secure_vector<uint8_t> output_key = sha3.process((const uint8_t *)input_key.c_str(), input_key.size());
+		std::unique_ptr<Botan::HashFunction> sha3 = Botan::HashFunction::create("SHA-3(256)");
+		Botan::secure_vector<uint8_t> output_key = sha3->process((const uint8_t *)input_key.c_str(), input_key.size());
 		std::copy(output_key.begin(), output_key.end(), key.begin());
 
 		head_tail_xor(output_key, iv);
 
-		encoder = Botan::GCM_Mode::create("AES-256/GCM", Botan::ENCRYPTION);
-		decoder = Botan::GCM_Mode::create("AES-256/GCM", Botan::DECRYPTION);
+		encoder = Botan::AEAD_Mode::create("AES-256/GCM", Botan::Cipher_Dir::Encryption);
+		decoder = Botan::AEAD_Mode::create("AES-256/GCM", Botan::Cipher_Dir::Decryption);
 
 		encoder->set_key(key.data(), key.size());
 		encoder->set_associated_data((const uint8_t *)associated_data.c_str(), associated_data.size());
@@ -325,12 +324,12 @@ private:
 			return;
 		}
 
-		Botan::SHA_3_256 sha3_256;
-		Botan::secure_vector<uint8_t> output_key = sha3_256.process((const uint8_t *)input_key.c_str(), input_key.size());
+		std::unique_ptr<Botan::HashFunction> sha3_256 = Botan::HashFunction::create("SHA-3(256)");
+		Botan::secure_vector<uint8_t> output_key = sha3_256->process((const uint8_t *)input_key.c_str(), input_key.size());
 		std::copy(output_key.begin(), output_key.end(), key.begin());
 
-		Botan::SHA_3_384 sha3_384;
-		Botan::secure_vector<uint8_t> output_key_384 = sha3_384.process((const uint8_t *)input_key.c_str(), input_key.size());
+		std::unique_ptr<Botan::HashFunction> sha3_384 = Botan::HashFunction::create("SHA-3(384)");
+		Botan::secure_vector<uint8_t> output_key_384 = sha3_384->process((const uint8_t *)input_key.c_str(), input_key.size());
 
 		Botan::secure_vector<uint8_t> output = head_tail_xor(output_key_384);
 		while (output.size() > iv.size())
@@ -342,8 +341,8 @@ private:
 
 		std::copy(output.begin(), output.end(), iv.begin());
 
-		encoder = Botan::GCM_Mode::create("AES-256/OCB", Botan::ENCRYPTION);
-		decoder = Botan::GCM_Mode::create("AES-256/OCB", Botan::DECRYPTION);
+		encoder = Botan::AEAD_Mode::create("AES-256/OCB", Botan::Cipher_Dir::Encryption);
+		decoder = Botan::AEAD_Mode::create("AES-256/OCB", Botan::Cipher_Dir::Decryption);
 
 		encoder->set_key(key.data(), key.size());
 		encoder->set_associated_data((const uint8_t *)associated_data.c_str(), associated_data.size());
@@ -413,8 +412,8 @@ private:
 			return;
 		}
 
-		Botan::SHA_3_256 sha3;
-		Botan::secure_vector<uint8_t> output_key = sha3.process((const uint8_t *)input_key.c_str(), input_key.size());
+		std::unique_ptr<Botan::HashFunction> sha3 = Botan::HashFunction::create("SHA-3(256)");
+		Botan::secure_vector<uint8_t> output_key = sha3->process((const uint8_t *)input_key.c_str(), input_key.size());
 		std::copy(output_key.begin(), output_key.end(), key.begin());
 
 		Botan::secure_vector<uint8_t> output = head_tail_xor(output_key);
@@ -427,8 +426,8 @@ private:
 
 		std::copy(output.begin(), output.end(), iv.begin());
 
-		encoder = Botan::ChaCha20Poly1305_Mode::create("ChaCha20Poly1305", Botan::ENCRYPTION);
-		decoder = Botan::ChaCha20Poly1305_Mode::create("ChaCha20Poly1305", Botan::DECRYPTION);
+		encoder = Botan::AEAD_Mode::create("ChaCha20Poly1305", Botan::Cipher_Dir::Encryption);
+		decoder = Botan::AEAD_Mode::create("ChaCha20Poly1305", Botan::Cipher_Dir::Decryption);
 
 		encoder->set_key(key.data(), key.size());
 		encoder->set_associated_data((const uint8_t *)associated_data.c_str(), associated_data.size());
@@ -496,17 +495,17 @@ private:
 			return;
 		}
 
-		Botan::SHA_3_256 sha3_256;
-		Botan::secure_vector<uint8_t> output_key = sha3_256.process((const uint8_t *)input_key.c_str(), input_key.size());
+		std::unique_ptr<Botan::HashFunction> sha3_256 = Botan::HashFunction::create("SHA-3(256)");
+		Botan::secure_vector<uint8_t> output_key = sha3_256->process((const uint8_t *)input_key.c_str(), input_key.size());
 		std::copy(output_key.begin(), output_key.end(), key.begin());
 
-		Botan::SHA_3_384 sha3_384;
-		Botan::secure_vector<uint8_t> output_key_384 = sha3_384.process((const uint8_t *)input_key.c_str(), input_key.size());
+		std::unique_ptr<Botan::HashFunction> sha3_384 = Botan::HashFunction::create("SHA-3(384)");
+		Botan::secure_vector<uint8_t> output_key_384 = sha3_384->process((const uint8_t *)input_key.c_str(), input_key.size());
 
 		head_tail_xor(output_key_384, iv);
 
-		encoder = Botan::ChaCha20Poly1305_Mode::create("ChaCha20Poly1305", Botan::ENCRYPTION);
-		decoder = Botan::ChaCha20Poly1305_Mode::create("ChaCha20Poly1305", Botan::DECRYPTION);
+		encoder = Botan::AEAD_Mode::create("ChaCha20Poly1305", Botan::Cipher_Dir::Encryption);
+		decoder = Botan::AEAD_Mode::create("ChaCha20Poly1305", Botan::Cipher_Dir::Decryption);
 
 		encoder->set_key(key.data(), key.size());
 		encoder->set_associated_data((const uint8_t *)associated_data.c_str(), associated_data.size());

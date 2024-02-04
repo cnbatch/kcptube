@@ -27,7 +27,7 @@ server_mode::~server_mode()
 
 bool server_mode::start()
 {
-	printf("start_up() running in server mode\n");
+	printf("%.*s is running in server mode\n", (int)app_name.length(), app_name.data());
 
 	auto func = std::bind(&server_mode::udp_listener_incoming, this, _1, _2, _3, _4);
 	std::set<uint16_t> listen_ports = convert_to_port_list(current_settings);
@@ -600,6 +600,8 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 		data_kcp->SetPostUpdate([this](void *user) { resume_tcp((kcp_mappings*)user); });
 
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->GetUserData();
+		if (kcp_mappings_ptr == nullptr)
+			return false;
 		kcp_mappings_ptr->local_tcp = local_session;
 		local_session->async_read_data();
 	}
@@ -681,6 +683,8 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 		udp::endpoint target_endpoint = *udp_endpoints.begin();
 		target_connector->async_receive();
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->GetUserData();
+		if (kcp_mappings_ptr == nullptr)
+			return false;
 		kcp_mappings_ptr->egress_target_endpoint = target_endpoint;
 
 		resolve_completed = true;
@@ -694,6 +698,8 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	{
 		target_connector->async_receive();
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->GetUserData();
+		if (kcp_mappings_ptr == nullptr)
+			return false;
 		kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 		kcp_mappings_ptr->local_udp = target_connector;
 		data_kcp->Flush();
@@ -988,7 +994,6 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP
 		kcp_updater.submit(kcp_ptr, next_update_time);
 		expiring_kcp.insert({ kcp_mappings_ptr, packet::right_now() + gbv_keepalive_timeout });
 
-		session->when_disconnect(empty_tcp_disconnect);
 		session->session_is_ending(true);
 		session->pause(false);
 		session->stop();
@@ -1030,7 +1035,6 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP
 	auto func = [this, kcp_ptr_weak](std::unique_ptr<uint8_t[]> data) mutable { mux_tunnels->refresh_mux_queue(kcp_ptr_weak); };
 	sequence_task_pool_local.push_task((size_t)this, func, std::move(empty_ptr));
 
-	session->when_disconnect(empty_tcp_disconnect);
 	session->session_is_ending(true);
 	session->pause(false);
 	session->stop();
@@ -1135,6 +1139,7 @@ void server_mode::cleanup_expiring_handshake_connections()
 		kcp_mappings_ptr->mapping_function();
 		kcp_ptr->SetOutput(empty_kcp_output);
 		kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
+		kcp_ptr->SetUserData(nullptr);
 		kcp_updater.remove(kcp_ptr);
 		udp::endpoint ep = *kcp_mappings_ptr->ingress_source_endpoint;
 		handshake_channels.erase(ep);
@@ -1156,12 +1161,11 @@ void server_mode::cleanup_expiring_data_connections()
 		uint32_t conv = kcp_ptr->GetConv();
 
 		if (time_right_now - expire_time < (int64_t)gbv_kcp_cleanup_waits)
-		{
 			continue;
-		}
 
 		kcp_ptr->SetOutput(empty_kcp_output);
 		kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
+		kcp_ptr->SetUserData(nullptr);
 
 		switch (kcp_mappings_ptr->connection_protocol)
 		{
@@ -1170,7 +1174,7 @@ void server_mode::cleanup_expiring_data_connections()
 			std::shared_ptr<tcp_session> &current_session = kcp_mappings_ptr->local_tcp;
 			if (current_session != nullptr)
 			{
-				current_session->when_disconnect(empty_tcp_disconnect);
+				current_session->session_is_ending(true);
 				current_session->stop();
 				current_session = nullptr;
 			}
@@ -1246,6 +1250,7 @@ void server_mode::loop_find_expires()
 				do_erase = true;
 				kcp_ptr->SetOutput(empty_kcp_output);
 				kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
+				kcp_ptr->SetUserData(nullptr);
 				mux_tunnels->delete_mux_records(kcp_ptr->GetConv());
 				mux_tunnels->remove_cached_kcp(kcp_ptr);
 			}
@@ -1285,6 +1290,8 @@ void server_mode::loop_keep_alive()
 		timestamp += current_settings.keep_alive;
 
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+		if (kcp_mappings_ptr == nullptr)
+			continue;
 		protocol_type ptype = kcp_mappings_ptr->connection_protocol;
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(ptype);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());

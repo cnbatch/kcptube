@@ -68,7 +68,6 @@ namespace KCP
 				wait_time = 1;
 
 			thread_local std::set<std::weak_ptr<KCP>, std::owner_less<>> kcp_tasks;
-			kcp_tasks.clear();
 			{
 				std::unique_lock tasks_lock(kcp_tasks_mutex);
 				kcp_tasks_available_cv.wait_for(tasks_lock, std::chrono::milliseconds{wait_time});
@@ -99,6 +98,7 @@ namespace KCP
 						uint32_t kcp_update_time = kcp_ptr->Check();
 						temp_list[kcp_update_time].push_back(kcp_weak_ptr);
 					}
+					kcp_tasks.clear();
 
 					tasks_lock.lock();
 
