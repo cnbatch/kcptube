@@ -26,6 +26,16 @@ or
 kcptube config1.conf --try
 ```
 
+#### Verify configuration files
+Use the ``--check-config`` option to check the configuration file for errors.
+```
+kcptube --check-config config1.conf
+```
+or
+```
+kcptube config1.conf --check-config
+```
+
 #### Examples of Client and Server Mode
 Please refer [General Configuration](client_server_en.md) introduction page
 

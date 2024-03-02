@@ -372,7 +372,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 
 				std::shared_ptr<KCP::KCP> handshake_kcp_egress = std::make_shared<KCP::KCP>(0);
 				auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-				auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp_egress, udp_func, current_settings.egress->ipv4_only);
+				auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, handshake_kcp_egress, udp_func, current_settings.egress->ipv4_only);
 				if (udp_forwarder == nullptr)
 				{
 					expiring_handshakes[handshake_kcp_mappings_ptr] = packet::right_now();
@@ -658,12 +658,47 @@ void relay_mode::change_new_port(kcp_mappings *kcp_mappings_ptr)
 	auto timestamp = packet::right_now();
 	if (kcp_mappings_ptr->changeport_timestamp.load() > timestamp)
 		return;
-	kcp_mappings_ptr->changeport_timestamp += current_settings.egress->dynamic_port_refresh;
+	kcp_mappings_ptr->changeport_timestamp.store(LLONG_MAX);
 
+	uint16_t destination_port_start = current_settings.destination_port_start;
+	uint16_t destination_port_end = current_settings.destination_port_end;
+	if (destination_port_start != destination_port_end || kcp_mappings_ptr->changeport_available.load())
+		switch_new_port(kcp_mappings_ptr);
+	else
+		test_before_change(kcp_mappings_ptr);
+}
+
+void relay_mode::test_before_change(kcp_mappings * kcp_mappings_ptr)
+{
+	std::shared_ptr<kcp_mappings> hs = create_test_handshake();
+	if (hs == nullptr)
+	{
+		kcp_mappings_ptr->changeport_timestamp.store(packet::right_now() + current_settings.dynamic_port_refresh);
+		return;
+	}
+
+	hs->egress_kcp->Update();
+	uint32_t next_update_time = hs->egress_kcp->Refresh();
+	kcp_updater.submit(hs->egress_kcp, next_update_time);
+
+	kcp_mappings_ptr->changeport_testing_ptr = hs;
+	std::weak_ptr<kcp_mappings> kcp_mappings_weak = kcp_mappings_ptr->self_share();
+	hs->changeport_testing_ptr = kcp_mappings_weak;
+	hs->mapping_function = [hs]()
+		{
+			std::shared_ptr<kcp_mappings> kcp_mappings_ptr = hs->changeport_testing_ptr.lock();
+			if (kcp_mappings_ptr == nullptr) return;
+			kcp_mappings_ptr->changeport_available.store(true);
+			kcp_mappings_ptr->changeport_timestamp.store(packet::right_now());
+		};
+}
+
+void relay_mode::switch_new_port(kcp_mappings * kcp_mappings_ptr)
+{
 	std::shared_ptr<KCP::KCP> kcp_ptr_egress = kcp_mappings_ptr->egress_kcp;
 
 	auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ipv4_only);
+	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ipv4_only);
 	if (udp_forwarder == nullptr)
 		return;
 
@@ -671,11 +706,18 @@ void relay_mode::change_new_port(kcp_mappings *kcp_mappings_ptr)
 	uint16_t destination_port_end = current_settings.egress->destination_port_end;
 	if (destination_port_start != destination_port_end)
 	{
-		uint16_t new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
+		std::shared_ptr<kcp_mappings> changeport_testing_ptr = kcp_mappings_ptr->changeport_testing_ptr.lock();
+		uint16_t new_port_numer = 0;
+		if (changeport_testing_ptr == nullptr)
+			new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
+		else
+			new_port_numer = changeport_testing_ptr->egress_target_endpoint.port();
+		kcp_mappings_ptr->changeport_available.store(false);
+		kcp_mappings_ptr->changeport_testing_ptr.reset();
 		std::shared_lock locker{ mutex_egress_target_address };
 		asio::ip::address temp_address = *target_address;
 		locker.unlock();
-		std::scoped_lock locker_egress{kcp_mappings_ptr->mutex_egress_endpoint};
+		std::scoped_lock locker_egress{ kcp_mappings_ptr->mutex_egress_endpoint };
 		kcp_mappings_ptr->egress_target_endpoint.address(temp_address);
 		kcp_mappings_ptr->egress_target_endpoint.port(new_port_numer);
 	}
@@ -695,7 +737,7 @@ void relay_mode::change_new_port(kcp_mappings *kcp_mappings_ptr)
 	kcp_mappings_ptr->egress_forwarder = udp_forwarder;
 
 	std::scoped_lock lock_expiring_forwarders{ mutex_expiring_forwarders };
-	expiring_forwarders.insert({ old_forwarder, timestamp });
+	expiring_forwarders.insert({ old_forwarder, packet::right_now()});
 }
 
 void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshake_kcp_mappings_ptr)
@@ -816,6 +858,176 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 		if (hs_egress_ptr != nullptr && data_egress_ptr != nullptr)
 			data_egress_ptr->ResetWindowValues(hs_egress_ptr->GetRxSRTT());
 	};
+}
+
+std::shared_ptr<kcp_mappings> relay_mode::create_test_handshake()
+{
+	std::shared_ptr<KCP::KCP> handshake_kcp = std::make_shared<KCP::KCP>();
+	std::shared_ptr<kcp_mappings> handshake_kcp_mappings = std::make_shared<kcp_mappings>();
+	handshake_kcp->SetUserData(handshake_kcp_mappings.get());
+	handshake_kcp_mappings->egress_kcp = handshake_kcp;
+	handshake_kcp_mappings->connection_protocol = protocol_type::not_care;
+	handshake_kcp_mappings->changeport_timestamp.store(LLONG_MAX);
+	handshake_kcp_mappings->handshake_setup_time.store(packet::right_now());
+
+	auto udp_func = std::bind(&relay_mode::handle_test_handshake, this, _1, _2, _3, _4, _5);
+	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ipv4_only);
+	if (udp_forwarder == nullptr)
+		return nullptr;
+
+	bool success = get_udp_target(udp_forwarder, handshake_kcp_mappings->egress_target_endpoint);
+	if (!success)
+		return nullptr;
+	handshake_kcp_mappings->egress_forwarder = udp_forwarder;
+	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
+	{
+		size_t K = current_settings.fec_data;
+		size_t N = K + current_settings.fec_redundant;
+		handshake_kcp_mappings->fec_egress_control.fecc.reset_martix(K, N);
+	}
+
+	handshake_kcp->SetMTU(current_settings.kcp_mtu);
+	handshake_kcp->NoDelay(1, 1, 3, 1);
+	handshake_kcp->Update();
+	handshake_kcp->RxMinRTO() = 10;
+	handshake_kcp->SetBandwidth(current_settings.outbound_bandwidth, current_settings.inbound_bandwidth);
+	handshake_kcp->SetOutput([this](const char *buf, int len, void *user) -> int
+		{
+			if (handshake_timeout_detection((kcp_mappings *)user))
+				return 0;
+			return kcp_sender_via_forwarder(buf, len, user);
+		});
+
+	asio::error_code ec;
+	if (current_settings.ipv4_only)
+		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
+	else
+		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
+	udp_forwarder->async_receive();
+
+	std::vector<uint8_t> handshake_data = packet::create_test_connection_packet();
+	if (handshake_kcp->Send((const char *)handshake_data.data(), handshake_data.size()) < 0)
+		return nullptr;
+
+	handshake_kcp->Update();
+
+	return handshake_kcp_mappings;
+}
+
+void relay_mode::handle_test_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
+{
+	if (data == nullptr || data_size == 0 || kcp_ptr == nullptr)
+		return;
+
+	auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
+
+	if (!error_message.empty())
+	{
+		std::cerr << error_message << "\n";
+		print_message_to_file(error_message, current_settings.log_messages);
+		return;
+	}
+
+	auto [packet_timestamp, data_ptr, packet_data_size] = packet::unpack(data.get(), plain_size);
+	if (packet_data_size == 0)
+		return;
+	auto timestamp = packet::right_now();
+	if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
+		return;
+
+	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
+	{
+		auto [packet_header, kcp_data_ptr, kcp_data_size] = packet::unpack_fec(data.get(), plain_size);
+		data_ptr = kcp_data_ptr;
+		packet_data_size = kcp_data_size;
+	}
+
+	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
+		return;
+
+	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+	if (kcp_mappings_ptr == nullptr)
+		return;
+
+	while (true)
+	{
+		int buffer_size = kcp_ptr->PeekSize();
+		if (buffer_size <= 0)
+			break;
+
+		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(buffer_size);
+		uint8_t *buffer_ptr = buffer_cache.get();
+
+		int kcp_data_size = 0;
+		if (kcp_data_size = kcp_ptr->Receive((char *)buffer_ptr, buffer_size); kcp_data_size < 0)
+			break;
+
+		auto [ftr, prtcl, unbacked_data_ptr, unbacked_data_size] = packet::unpack_inner(buffer_ptr, kcp_data_size);
+		switch (ftr)
+		{
+		case feature::test_connection:
+		{
+			std::shared_ptr<kcp_mappings> kcp_mapping_share = kcp_mappings_ptr->self_share();
+			kcp_mappings_ptr->mapping_function();
+			kcp_mappings_ptr->mapping_function = []() {};
+			std::scoped_lock lock_handshake{ mutex_expiring_forwarders };
+			expiring_forwarders[kcp_mappings_ptr->egress_forwarder] = packet::right_now();
+			kcp_mappings_ptr->egress_forwarder->stop();
+			kcp_mappings_ptr->egress_forwarder = nullptr;
+			break;
+		}
+		default:
+			break;
+		}
+	}
+}
+
+bool relay_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
+{
+	if (kcp_mappings_ptr == nullptr)
+		return true;
+
+	int64_t right_now = packet::right_now();
+	int64_t time_diff = calculate_difference(kcp_mappings_ptr->handshake_setup_time.load(), right_now);
+	if (time_diff < gbv_handshake_timeout)
+		return false;
+
+	protocol_type connection_protocol = kcp_mappings_ptr->connection_protocol;
+	std::shared_ptr<kcp_mappings> new_kcp_mappings_ptr;
+	if (connection_protocol != protocol_type::not_care)
+		return false;
+
+	new_kcp_mappings_ptr = create_test_handshake();
+	if (std::shared_ptr<kcp_mappings> main_kcp_mappings_ptr = kcp_mappings_ptr->changeport_testing_ptr.lock();
+		main_kcp_mappings_ptr == nullptr)
+		return false;
+	else
+		main_kcp_mappings_ptr->changeport_testing_ptr = new_kcp_mappings_ptr;
+	new_kcp_mappings_ptr->changeport_testing_ptr = kcp_mappings_ptr->changeport_testing_ptr;
+	new_kcp_mappings_ptr->mapping_function = [new_kcp_mappings_ptr]()
+		{
+			std::shared_ptr<kcp_mappings> kcp_mappings_ptr = new_kcp_mappings_ptr->changeport_testing_ptr.lock();
+			if (kcp_mappings_ptr == nullptr) return;
+			kcp_mappings_ptr->changeport_available.store(true);
+			kcp_mappings_ptr->changeport_timestamp.store(packet::right_now());
+		};
+	
+	std::shared_ptr<kcp_mappings> kcp_mappings_share = kcp_mappings_ptr->self_share();
+	kcp_mappings_ptr->egress_forwarder->stop();
+	kcp_mappings_ptr->mapping_function = []() {};
+	auto func = [this, kcp_mappings_share]()
+		{
+			std::unique_lock locker{ mutex_expiring_forwarders };
+			if (auto iter = expiring_forwarders.find(kcp_mappings_share->egress_forwarder); iter == expiring_forwarders.end())
+				expiring_forwarders.insert({ kcp_mappings_share->egress_forwarder, packet::right_now()});
+			locker.unlock();
+
+			kcp_mappings_share->egress_kcp->SetUserData(nullptr);
+			kcp_updater.remove(kcp_mappings_share->egress_kcp);
+		};
+	sequence_task_pool_local.push_task((size_t)kcp_mappings_ptr, func);
+
+	return true;
 }
 
 int relay_mode::kcp_sender_via_listener(const char *buf, int len, void *user)

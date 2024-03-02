@@ -84,6 +84,16 @@ kcptube --try config1.conf
 kcptube config1.conf --try
 ```
 
+#### 验证配置文件
+使用 ``--check-config`` 选项即可验证配置文件是否正确：
+```
+kcptube --check-config config1.conf
+```
+或
+```
+kcptube config1.conf --check-config
+```
+
 ### 更灵活用法——服务端模式动态端口
 
 客户端模式示例：

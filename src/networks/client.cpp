@@ -405,56 +405,24 @@ void client_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_pt
 		return;
 
 	uint32_t conv = 0;
-	kcp_mappings *kcp_mappings_ptr = nullptr;
-	std::pair<std::unique_ptr<uint8_t[]>, size_t> original_data;
-	uint32_t fec_sn = 0;
-	uint8_t fec_sub_sn = 0;
 	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
 	{
-		auto [packet_header, kcp_data_ptr, kcp_data_size] = packet::unpack_fec(data.get(), plain_size);
-		fec_sn = packet_header.sn;
-		fec_sub_sn = packet_header.sub_sn;
-		if (fec_sub_sn >= current_settings.fec_data)
-		{
-			auto [packet_header_redundant, redundant_data_ptr, redundant_data_size] = packet::unpack_fec_redundant(data.get(), plain_size);
-			kcp_ptr = verify_kcp_conv(kcp_ptr, packet_header_redundant.kcp_conv, peer);
-			kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
-			if (kcp_mappings_ptr == nullptr)
-				return;
-			original_data.first = std::make_unique<uint8_t[]>(redundant_data_size);
-			original_data.second = redundant_data_size;
-			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
-			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[packet_header_redundant.sn][packet_header_redundant.sub_sn] = std::move(original_data);
-			if (!fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.fec_data))
-				return;
-			data_ptr = nullptr;
-			packet_data_size = 0;
-		}
-		else
-		{
-			data_ptr = kcp_data_ptr;
-			packet_data_size = kcp_data_size;
-			original_data.first = std::make_unique<uint8_t[]>(kcp_data_size);
-			original_data.second = kcp_data_size;
-			std::copy_n(kcp_data_ptr, kcp_data_size, original_data.first.get());
-
-			conv = KCP::KCP::GetConv(data_ptr);
-			kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
-			kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
-			if (kcp_mappings_ptr == nullptr)
-				return;
-			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
-			fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.fec_data);
-		}
+		auto [unpacked_data_ptr, unpacked_data_size] = fec_unpack(kcp_ptr, data.get(), plain_size, peer);
+		if (unpacked_data_ptr == nullptr)
+			return;
+		data_ptr = unpacked_data_ptr;
+		packet_data_size = unpacked_data_size;
+		conv = kcp_ptr->GetConv();
 	}
 	else
 	{
 		conv = KCP::KCP::GetConv(data_ptr);
 		kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
-		kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
-		if (kcp_mappings_ptr == nullptr)
-			return;
 	}
+
+	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+	if (kcp_mappings_ptr == nullptr)
+		return;
 
 	if (data_ptr != nullptr && packet_data_size != 0)
 		kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size);
@@ -580,52 +548,28 @@ void client_mode::udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> k
 	if (calculate_difference<int64_t>((uint32_t)timestamp, packet_timestamp) > gbv_time_gap_seconds)
 		return;
 
-	std::pair<std::unique_ptr<uint8_t[]>, size_t> original_data;
-	uint32_t fec_sn = 0;
-	uint8_t fec_sub_sn = 0;
+	uint32_t conv = 0;
 	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
 	{
-		auto [packet_header, kcp_data_ptr, kcp_data_size] = packet::unpack_fec(data.get(), plain_size);
-		if (packet_header.sub_sn >= current_settings.fec_data)
-		{
-			auto [packet_header_redundant, redundant_data_ptr, redundant_data_size] = packet::unpack_fec_redundant(data.get(), plain_size);
-			kcp_ptr = verify_kcp_conv(kcp_ptr, packet_header_redundant.kcp_conv, peer);
-			kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
-			if (kcp_mappings_ptr == nullptr)
-				return;
-			original_data.first = std::make_unique<uint8_t[]>(redundant_data_size);
-			original_data.second = redundant_data_size;
-			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
-			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[packet_header_redundant.sn][packet_header_redundant.sub_sn] = std::move(original_data);
+		auto [unpacked_data_ptr, unpacked_data_size] = fec_unpack(kcp_ptr, data.get(), plain_size, peer);
+		if (unpacked_data_ptr == nullptr)
 			return;
-		}
-		else
-		{
-			fec_sn = packet_header.sn;
-			fec_sub_sn = packet_header.sub_sn;
-			data_ptr = kcp_data_ptr;
-			packet_data_size = kcp_data_size;
-			original_data.first = std::make_unique<uint8_t[]>(kcp_data_size);
-			original_data.second = kcp_data_size;
-			std::copy_n(kcp_data_ptr, kcp_data_size, original_data.first.get());
-		}
+		data_ptr = unpacked_data_ptr;
+		packet_data_size = unpacked_data_size;
+		conv = kcp_ptr->GetConv();
 	}
-
-	uint32_t conv = KCP::KCP::GetConv(data_ptr);
-	kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
+	else
+	{
+		conv = KCP::KCP::GetConv(data_ptr);
+		kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
+	}
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 	if (kcp_mappings_ptr == nullptr)
 		return;
 
-	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
-	{
-		kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
-		fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.fec_data);
-	}
-
-	if (kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size) < 0)
-		return;
+	if (data_ptr != nullptr && packet_data_size != 0)
+		kcp_ptr->Input((const char *)data_ptr, (long)packet_data_size);
 
 	while (true)
 	{
@@ -857,6 +801,49 @@ void client_mode::fec_maker(kcp_mappings *kcp_mappings_ptr, const uint8_t *input
 	}
 }
 
+std::tuple<uint8_t*, size_t> client_mode::fec_unpack(std::shared_ptr<KCP::KCP> &kcp_ptr, uint8_t *original_data_ptr, size_t plain_size, const udp::endpoint &peer)
+{
+	uint8_t *data_ptr = nullptr;
+	size_t packet_data_size = 0;
+	auto [packet_header, kcp_data_ptr, kcp_data_size] = packet::unpack_fec(original_data_ptr, plain_size);
+	uint32_t fec_sn = packet_header.sn;
+	uint8_t fec_sub_sn = packet_header.sub_sn;
+	kcp_mappings *kcp_mappings_ptr = nullptr;
+	std::pair<std::unique_ptr<uint8_t[]>, size_t> original_data;
+	if (fec_sub_sn >= current_settings.fec_data)
+	{
+		auto [packet_header_redundant, redundant_data_ptr, redundant_data_size] = packet::unpack_fec_redundant(original_data_ptr, plain_size);
+		kcp_ptr = verify_kcp_conv(kcp_ptr, packet_header_redundant.kcp_conv, peer);
+		kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+		if (kcp_mappings_ptr == nullptr)
+			return { nullptr, 0 };
+		original_data.first = std::make_unique<uint8_t[]>(redundant_data_size);
+		original_data.second = redundant_data_size;
+		std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
+		kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[packet_header_redundant.sn][packet_header_redundant.sub_sn] = std::move(original_data);
+		if (!fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.fec_data))
+			return  { nullptr, 0 };
+		packet_data_size = 0;
+	}
+	else
+	{
+		data_ptr = kcp_data_ptr;
+		packet_data_size = kcp_data_size;
+		original_data.first = std::make_unique<uint8_t[]>(kcp_data_size);
+		original_data.second = kcp_data_size;
+		std::copy_n(kcp_data_ptr, kcp_data_size, original_data.first.get());
+
+		uint32_t conv = KCP::KCP::GetConv(data_ptr);
+		kcp_ptr = verify_kcp_conv(kcp_ptr, conv, peer);
+		kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+		if (kcp_mappings_ptr == nullptr)
+			return  { nullptr, 0 };
+		kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
+		fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.fec_data);
+	}
+	return { data_ptr, packet_data_size };
+}
+
 bool client_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
 {
 	bool recovered = false;
@@ -1058,7 +1045,49 @@ void client_mode::change_new_port(kcp_mappings *kcp_mappings_ptr)
 {
 	if (kcp_mappings_ptr->changeport_timestamp.load() > packet::right_now())
 		return;
-	kcp_mappings_ptr->changeport_timestamp += current_settings.dynamic_port_refresh;
+	kcp_mappings_ptr->changeport_timestamp.store(LLONG_MAX);
+
+	uint16_t destination_port_start = current_settings.destination_port_start;
+	uint16_t destination_port_end = current_settings.destination_port_end;
+	if (destination_port_start != destination_port_end || kcp_mappings_ptr->changeport_available.load())
+		switch_new_port(kcp_mappings_ptr);
+	else
+		test_before_change(kcp_mappings_ptr);
+}
+
+void client_mode::test_before_change(kcp_mappings *kcp_mappings_ptr)
+{
+	std::shared_ptr<kcp_mappings> hs = create_handshake(feature::test_connection, protocol_type::not_care, "", 0);
+	if (hs == nullptr)
+	{
+		kcp_mappings_ptr->changeport_timestamp.store(packet::right_now() + current_settings.dynamic_port_refresh);
+		return;
+	}
+
+	hs->egress_kcp->Update();
+	uint32_t next_update_time = hs->egress_kcp->Refresh();
+	kcp_updater.submit(hs->egress_kcp, next_update_time);
+
+	kcp_mappings *handshake_ptr = hs.get();
+	kcp_mappings_ptr->changeport_testing_ptr = hs;
+	std::weak_ptr<kcp_mappings> kcp_mappings_weak = kcp_mappings_ptr->self_share();
+	hs->changeport_testing_ptr = kcp_mappings_weak;
+	hs->mapping_function = [handshake_ptr]()
+		{
+			std::shared_ptr<kcp_mappings> kcp_mappings_ptr = handshake_ptr->changeport_testing_ptr.lock();
+			if (kcp_mappings_ptr == nullptr) return;
+			kcp_mappings_ptr->changeport_available.store(true);
+			kcp_mappings_ptr->changeport_timestamp.store(packet::right_now());
+		};
+
+	std::unique_lock lock_handshake{ mutex_handshakes };
+	handshakes[hs.get()] = hs;
+	lock_handshake.unlock();
+}
+
+void client_mode::switch_new_port(kcp_mappings *kcp_mappings_ptr)
+{
+	kcp_mappings_ptr->changeport_timestamp.store(packet::right_now() + current_settings.dynamic_port_refresh);
 
 	std::shared_ptr<KCP::KCP> kcp_ptr = kcp_mappings_ptr->egress_kcp;
 	if (kcp_ptr == nullptr || kcp_ptr->GetConv() == 0)
@@ -1073,11 +1102,18 @@ void client_mode::change_new_port(kcp_mappings *kcp_mappings_ptr)
 	uint16_t destination_port_end = current_settings.destination_port_end;
 	if (destination_port_start != destination_port_end)
 	{
-		uint16_t new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
+		std::shared_ptr<kcp_mappings> changeport_testing_ptr = kcp_mappings_ptr->changeport_testing_ptr.lock();
+		uint16_t new_port_numer = 0;
+		if (changeport_testing_ptr == nullptr)
+			new_port_numer = generate_new_port_number(destination_port_start, destination_port_end);
+		else
+			new_port_numer = changeport_testing_ptr->egress_target_endpoint.port();
+		kcp_mappings_ptr->changeport_available.store(false);
+		kcp_mappings_ptr->changeport_testing_ptr.reset();
 		std::shared_lock locker{ mutex_target_address };
 		asio::ip::address temp_address = *target_address;
 		locker.unlock();
-		std::scoped_lock locker_egress{kcp_mappings_ptr->mutex_egress_endpoint};
+		std::scoped_lock locker_egress{ kcp_mappings_ptr->mutex_egress_endpoint };
 		kcp_mappings_ptr->egress_target_endpoint.address(temp_address);
 		kcp_mappings_ptr->egress_target_endpoint.port(new_port_numer);
 	}
@@ -1117,14 +1153,41 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 		return false;
 	}
 
-	protocol_type connection_protocol = kcp_mappings_ptr->connection_protocol;
 	std::shared_ptr<kcp_mappings> new_kcp_mappings_ptr;
-	if (connection_protocol == protocol_type::tcp)
-		new_kcp_mappings_ptr = create_handshake(kcp_mappings_ptr->local_tcp, kcp_mappings_ptr->remote_output_address, kcp_mappings_ptr->remote_output_port);
-	if (connection_protocol == protocol_type::udp)
-		new_kcp_mappings_ptr = create_handshake(*kcp_mappings_ptr->ingress_source_endpoint, kcp_mappings_ptr->remote_output_address, kcp_mappings_ptr->remote_output_port);
-	if (connection_protocol == protocol_type::mux)
+	switch (kcp_mappings_ptr->connection_protocol)
+	{
+	case protocol_type::not_care:
+	{
+		new_kcp_mappings_ptr = create_handshake(feature::test_connection, protocol_type::not_care, "", 0);
+		if (std::shared_ptr<kcp_mappings> main_kcp_mappings_ptr = kcp_mappings_ptr->changeport_testing_ptr.lock();
+			main_kcp_mappings_ptr == nullptr)
+			break;
+		else
+			main_kcp_mappings_ptr->changeport_testing_ptr = new_kcp_mappings_ptr;
+		new_kcp_mappings_ptr->changeport_testing_ptr = kcp_mappings_ptr->changeport_testing_ptr;
+		kcp_mappings *new_kcp_mapping_raw = new_kcp_mappings_ptr.get();
+		new_kcp_mappings_ptr->mapping_function = [new_kcp_mapping_raw]()
+			{
+				std::shared_ptr<kcp_mappings> kcp_mappings_ptr = new_kcp_mapping_raw->changeport_testing_ptr.lock();
+				if (kcp_mappings_ptr == nullptr) return;
+				kcp_mappings_ptr->changeport_available.store(true);
+				kcp_mappings_ptr->changeport_timestamp.store(packet::right_now());
+			};
+		kcp_mappings_ptr->mapping_function = []() {};
+		break;
+	}
+	case protocol_type::mux:
 		new_kcp_mappings_ptr = create_handshake(feature::initialise, protocol_type::mux, kcp_mappings_ptr->remote_output_address, kcp_mappings_ptr->remote_output_port);
+		break;
+	case protocol_type::tcp:
+		new_kcp_mappings_ptr = create_handshake(kcp_mappings_ptr->local_tcp, kcp_mappings_ptr->remote_output_address, kcp_mappings_ptr->remote_output_port);
+		break;
+	case protocol_type::udp:
+		new_kcp_mappings_ptr = create_handshake(*kcp_mappings_ptr->ingress_source_endpoint, kcp_mappings_ptr->remote_output_address, kcp_mappings_ptr->remote_output_port);
+		break;
+	default:
+		break;
+	}
 
 	new_kcp_mappings_ptr->ingress_listen_port = kcp_mappings_ptr->ingress_listen_port;
 	auto func = [this, kcp_mappings_ptr, new_kcp_mappings_ptr]() mutable
@@ -1250,7 +1313,7 @@ void client_mode::cleanup_expiring_handshake_connections()
 			kcp_mappings_ptr->egress_forwarder->remove_callback();
 			kcp_mappings_ptr->egress_forwarder->stop();
 		}
-
+		
 		kcp_updater.remove(kcp_mappings_ptr->egress_kcp);
 		expiring_handshakes.erase(iter);
 	}
@@ -1751,16 +1814,31 @@ void client_mode::on_handshake_failure(kcp_mappings *handshake_ptr, const std::s
 		if (session_iter == handshakes.end())
 			return;
 		expiring_handshakes.insert({ session_iter->second, packet::right_now() });
+		handshakes.erase(session_iter);
 		establish_mux_channels(1);
 	}
 }
 
 void client_mode::on_handshake_test_success(kcp_mappings *handshake_ptr)
 {
-	std::cout << "Peer " << current_settings.destination_address << " can be connected. ";
-	std::cout << "(" << handshake_ptr->egress_target_endpoint << ")";
-	std::cout << std::endl;
-	handshake_test_cleanup(handshake_ptr);
+	if (current_settings.test_only)
+	{
+		std::cout << "Peer " << current_settings.destination_address << " can be connected. ";
+		std::cout << "(" << handshake_ptr->egress_target_endpoint << ")";
+		std::cout << std::endl;
+		handshake_test_cleanup(handshake_ptr);
+		return;
+	}
+
+	handshake_ptr->mapping_function();
+	std::scoped_lock lock_handshake{ mutex_handshakes, mutex_expiring_forwarders };
+	auto session_iter = handshakes.find(handshake_ptr);
+	if (session_iter == handshakes.end())
+		return;
+	expiring_forwarders[handshake_ptr->egress_forwarder] = packet::right_now();
+	handshake_ptr->egress_forwarder->stop();
+	handshake_ptr->egress_forwarder = nullptr;
+	handshakes.erase(session_iter);
 }
 
 void client_mode::handshake_test_failure(kcp_mappings *handshake_ptr)

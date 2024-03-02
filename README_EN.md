@@ -84,6 +84,16 @@ or
 kcptube config1.conf --try
 ```
 
+#### Verify configuration files
+Use the ``--check-config`` option to check the configuration file for errors.
+```
+kcptube --check-config config1.conf
+```
+or
+```
+kcptube config1.conf --check-config
+```
+
 ### More flexible usage - Server Mode dynamic port
 
 Example of client mode:

@@ -552,7 +552,7 @@ struct fec_control_data
 	fecpp::fec_code fecc;
 };
 
-struct kcp_mappings
+struct kcp_mappings : public std::enable_shared_from_this<kcp_mappings>
 {
 	protocol_type connection_protocol;
 	std::shared_ptr<udp::endpoint> ingress_source_endpoint;
@@ -565,15 +565,19 @@ struct kcp_mappings
 	std::shared_ptr<forwarder> egress_forwarder;
 	std::shared_ptr<tcp_session> local_tcp;
 	std::shared_ptr<udp_client> local_udp;
-	alignas(64) std::atomic<int64_t> changeport_timestamp;
 	alignas(64) std::atomic<int64_t> handshake_setup_time;
 	alignas(64) std::atomic<int64_t> last_data_transfer_time;
+	alignas(64) std::atomic<int64_t> changeport_timestamp;
+	alignas(64) std::atomic<bool> changeport_available;
+	std::weak_ptr<kcp_mappings> changeport_testing_ptr;
 	asio::ip::port_type ingress_listen_port;	// client mode only
 	asio::ip::port_type remote_output_port;	// client mode only
 	std::string remote_output_address;	// client mode only
 	std::function<void()> mapping_function = []() {};
 	fec_control_data fec_ingress_control;
 	fec_control_data fec_egress_control;
+
+	std::shared_ptr<kcp_mappings> self_share() { return shared_from_this(); }
 };
 
 struct mux_records

@@ -18,7 +18,7 @@
 
 int main(int argc, char *argv[])
 {
-	printf("%.*s version 20240204\n", (int)app_name.length(), app_name.data());
+	printf("%.*s version 20240302\n", (int)app_name.length(), app_name.data());
 
 	if (argc <= 1)
 	{
@@ -58,6 +58,7 @@ int main(int argc, char *argv[])
 	std::vector<user_settings> profile_settings;
 
 	bool error_found = false;
+	bool check_config = false;
 	bool test_connection = false;
 
 	for (int i = 1; i < argc; ++i)
@@ -65,6 +66,11 @@ int main(int argc, char *argv[])
 		if (str_utils::to_lower_copy(argv[i]) == "--try")
 		{
 			test_connection = true;
+			continue;
+		}
+		if (str_utils::to_lower_copy(argv[i]) == "--check-config")
+		{
+			check_config = true;
 			continue;
 		}
 
@@ -92,7 +98,7 @@ int main(int argc, char *argv[])
 	}
 
 	std::cout << "Error Found in Configuration File(s): " << (error_found ? "Yes" : "No") << "\n";
-	if (error_found)
+	if (error_found || check_config)
 		return 0;
 
 	for (user_settings &settings : profile_settings)

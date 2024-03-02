@@ -320,21 +320,19 @@ void mux_tunnel::delete_channel(protocol_type prtcl, kcp_mappings *kcp_mappings_
 	uint64_t complete_connection_id = ((uint64_t)kcp_ptr->GetConv() << 32) + mux_connection_id;
 	std::shared_ptr<mux_records> mux_records_ptr = nullptr;
 
-	{
-		std::scoped_lock locker{ mutex_id_map_to_mux_records, mutex_expiring_mux_records };
-		if(current_settings.mode == running_mode::server)
-			if (expiring_mux_records.find(complete_connection_id) != expiring_mux_records.end())
-				return;
-
-		auto iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
-		if (iter_mux_records == id_map_to_mux_records.end())
+	std::scoped_lock locker{ mutex_id_map_to_mux_records, mutex_expiring_mux_records };
+	if (current_settings.mode == running_mode::server)
+		if (expiring_mux_records.find(complete_connection_id) != expiring_mux_records.end())
 			return;
 
-		mux_records_ptr = iter_mux_records->second;
-		id_map_to_mux_records.erase(iter_mux_records);
-		if (current_settings.mode == running_mode::server)
-			expiring_mux_records[complete_connection_id] = mux_records_ptr;
-	}
+	auto iter_mux_records = id_map_to_mux_records.find(complete_connection_id);
+	if (iter_mux_records == id_map_to_mux_records.end())
+		return;
+
+	mux_records_ptr = iter_mux_records->second;
+	id_map_to_mux_records.erase(iter_mux_records);
+	if (current_settings.mode == running_mode::server)
+		expiring_mux_records[complete_connection_id] = mux_records_ptr;
 
 	if (prtcl == protocol_type::tcp)
 	{

@@ -59,7 +59,12 @@ class relay_mode
 	void udp_forwarder_incoming(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void change_new_port(kcp_mappings *kcp_mappings_ptr);
+	void test_before_change(kcp_mappings *kcp_mappings_ptr);
+	void switch_new_port(kcp_mappings *kcp_mappings_ptr);
 	void create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshake_kcp_mappings_ptr);
+	std::shared_ptr<kcp_mappings> create_test_handshake();
+	void handle_test_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
+	bool handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr);
 	int kcp_sender_via_listener(const char *buf, int len, void *user);
 	int kcp_sender_via_forwarder(const char *buf, int len, void *user);
 	std::shared_ptr<KCP::KCP> verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv, const udp::endpoint &peer);
