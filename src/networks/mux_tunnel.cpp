@@ -1,8 +1,8 @@
 #include "mux_tunnel.hpp"
-#include "server.hpp"
-#include "client.hpp"
+#include "../modes/server.hpp"
+#include "../modes/client.hpp"
 
-void mux_tunnel::tcp_accept_new_income(std::shared_ptr<tcp_session> incoming_session, const std::string & remote_output_address, asio::ip::port_type remote_output_port)
+void mux_tunnel::tcp_accept_new_income(std::shared_ptr<tcp_session> incoming_session, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
 {
 	if (!incoming_session->is_open() || incoming_session->session_is_ending() || incoming_session->is_stop())
 		return;

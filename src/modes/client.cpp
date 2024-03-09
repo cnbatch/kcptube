@@ -19,41 +19,6 @@ client_mode::~client_mode()
 
 bool client_mode::start()
 {
-	if (current_settings.test_only)
-		return start_test_only();
-	else
-		return normal_start();
-}
-
-bool client_mode::start_test_only()
-{
-	printf("Testing...\n");
-	
-	std::shared_ptr<kcp_mappings> hs = create_handshake(feature::test_connection, protocol_type::not_care, "", 0);
-	if (hs == nullptr)
-	{
-		std::string error_message = time_to_string_with_square_brackets() + "establish handshake failed\n";
-		std::cerr << error_message;
-		print_message_to_file(error_message, current_settings.log_messages);
-		return false;
-	}
-
-	hs->egress_kcp->Update();
-	uint32_t next_update_time = hs->egress_kcp->Refresh();
-	kcp_updater.submit(hs->egress_kcp, next_update_time);
-
-	std::unique_lock lock_handshake{ mutex_handshakes };
-	handshakes[hs.get()] = hs;
-	lock_handshake.unlock();
-
-	timer_expiring_kcp.expires_after(gbv_expring_update_interval);
-	timer_expiring_kcp.async_wait([this](const asio::error_code &e) { expiring_connection_loops(e); });
-
-	return true;
-}
-
-bool client_mode::normal_start()
-{
 	printf("%.*s is running in client mode\n", (int)app_name.length(), app_name.data());
 
 	uint16_t port_number = current_settings.listen_port;
@@ -1093,10 +1058,21 @@ void client_mode::switch_new_port(kcp_mappings *kcp_mappings_ptr)
 	if (kcp_ptr == nullptr || kcp_ptr->GetConv() == 0)
 		return;
 
-	auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-	std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
-	if (udp_forwarder == nullptr)
+	std::shared_ptr<forwarder> udp_forwarder = nullptr;
+	try
+	{
+		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
+		if (udp_forwarder == nullptr)
+			return;
+	}
+	catch (std::exception &ex)
+	{
+		std::string error_message = time_to_string_with_square_brackets() + "Cannnot switch to new port now. Error: " + ex.what() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message, current_settings.log_messages);
 		return;
+	}
 
 	uint16_t destination_port_start = current_settings.destination_port_start;
 	uint16_t destination_port_end = current_settings.destination_port_end;
@@ -1145,13 +1121,6 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 	int64_t time_diff = calculate_difference(kcp_mappings_ptr->handshake_setup_time.load(), right_now);
 	if (time_diff < gbv_handshake_timeout)
 		return false;
-
-	if (current_settings.test_only)
-	{
-		auto func = [this, kcp_mappings_ptr]() { handshake_test_failure(kcp_mappings_ptr); };
-		sequence_task_pool_local.push_task((size_t)kcp_mappings_ptr, func);
-		return false;
-	}
 
 	std::shared_ptr<kcp_mappings> new_kcp_mappings_ptr;
 	switch (kcp_mappings_ptr->connection_protocol)
@@ -1513,10 +1482,21 @@ std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protoco
 	handshake_kcp_mappings->remote_output_address = remote_output_address;
 	handshake_kcp_mappings->remote_output_port = remote_output_port;
 
-	auto udp_func = std::bind(&client_mode::handle_handshake, this, _1, _2, _3, _4, _5);
-	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ipv4_only);
-	if (udp_forwarder == nullptr)
+	std::shared_ptr<forwarder> udp_forwarder = nullptr;
+	try
+	{
+		auto udp_func = std::bind(&client_mode::handle_handshake, this, _1, _2, _3, _4, _5);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ipv4_only);
+		if (udp_forwarder == nullptr)
+			return nullptr;
+	}
+	catch (std::exception &ex)
+	{
+		std::string error_message = time_to_string_with_square_brackets() + "Cannnot create handshake connection. Error: " + ex.what() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message, current_settings.log_messages);
 		return nullptr;
+	}
 
 	bool success = get_udp_target(udp_forwarder, handshake_kcp_mappings->egress_target_endpoint);
 	if (!success)
@@ -1650,10 +1630,21 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 	std::shared_ptr<KCP::KCP> kcp_ptr = std::make_shared<KCP::KCP>(basic_settings.uid);
 	kcp_mappings_ptr->connection_protocol = ptrcl;
 
-	auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-	std::shared_ptr<forwarder> udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
-	if (udp_forwarder == nullptr)
+	std::shared_ptr<forwarder> udp_forwarder = nullptr;
+	try
+	{
+		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
+		if (udp_forwarder == nullptr)
+			return;
+	}
+	catch (std::exception &ex)
+	{
+		std::string error_message = time_to_string_with_square_brackets() + "Cannnot create new connection of UDP. Error: " + ex.what() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message, current_settings.log_messages);
 		return;
+	}
 
 	asio::error_code ec;
 	if (current_settings.ipv4_only)
@@ -1821,15 +1812,6 @@ void client_mode::on_handshake_failure(kcp_mappings *handshake_ptr, const std::s
 
 void client_mode::on_handshake_test_success(kcp_mappings *handshake_ptr)
 {
-	if (current_settings.test_only)
-	{
-		std::cout << "Peer " << current_settings.destination_address << " can be connected. ";
-		std::cout << "(" << handshake_ptr->egress_target_endpoint << ")";
-		std::cout << std::endl;
-		handshake_test_cleanup(handshake_ptr);
-		return;
-	}
-
 	handshake_ptr->mapping_function();
 	std::scoped_lock lock_handshake{ mutex_handshakes, mutex_expiring_forwarders };
 	auto session_iter = handshakes.find(handshake_ptr);
@@ -1839,31 +1821,6 @@ void client_mode::on_handshake_test_success(kcp_mappings *handshake_ptr)
 	handshake_ptr->egress_forwarder->stop();
 	handshake_ptr->egress_forwarder = nullptr;
 	handshakes.erase(session_iter);
-}
-
-void client_mode::handshake_test_failure(kcp_mappings *handshake_ptr)
-{
-	std::cout << "Cannot connect to " << current_settings.destination_address << " ";
-	std::cout << "(" << handshake_ptr->egress_target_endpoint << ")";
-	std::cout << std::endl;
-	handshake_test_cleanup(handshake_ptr);
-}
-
-void client_mode::handshake_test_cleanup(kcp_mappings *handshake_ptr)
-{
-	handshake_ptr->egress_forwarder->remove_callback();
-	handshake_ptr->egress_forwarder->stop();
-
-	std::scoped_lock lock_handshake{ mutex_handshakes, mutex_expiring_handshakes };
-	auto session_iter = handshakes.find(handshake_ptr);
-	if (session_iter == handshakes.end())
-		return;
-	if (session_iter->second != nullptr)
-		kcp_updater.remove(handshake_ptr->egress_kcp);
-	handshakes.erase(session_iter);
-	timer_expiring_kcp.cancel();
-	timer_find_expires.cancel();
-	timer_keep_alive.cancel();
 }
 
 void client_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)

@@ -1,6 +1,6 @@
-set(THISLIB_NAME NETCONNECTIONS)
+set(THISLIB_NAME RUNNINGMODES)
 
-add_library(${THISLIB_NAME} STATIC connections.cpp kcp.cpp kcp_updater.cpp mux_tunnel.cpp stun.cpp)
+add_library(${THISLIB_NAME} STATIC client.cpp server.cpp relay.cpp tester.cpp)
 target_link_libraries(${THISLIB_NAME} PRIVATE SHAREDEFINES)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)

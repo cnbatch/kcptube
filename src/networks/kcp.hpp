@@ -87,6 +87,7 @@ namespace KCP
 		// 'current' - current timestamp in millisec. 
 		void Update(uint32_t current);
 		void Update();
+		uint32_t UpdateCheck();
 
 		// Determine when should you invoke Update:
 		// returns when you should invoke Update in millisec, if there 

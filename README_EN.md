@@ -248,7 +248,7 @@ Note: If the packet loss rate is high enough (higner than 10%), kcp_nodelay=1 ma
 ### High-traffic transmission
 For low packet loss environments, each mode is suitable for use. The difference lies only in the amount of wasted traffic and the slightly different upper limit of the highest speed.<br />Among them, regular3 wastes less traffic.<br />It is recommended to enable the `blast=1` setting at the same time.
 
-For high packet loss environments, consider using FEC settings at the same time. For more details, please refer to the [The Usage of FEC](docs/fec_en.md).
+For high packet loss environments, consider using FEC settings at the same time. For more details, please refer to [The Usage of FEC](docs/fec_en.md).
 
 For more details, please refer to [Parameter Details](docs/parameters_en.md).
 

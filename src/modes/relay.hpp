@@ -1,7 +1,7 @@
 #pragma once
 #include <set>
-#include "connections.hpp"
-#include "kcp_updater.hpp"
+#include "../networks/connections.hpp"
+#include "../networks/kcp_updater.hpp"
 
 #ifndef __RELAY_HPP__
 #define __RELAY_HPP__

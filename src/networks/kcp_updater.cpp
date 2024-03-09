@@ -11,10 +11,21 @@ inline bool weak_ptr_equals(const std::weak_ptr<L> &l_ptr, const std::weak_ptr<R
 
 namespace KCP
 {
+	size_t KCPUpdater::get_kcp_count() const
+	{
+		size_t count = 0;
+		std::scoped_lock tasks_lock(kcp_tasks_mutex);
+		for (auto &[update_time, kcp_ptr_list] : kcp_time_list)
+		{
+			count += kcp_ptr_list.size();
+		}
+		return count;
+	}
+
 	void KCPUpdater::submit(std::weak_ptr<KCP> kcp_ptr, uint32_t next_update_time)
 	{
 		std::unique_lock tasks_lock(kcp_tasks_mutex);
-		kcp_time_list[next_update_time].push_back(kcp_ptr);
+		kcp_time_list[next_update_time].insert(kcp_ptr);
 		tasks_lock.unlock();
 		++kcp_tasks_total;
 
@@ -94,8 +105,7 @@ namespace KCP
 						if (kcp_ptr == nullptr)
 							continue;
 
-						kcp_ptr->Update();
-						uint32_t kcp_update_time = kcp_ptr->Check();
+						uint32_t kcp_update_time = kcp_ptr->UpdateCheck();
 						temp_list[kcp_update_time].push_back(kcp_weak_ptr);
 					}
 					kcp_tasks.clear();
@@ -106,7 +116,7 @@ namespace KCP
 					{
 						for (auto &[update_time, kcp_ptr_list] : temp_list)
 						{
-							kcp_time_list[update_time].assign(kcp_ptr_list.begin(), kcp_ptr_list.end());
+							kcp_time_list[update_time].insert(kcp_ptr_list.begin(), kcp_ptr_list.end());
 						}
 					}
 

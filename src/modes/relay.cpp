@@ -371,10 +371,22 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 				handshake_kcp_ingress->SetUserData(handshake_kcp_mappings);
 
 				std::shared_ptr<KCP::KCP> handshake_kcp_egress = std::make_shared<KCP::KCP>(0);
-				auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-				auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, handshake_kcp_egress, udp_func, current_settings.egress->ipv4_only);
-				if (udp_forwarder == nullptr)
+				std::shared_ptr<forwarder> udp_forwarder = nullptr;
+				try
 				{
+					auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
+					udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, handshake_kcp_egress, udp_func, current_settings.egress->ipv4_only);
+					if (udp_forwarder == nullptr)
+					{
+						expiring_handshakes[handshake_kcp_mappings_ptr] = packet::right_now();
+						return;
+					}
+				}
+				catch (std::exception &ex)
+				{
+					std::string error_message = time_to_string_with_square_brackets() + "Cannnot connect to destination UDP address. Error: " + ex.what() + "\n";
+					std::cerr << error_message;
+					print_message_to_file(error_message, current_settings.log_messages);
 					expiring_handshakes[handshake_kcp_mappings_ptr] = packet::right_now();
 					return;
 				}
@@ -697,10 +709,22 @@ void relay_mode::switch_new_port(kcp_mappings * kcp_mappings_ptr)
 {
 	std::shared_ptr<KCP::KCP> kcp_ptr_egress = kcp_mappings_ptr->egress_kcp;
 
-	auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ipv4_only);
-	if (udp_forwarder == nullptr)
+
+	std::shared_ptr<forwarder> udp_forwarder = nullptr;
+	try
+	{
+		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ipv4_only);
+		if (udp_forwarder == nullptr)
+			return;
+	}
+	catch (std::exception &ex)
+	{
+		std::string error_message = time_to_string_with_square_brackets() + "Cannnot switch to new port now. Error: " + ex.what() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message, current_settings.log_messages);
 		return;
+	}
 
 	uint16_t destination_port_start = current_settings.egress->destination_port_start;
 	uint16_t destination_port_end = current_settings.egress->destination_port_end;
@@ -781,10 +805,21 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 	kcp_ptr_ingress->keep_alive_response_time.store(timestamp);
 
 	std::shared_ptr<KCP::KCP> kcp_ptr_egress = std::make_shared<KCP::KCP>(new_id);
-	auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ipv4_only);
-	if (udp_forwarder == nullptr)
+	std::shared_ptr<forwarder> udp_forwarder = nullptr;
+	try
+	{
+		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ipv4_only);
+		if (udp_forwarder == nullptr)
+			return;
+	}
+	catch (std::exception &ex)
+	{
+		std::string error_message = time_to_string_with_square_brackets() + "Cannnot create new connection of UDP. Error: " + ex.what() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message, current_settings.log_messages);
 		return;
+	}
 
 	if (current_settings.egress->ipv4_only)
 		udp_forwarder->send_out(create_raw_random_data(current_settings.egress->kcp_mtu), local_empty_target_v4, ec);
@@ -870,10 +905,21 @@ std::shared_ptr<kcp_mappings> relay_mode::create_test_handshake()
 	handshake_kcp_mappings->changeport_timestamp.store(LLONG_MAX);
 	handshake_kcp_mappings->handshake_setup_time.store(packet::right_now());
 
-	auto udp_func = std::bind(&relay_mode::handle_test_handshake, this, _1, _2, _3, _4, _5);
-	auto udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ipv4_only);
-	if (udp_forwarder == nullptr)
+	std::shared_ptr<forwarder> udp_forwarder = nullptr;
+	try
+	{
+		auto udp_func = std::bind(&relay_mode::handle_test_handshake, this, _1, _2, _3, _4, _5);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ipv4_only);
+		if (udp_forwarder == nullptr)
+			return nullptr;
+	}
+	catch (std::exception &ex)
+	{
+		std::string error_message = time_to_string_with_square_brackets() + "Cannnot create handshake connection. Error: " + ex.what() + "\n";
+		std::cerr << error_message;
+		print_message_to_file(error_message, current_settings.log_messages);
 		return nullptr;
+	}
 
 	bool success = get_udp_target(udp_forwarder, handshake_kcp_mappings->egress_target_endpoint);
 	if (!success)

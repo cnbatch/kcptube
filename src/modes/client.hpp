@@ -1,7 +1,7 @@
 #pragma once
-#include "connections.hpp"
-#include "kcp_updater.hpp"
-#include "mux_tunnel.hpp"
+#include "../networks/connections.hpp"
+#include "../networks/kcp_updater.hpp"
+#include "../networks/mux_tunnel.hpp"
 
 #ifndef __CLIENT_HPP__
 #define __CLIENT_HPP__
@@ -52,8 +52,6 @@ class client_mode
 	ttp::task_group_pool &sequence_task_pool_peer;
 	const size_t task_limit;
 
-	bool start_test_only();
-	bool normal_start();
 	void multiple_listening_tcp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled);
 	void multiple_listening_udp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled);
 
@@ -102,8 +100,6 @@ class client_mode
 	void on_handshake_success(kcp_mappings *handshake_ptr, const packet::settings_wrapper &basic_settings);
 	void on_handshake_failure(kcp_mappings *handshake_ptr, const std::string &error_message);
 	void on_handshake_test_success(kcp_mappings *handshake_ptr);
-	void handshake_test_failure(kcp_mappings *handshake_ptr);
-	void handshake_test_cleanup(kcp_mappings *handshake_ptr);
 	void handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 
 public:

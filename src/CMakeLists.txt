@@ -1,7 +1,9 @@
 add_subdirectory(3rd_party)
 add_subdirectory(shares)
 add_subdirectory(networks)
+add_subdirectory(modes)
 
+target_link_libraries(${PROJECT_NAME} PRIVATE RUNNINGMODES)
 target_link_libraries(${PROJECT_NAME} PRIVATE NETCONNECTIONS)
 target_link_libraries(${PROJECT_NAME} PRIVATE SHAREDEFINES)
 target_link_libraries(${PROJECT_NAME} PRIVATE THRID_PARTIES)

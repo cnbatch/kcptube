@@ -141,6 +141,16 @@ namespace KCP
 			post_update(kcp_ptr->user);
 	}
 
+	uint32_t KCP::UpdateCheck()
+	{
+		std::unique_lock locker{ mtx };
+		int ret = kcp_ptr->update(TimeNowForKCP());
+		locker.unlock();
+		if (ret >= 0)
+			post_update(kcp_ptr->user);
+		return kcp_ptr->check(TimeNowForKCP());;
+	}
+
 	uint32_t KCP::Check(uint32_t current)
 	{
 		std::shared_lock locker{ mtx };

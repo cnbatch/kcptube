@@ -11,14 +11,15 @@
 #include "shares/share_defines.hpp"
 #include "shares/string_utils.hpp"
 #include "networks/connections.hpp"
-#include "networks/client.hpp"
-#include "networks/relay.hpp"
-#include "networks/server.hpp"
+#include "modes/client.hpp"
+#include "modes/relay.hpp"
+#include "modes/server.hpp"
+#include "modes/tester.hpp"
 
 
 int main(int argc, char *argv[])
 {
-	printf("%.*s version 20240302\n", (int)app_name.length(), app_name.data());
+	printf("%.*s version 20240309\n", (int)app_name.length(), app_name.data());
 
 	if (argc <= 1)
 	{
@@ -55,6 +56,7 @@ int main(int argc, char *argv[])
 	std::vector<client_mode> clients;
 	std::vector<relay_mode> relays;
 	std::vector<server_mode> servers;
+	std::vector<test_mode> testers;
 	std::vector<user_settings> profile_settings;
 
 	bool error_found = false;
@@ -106,11 +108,16 @@ int main(int argc, char *argv[])
 		switch (settings.mode)
 		{
 		case running_mode::client:
-			settings.test_only = test_connection;
-			clients.emplace_back(client_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
+			if (test_connection)
+				testers.emplace_back(test_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
+			else
+				clients.emplace_back(client_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
 		case running_mode::relay:
-			relays.emplace_back(relay_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
+			if (test_connection)
+				testers.emplace_back(test_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
+			else
+				relays.emplace_back(relay_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
 			break;
 		case running_mode::server:
 			servers.emplace_back(server_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
@@ -120,30 +127,39 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if (test_connection)
+	{
+		for (test_mode &tester : testers)
+		{
+			if (tester.start())
+				ioc.run();
+		}
+		return 0;
+	}
+
+	bool started_up = !servers.empty() || !relays.empty() || !clients.empty();
+
 	std::cout << "Servers: " << servers.size() << "\n";
 	std::cout << "Relays: " << relays.size() << "\n";
 	std::cout << "Clients: " << clients.size() << "\n";
-
-	bool started_up = !servers.empty() || !relays.empty() || !clients.empty();
 
 	for (server_mode &server : servers)
 	{
 		started_up = server.start() && started_up;
 	}
-	
+
 	for (relay_mode &relay : relays)
 	{
 		started_up = relay.start() && started_up;
 	}
+
 	for (client_mode &client : clients)
 	{
 		started_up = client.start() && started_up;
 	}
 
 	if (started_up)
-	{
 		ioc.run();
-	}
 
 	return 0;
 }

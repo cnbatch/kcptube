@@ -59,6 +59,9 @@ namespace KCP
 			return kcp_tasks_total.load();
 		}
 
+		[[nodiscard]]
+		size_t get_kcp_count() const;
+
 		void submit(std::weak_ptr<KCP> kcp_ptr, uint32_t next_update_time);
 
 		void remove(std::weak_ptr<KCP> kcp_ptr);
@@ -99,10 +102,10 @@ namespace KCP
 		std::condition_variable kcp_tasks_available_cv = {};
 		std::condition_variable kcp_tasks_done_cv = {};
 		//std::map<std::weak_ptr<KCP>, uint32_t, std::owner_less<>> pile_of_kcp = {};	// uint32_t is for storing next update time
-		std::map<uint32_t, std::list<std::weak_ptr<KCP>>> kcp_time_list;
+		std::map<uint32_t, std::set<std::weak_ptr<KCP>, std::owner_less<>>> kcp_time_list;
 		std::set<std::weak_ptr<KCP>, std::owner_less<>> expired_kcp;
 		std::atomic<size_t> kcp_tasks_total = 0;
-		std::mutex kcp_tasks_mutex = {};
+		mutable std::mutex kcp_tasks_mutex = {};
 		std::unique_ptr<std::thread> kcp_thread = nullptr;
 		std::atomic<bool> running = false;
 		std::atomic<bool> waiting = false;

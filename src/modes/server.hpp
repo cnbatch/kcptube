@@ -1,8 +1,8 @@
 #pragma once
 #include <set>
-#include "connections.hpp"
-#include "kcp_updater.hpp"
-#include "mux_tunnel.hpp"
+#include "../networks/connections.hpp"
+#include "../networks/kcp_updater.hpp"
+#include "../networks/mux_tunnel.hpp"
 
 #ifndef __SERVER_HPP__
 #define __SERVER_HPP__
