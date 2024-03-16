@@ -290,27 +290,27 @@ public:
 	tcp_server() = delete;
 
 	tcp_server(asio::io_context &io_context, const tcp::endpoint &ep,
-		acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func)
+		acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
 		: internal_io_context(io_context), task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), tcp_acceptor(io_context),
-		acceptor_callback(acceptor_callback_func), session_callback(callback_func)
+		acceptor_callback(acceptor_callback_func), session_callback(callback_func), ip_version_only(ip_ver_only)
 	{
 		acceptor_initialise(ep);
 		start_accept();
 	}
 
 	tcp_server(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, const tcp::endpoint &ep,
-		acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func)
+		acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
 		: internal_io_context(io_context), task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), tcp_acceptor(io_context),
-		acceptor_callback(acceptor_callback_func), session_callback(callback_func)
+		acceptor_callback(acceptor_callback_func), session_callback(callback_func), ip_version_only(ip_ver_only)
 	{
 		acceptor_initialise(ep);
 		start_accept();
 	}
 
 	tcp_server(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, const tcp::endpoint &ep,
-		acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func)
+		acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
 		: internal_io_context(io_context), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), tcp_acceptor(io_context),
-		acceptor_callback(acceptor_callback_func), session_callback(callback_func)
+		acceptor_callback(acceptor_callback_func), session_callback(callback_func), ip_version_only(ip_ver_only)
 	{
 		acceptor_initialise(ep);
 		start_accept();
@@ -328,6 +328,7 @@ private:
 	acceptor_callback_t acceptor_callback;
 	tcp_callback_t session_callback;
 	const size_t task_limit;
+	const ip_only_options ip_version_only;
 	bool paused;
 };
 
@@ -336,14 +337,14 @@ class tcp_client
 public:
 	tcp_client() = delete;
 
-	tcp_client(asio::io_context &io_context, tcp_callback_t callback_func, bool v4_only = false)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), session_callback(callback_func), ipv4_only(v4_only) {}
+	tcp_client(asio::io_context &io_context, tcp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
+		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), session_callback(callback_func), ip_version_only(ip_ver_only) {}
 
-	tcp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, tcp_callback_t callback_func, bool v4_only = false)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), session_callback(callback_func), ipv4_only(v4_only) {}
+	tcp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, tcp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
+		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), session_callback(callback_func), ip_version_only(ip_ver_only) {}
 
-	tcp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, tcp_callback_t callback_func, bool v4_only = false)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), session_callback(callback_func), ipv4_only(v4_only) {}
+	tcp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, tcp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
+		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), session_callback(callback_func), ip_version_only(ip_ver_only) {}
 
 	std::shared_ptr<tcp_session> connect(asio::error_code &ec);
 
@@ -359,7 +360,7 @@ private:
 	tcp::resolver resolver;
 	asio::ip::basic_resolver_results<asio::ip::tcp> remote_endpoints;
 	const size_t task_limit;
-	const bool ipv4_only;
+	const ip_only_options ip_version_only;
 };
 
 
@@ -369,22 +370,22 @@ class udp_server
 public:
 	udp_server() = delete;
 
-	udp_server(asio::io_context &io_context, const udp::endpoint &ep, udp_callback_t callback_func)
-		: task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func)
+	udp_server(asio::io_context &io_context, const udp::endpoint &ep, udp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
+		: task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func), ip_version_only(ip_ver_only)
 	{
 		initialise(ep);
 		start_receive();
 	}
 
-	udp_server(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, const udp::endpoint &ep, udp_callback_t callback_func)
-		: task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func)
+	udp_server(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, const udp::endpoint &ep, udp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
+		: task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func), ip_version_only(ip_ver_only)
 	{
 		initialise(ep);
 		start_receive();
 	}
 
-	udp_server(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, const udp::endpoint &ep, udp_callback_t callback_func)
-		: task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func)
+	udp_server(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, const udp::endpoint &ep, udp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
+		: task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func), ip_version_only(ip_ver_only)
 	{
 		initialise(ep);
 		start_receive();
@@ -413,6 +414,7 @@ private:
 	udp::endpoint incoming_endpoint;
 	udp_callback_t callback;
 	const size_t task_limit;
+	const ip_only_options ip_version_only;
 };
 
 class udp_client : public std::enable_shared_from_this<udp_client>
@@ -420,29 +422,29 @@ class udp_client : public std::enable_shared_from_this<udp_client>
 public:
 	udp_client() = delete;
 
-	udp_client(asio::io_context &io_context, udp_callback_t callback_func, bool v4_only = false)
+	udp_client(asio::io_context &io_context, udp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
 		: task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0),
 		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false), ipv4_only(v4_only)
+		paused(false), stopped(false), ip_version_only(ip_ver_only)
 	{
 		initialise();
 	}
 
-	udp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, udp_callback_t callback_func, bool v4_only = false)
+	udp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, udp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
 		: task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit),
 		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false), ipv4_only(v4_only)
+		paused(false), stopped(false), ip_version_only(ip_ver_only)
 	{
 		initialise();
 	}
 
-	udp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, udp_callback_t callback_func, bool v4_only = false)
+	udp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, udp_callback_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set)
 		: task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit),
 		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false), ipv4_only(v4_only)
+		paused(false), stopped(false), ip_version_only(ip_ver_only)
 	{
 		initialise();
 	}
@@ -488,7 +490,7 @@ protected:
 	alignas(64) std::atomic<bool> paused;
 	alignas(64) std::atomic<bool> stopped;
 	const size_t task_limit;
-	const bool ipv4_only;
+	const ip_only_options ip_version_only;
 };
 
 class forwarder : public udp_client
@@ -498,17 +500,17 @@ public:
 
 	forwarder() = delete;
 
-	forwarder(asio::io_context &io_context, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, bool v4_only = false) :
+	forwarder(asio::io_context &io_context, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set) :
 		udp_client(io_context,
-			std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
+			std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), ip_ver_only),
 		kcp(input_kcp), callback(callback_func) {}
 
-	forwarder(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, bool v4_only = false) :
-		udp_client(io_context, group_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
+	forwarder(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set) :
+		udp_client(io_context, group_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), ip_ver_only),
 		kcp(input_kcp), callback(callback_func) {}
 
-	forwarder(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, bool v4_only = false) :
-		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), v4_only),
+	forwarder(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, ip_only_options ip_ver_only = ip_only_options::not_set) :
+		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), ip_ver_only),
 		kcp(input_kcp), callback(callback_func) {}
 
 	void replace_callback(process_data_t callback_func)
@@ -599,9 +601,9 @@ struct mux_data_cache
 	size_t data_size;
 };
 
-std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
-std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, bool v4_only = false);
-void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header, bool v4_only = false);
+std::unique_ptr<rfc3489::stun_header> send_stun_3489_request(udp_server &sender, const std::string &stun_host, ip_only_options ip_version_only = ip_only_options::not_set);
+std::unique_ptr<rfc8489::stun_header> send_stun_8489_request(udp_server &sender, const std::string &stun_host, ip_only_options ip_version_only = ip_only_options::not_set);
+void resend_stun_8489_request(udp_server &sender, const std::string &stun_host, rfc8489::stun_header *header, ip_only_options ip_version_only = ip_only_options::not_set);
 template<typename T>
 auto split_resolved_addresses(const asio::ip::basic_resolver_results<T> &input_addresses)
 {

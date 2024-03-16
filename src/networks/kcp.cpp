@@ -145,10 +145,11 @@ namespace KCP
 	{
 		std::unique_lock locker{ mtx };
 		int ret = kcp_ptr->update(TimeNowForKCP());
+		uint32_t next_update = kcp_ptr->check(TimeNowForKCP());
 		locker.unlock();
 		if (ret >= 0)
 			post_update(kcp_ptr->user);
-		return kcp_ptr->check(TimeNowForKCP());;
+		return next_update;
 	}
 
 	uint32_t KCP::Check(uint32_t current)

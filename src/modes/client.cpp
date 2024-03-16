@@ -27,7 +27,7 @@ bool client_mode::start()
 
 	tcp::endpoint listen_on_tcp;
 	udp::endpoint listen_on_udp;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 	{
 		listen_on_tcp = tcp::endpoint(tcp::v4(), port_number);
 		listen_on_udp = udp::endpoint(udp::v4(), port_number);
@@ -50,7 +50,7 @@ bool client_mode::start()
 			return false;
 		}
 
-		if (local_address.is_v4() && !current_settings.ipv4_only)
+		if (local_address.is_v4() && current_settings.ip_version_only == ip_only_options::not_set)
 		{
 			listen_on_tcp.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
 			listen_on_udp.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
@@ -145,7 +145,7 @@ void client_mode::multiple_listening_tcp(user_settings::user_input_address_mappi
 	for (auto &[listen_local, destination] : user_input_mappings)
 	{
 		tcp::endpoint listen_on_tcp;
-		if (current_settings.ipv4_only)
+		if (current_settings.ip_version_only == ip_only_options::ipv4)
 			listen_on_tcp = tcp::endpoint(tcp::v4(), 0);
 		else
 			listen_on_tcp = tcp::endpoint(tcp::v6(), 0);
@@ -158,7 +158,7 @@ void client_mode::multiple_listening_tcp(user_settings::user_input_address_mappi
 		if (!local_address.empty())
 		{
 			asio::ip::address input_address = asio::ip::address::from_string(local_address);
-			if (current_settings.ipv4_only && !input_address.is_v4())
+			if (current_settings.ip_version_only == ip_only_options::ipv4 && !input_address.is_v4())
 			{
 				std::string error_message = time_to_string_with_square_brackets() + "ipv4_only is set, ignoring IPv6 address" + local_address + "\n";
 				std::cerr << error_message;
@@ -185,7 +185,7 @@ void client_mode::multiple_listening_udp(user_settings::user_input_address_mappi
 	for (auto &[listen_local, destination] : user_input_mappings)
 	{
 		udp::endpoint listen_on_udp;
-		if (current_settings.ipv4_only)
+		if (current_settings.ip_version_only == ip_only_options::ipv4)
 			listen_on_udp = udp::endpoint(udp::v4(), 0);
 		else
 			listen_on_udp = udp::endpoint(udp::v6(), 0);
@@ -198,7 +198,7 @@ void client_mode::multiple_listening_udp(user_settings::user_input_address_mappi
 		if (!local_address.empty())
 		{
 			asio::ip::address input_address = asio::ip::address::from_string(local_address);
-			if (current_settings.ipv4_only && !input_address.is_v4())
+			if (current_settings.ip_version_only == ip_only_options::ipv4 && !input_address.is_v4())
 			{
 				std::string error_message = time_to_string_with_square_brackets() + "ipv4_only is set, ignoring IPv6 address" + local_address + "\n";
 				std::cerr << error_message;
@@ -962,6 +962,7 @@ void client_mode::local_disconnect(std::shared_ptr<KCP::KCP> kcp_ptr, std::share
 	session->session_is_ending(true);
 	session->pause(false);
 	session->stop();
+	mux_records_ptr->local_tcp.reset();
 }
 
 void client_mode::process_disconnect(uint32_t conv)
@@ -1062,7 +1063,7 @@ void client_mode::switch_new_port(kcp_mappings *kcp_mappings_ptr)
 	try
 	{
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -1095,7 +1096,7 @@ void client_mode::switch_new_port(kcp_mappings *kcp_mappings_ptr)
 	}
 
 	asio::error_code ec;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
 	else
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
@@ -1158,26 +1159,54 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 		break;
 	}
 
+	new_kcp_mappings_ptr->ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
 	new_kcp_mappings_ptr->ingress_listen_port = kcp_mappings_ptr->ingress_listen_port;
-	auto func = [this, kcp_mappings_ptr, new_kcp_mappings_ptr]() mutable
+
+	if (kcp_mappings_ptr->connection_protocol == protocol_type::udp)
 	{
-		std::shared_ptr<kcp_mappings> old_kcp_mappings_ptr = nullptr;
-		std::unique_lock locker{mutex_handshakes};
-		if (auto iter = handshakes.find(kcp_mappings_ptr); iter != handshakes.end())
-		{
-			old_kcp_mappings_ptr = iter->second;
-			handshakes.erase(iter);
-		}
-		handshakes[new_kcp_mappings_ptr.get()] = new_kcp_mappings_ptr;
-		locker.unlock();
+		auto func = [this, kcp_mappings_ptr, new_kcp_mappings_ptr]() mutable
+			{
+				std::shared_ptr<kcp_mappings> old_kcp_mappings_ptr = nullptr;
+				{
+					std::scoped_lock lockers{ mutex_udp_address_map_to_handshake, mutex_expiring_handshakes, mutex_udp_seesion_caches };
+					std::shared_ptr<udp::endpoint> local_peer = new_kcp_mappings_ptr->ingress_source_endpoint;
+					auto iter = udp_address_map_to_handshake.find(*local_peer);
+					if (iter == udp_address_map_to_handshake.end())
+						return;
+					old_kcp_mappings_ptr = iter->second;
+					iter->second = new_kcp_mappings_ptr;
+					udp_seesion_caches[new_kcp_mappings_ptr] = std::move(udp_seesion_caches[old_kcp_mappings_ptr]);
+					udp_seesion_caches.erase(old_kcp_mappings_ptr);
+				}
 
-		kcp_mappings_ptr->egress_kcp->SetUserData(nullptr);
-		kcp_updater.remove(kcp_mappings_ptr->egress_kcp);
-		uint32_t next_update_time = new_kcp_mappings_ptr->egress_kcp->Check();
-		kcp_updater.submit(new_kcp_mappings_ptr->egress_kcp, next_update_time);
-	};
-	sequence_task_pool_local.push_task((size_t)kcp_mappings_ptr, func);
+				kcp_mappings_ptr->egress_kcp->SetUserData(nullptr);
+				kcp_updater.remove(kcp_mappings_ptr->egress_kcp);
+				uint32_t next_update_time = new_kcp_mappings_ptr->egress_kcp->Check();
+				kcp_updater.submit(new_kcp_mappings_ptr->egress_kcp, next_update_time);
+			};
+		sequence_task_pool_local.push_task((size_t)kcp_mappings_ptr, func);
+	}
+	else
+	{
+		auto func = [this, kcp_mappings_ptr, new_kcp_mappings_ptr]() mutable
+			{
+				std::shared_ptr<kcp_mappings> old_kcp_mappings_ptr = nullptr;
+				std::unique_lock locker{ mutex_handshakes };
+				if (auto iter = handshakes.find(kcp_mappings_ptr); iter != handshakes.end())
+				{
+					old_kcp_mappings_ptr = iter->second;
+					handshakes.erase(iter);
+				}
+				handshakes[new_kcp_mappings_ptr.get()] = new_kcp_mappings_ptr;
+				locker.unlock();
 
+				kcp_mappings_ptr->egress_kcp->SetUserData(nullptr);
+				kcp_updater.remove(kcp_mappings_ptr->egress_kcp);
+				uint32_t next_update_time = new_kcp_mappings_ptr->egress_kcp->Check();
+				kcp_updater.submit(new_kcp_mappings_ptr->egress_kcp, next_update_time);
+			};
+		sequence_task_pool_local.push_task((size_t)kcp_mappings_ptr, func);
+	}
 	return true;
 }
 
@@ -1192,14 +1221,12 @@ void client_mode::cleanup_expiring_forwarders()
 		auto &[udp_forwrder, expire_time] = *iter;
 		int64_t time_elapsed = time_right_now - expire_time;
 
+		if (time_elapsed > gbv_receiver_cleanup_waits / 2 &&
+			udp_forwrder != nullptr)
+			udp_forwrder->stop();
+
 		if (time_elapsed <= gbv_receiver_cleanup_waits)
 			continue;
-
-		if (time_elapsed < gbv_receiver_cleanup_waits)
-		{
-			udp_forwrder->stop();
-			continue;
-		}
 
 		expiring_forwarders.erase(iter);
 	}
@@ -1231,8 +1258,12 @@ void client_mode::cleanup_expiring_data_connections()
 		if (kcp_mappings_ptr->connection_protocol == protocol_type::tcp)
 		{
 			tcp_session *tcp_channel = kcp_mappings_ptr->local_tcp.get();
-			tcp_channel->session_is_ending(true);
-			tcp_channel->stop();
+			if (tcp_channel != nullptr)
+			{
+				tcp_channel->session_is_ending(true);
+				tcp_channel->stop();
+				kcp_mappings_ptr->local_tcp.reset();
+			}
 		}
 
 		if (kcp_mappings_ptr->connection_protocol == protocol_type::udp)
@@ -1295,6 +1326,14 @@ void client_mode::cleanup_expiring_handshake_connections()
 		handshake_timeout_detection(kcp_mappings_raw_ptr);
 	}	
 	locker_handshake.unlock();
+
+	std::unique_lock locker_udp_handshake{ mutex_udp_address_map_to_handshake };
+	for (auto iter = udp_address_map_to_handshake.begin(); iter != udp_address_map_to_handshake.end(); ++iter)
+	{
+		kcp_mappings *kcp_mappings_raw_ptr = iter->second.get();
+		handshake_timeout_detection(kcp_mappings_raw_ptr);
+	}	
+	locker_udp_handshake.unlock();
 }
 
 void client_mode::loop_find_expires()
@@ -1486,7 +1525,7 @@ std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protoco
 	try
 	{
 		auto udp_func = std::bind(&client_mode::handle_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}
@@ -1522,7 +1561,7 @@ std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protoco
 		});
 
 	asio::error_code ec;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
 	else
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
@@ -1634,7 +1673,7 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 	try
 	{
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -1647,7 +1686,7 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 	}
 
 	asio::error_code ec;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
 	else
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);

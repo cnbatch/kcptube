@@ -376,7 +376,14 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 			case strhash("ipv4_only"):
 			{
 				bool yes = value == "yes" || value == "true" || value == "1";
-				current_settings->ipv4_only = yes;
+				current_settings->ip_version_only |= ip_only_options::ipv4;
+				break;
+			}
+
+			case strhash("ipv6_only"):
+			{
+				bool yes = value == "yes" || value == "true" || value == "1";
+				current_settings->ip_version_only = ip_only_options::ipv6;
 				break;
 			}
 
@@ -792,6 +799,9 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 		}
 	}
 
+	if (current_user_settings.ip_version_only == (ip_only_options::ipv4 | ip_only_options::ipv6))
+		error_msg.emplace_back("Both ipv4_only and ipv6_only are set as true");
+
 	if (error_msg.empty() && current_user_settings.ingress != nullptr)
 	{
 		check_settings(*current_user_settings.ingress, error_msg);
@@ -847,8 +857,8 @@ void copy_settings(user_settings &inner, user_settings &outter)
 	if (outter.keep_alive > 0)
 		inner.keep_alive = outter.keep_alive;
 
-	if (outter.ipv4_only)
-		inner.ipv4_only = outter.ipv4_only;
+	if (outter.ip_version_only != ip_only_options::not_set)
+		inner.ip_version_only = outter.ip_version_only;
 
 	if (outter.blast)
 		inner.blast = outter.blast;

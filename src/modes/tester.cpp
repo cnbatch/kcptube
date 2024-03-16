@@ -80,6 +80,9 @@ bool test_mode::start()
 		lock_handshake.unlock();
 	}
 
+	timer_find_expires.expires_after(gbv_expring_update_interval);
+	timer_find_expires.async_wait([this](const asio::error_code &e) { find_expires(e); });
+
 	return true;
 }
 
@@ -199,7 +202,7 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(asio::ip::port_type te
 	try
 	{
 		auto udp_func = std::bind(&test_mode::handle_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}
@@ -236,7 +239,7 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(asio::ip::port_type te
 		});
 
 	asio::error_code ec;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
 	else
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
@@ -392,4 +395,23 @@ void test_mode::PrintResults()
 	}
 
 	std::cout << std::endl;
+}
+
+void test_mode::find_expires(const asio::error_code &e)
+{
+	if (e == asio::error::operation_aborted)
+		return;
+	
+	std::shared_lock locker_handshake{ mutex_handshakes };
+	if (handshakes.size() == 0)
+		return;
+	for (auto iter = handshakes.begin(); iter != handshakes.end(); ++iter)
+	{
+		kcp_mappings *kcp_mappings_raw_ptr = iter->first;
+		handshake_timeout_detection(kcp_mappings_raw_ptr);
+	}
+	locker_handshake.unlock();
+
+	timer_find_expires.expires_after(gbv_expring_update_interval);
+	timer_find_expires.async_wait([this](const asio::error_code &e) { find_expires(e); });
 }

@@ -23,9 +23,9 @@ bool relay_mode::start()
 
 	std::set<uint16_t> listen_ports = convert_to_port_list(*current_settings.ingress);
 
-	bool ipv4_only = current_settings.ingress->ipv4_only;
+	ip_only_options ip_only = current_settings.ingress->ip_version_only;
 	udp::endpoint listen_on_ep;
-	if (ipv4_only)
+	if (ip_only == ip_only_options::ipv4)
 		listen_on_ep = udp::endpoint(udp::v4(), *listen_ports.begin());
 	else
 		listen_on_ep = udp::endpoint(udp::v6(), *listen_ports.begin());
@@ -43,7 +43,7 @@ bool relay_mode::start()
 			return false;
 		}
 
-		if (local_address.is_v4() && !ipv4_only)
+		if (local_address.is_v4() && ip_only == ip_only_options::not_set)
 			listen_on_ep.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
 		else
 			listen_on_ep.address(local_address);
@@ -79,7 +79,7 @@ bool relay_mode::start()
 
 		if (!current_settings.ingress->stun_server.empty())
 		{
-			stun_header = send_stun_8489_request(*udp_servers.begin()->second, current_settings.ingress->stun_server, ipv4_only);
+			stun_header = send_stun_8489_request(*udp_servers.begin()->second, current_settings.ingress->stun_server, ip_only);
 			timer_stun.expires_after(std::chrono::seconds(1));
 			timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });
 		}
@@ -375,7 +375,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 				try
 				{
 					auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-					udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, handshake_kcp_egress, udp_func, current_settings.egress->ipv4_only);
+					udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, handshake_kcp_egress, udp_func, current_settings.egress->ip_version_only);
 					if (udp_forwarder == nullptr)
 					{
 						expiring_handshakes[handshake_kcp_mappings_ptr] = packet::right_now();
@@ -412,7 +412,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 					});
 
 				bool connect_success = get_udp_target(udp_forwarder, handshake_kcp_mappings->egress_target_endpoint);
-				if (current_settings.egress->ipv4_only)
+				if (current_settings.egress->ip_version_only == ip_only_options::ipv4)
 					udp_forwarder->send_out(create_raw_random_data(current_settings.egress->kcp_mtu), local_empty_target_v4, ec);
 				else
 					udp_forwarder->send_out(create_raw_random_data(current_settings.egress->kcp_mtu), local_empty_target_v6, ec);
@@ -714,7 +714,7 @@ void relay_mode::switch_new_port(kcp_mappings * kcp_mappings_ptr)
 	try
 	{
 		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -747,7 +747,7 @@ void relay_mode::switch_new_port(kcp_mappings * kcp_mappings_ptr)
 	}
 
 	asio::error_code ec;
-	if (current_settings.egress->ipv4_only)
+	if (current_settings.egress->ip_version_only == ip_only_options::ipv4)
 		udp_forwarder->send_out(create_raw_random_data(current_settings.egress->kcp_mtu), local_empty_target_v4, ec);
 	else
 		udp_forwarder->send_out(create_raw_random_data(current_settings.egress->kcp_mtu), local_empty_target_v6, ec);
@@ -809,7 +809,7 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 	try
 	{
 		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ip_version_only);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -821,7 +821,7 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 		return;
 	}
 
-	if (current_settings.egress->ipv4_only)
+	if (current_settings.egress->ip_version_only == ip_only_options::ipv4)
 		udp_forwarder->send_out(create_raw_random_data(current_settings.egress->kcp_mtu), local_empty_target_v4, ec);
 	else
 		udp_forwarder->send_out(create_raw_random_data(current_settings.egress->kcp_mtu), local_empty_target_v6, ec);
@@ -909,7 +909,7 @@ std::shared_ptr<kcp_mappings> relay_mode::create_test_handshake()
 	try
 	{
 		auto udp_func = std::bind(&relay_mode::handle_test_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ipv4_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ip_version_only);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}
@@ -945,7 +945,7 @@ std::shared_ptr<kcp_mappings> relay_mode::create_test_handshake()
 		});
 
 	asio::error_code ec;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
 	else
 		udp_forwarder->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
@@ -1470,17 +1470,16 @@ void relay_mode::cleanup_expiring_forwarders()
 		auto &[udp_forwrder, expire_time] = *iter;
 		int64_t time_elapsed = calculate_difference(time_right_now, expire_time);
 
-		if (time_elapsed <= gbv_receiver_cleanup_waits / gbv_half_time)
-			continue;
-
-		if (time_elapsed > gbv_receiver_cleanup_waits / gbv_half_time && time_elapsed < gbv_receiver_cleanup_waits)
+		if (time_elapsed > gbv_receiver_cleanup_waits / 2 &&
+			udp_forwrder != nullptr)
 		{
 			udp_forwrder->remove_callback();
 			udp_forwrder->stop();
-			continue;
 		}
 
-		udp_forwrder->disconnect();
+		if (time_elapsed <= gbv_receiver_cleanup_waits)
+			continue;
+
 		expiring_forwarders.erase(iter);
 	}
 }
@@ -1640,7 +1639,7 @@ void relay_mode::send_stun_request(const asio::error_code & e)
 	if (current_settings.ingress->stun_server.empty())
 		return;
 
-	resend_stun_8489_request(*udp_servers.begin()->second, current_settings.ingress->stun_server, stun_header.get(), current_settings.ingress->ipv4_only);
+	resend_stun_8489_request(*udp_servers.begin()->second, current_settings.ingress->stun_server, stun_header.get(), current_settings.ingress->ip_version_only);
 
 	timer_stun.expires_after(gbv_stun_resend);
 	timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });

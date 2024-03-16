@@ -402,7 +402,9 @@ void mux_tunnel::pre_connect_custom_address(protocol_type prtcl, kcp_mappings *k
 					udp::resolver::results_type udp_endpoints = mux_records_ptr->local_udp->get_remote_hostname(user_input_ip, user_input_port, ec);
 					asio::ip::address user_input_address = asio::ip::address::from_string(user_input_ip);
 
-					if (ec || udp_endpoints.size() == 0 || (current_settings.ipv4_only && !user_input_address.is_v4()))
+					if (ec || udp_endpoints.size() == 0 ||
+						(current_settings.ip_version_only == ip_only_options::ipv4 && user_input_address.is_v6()) ||
+						(current_settings.ip_version_only == ip_only_options::ipv6 && user_input_address.is_v4()))
 						mux_records_ptr = nullptr;
 					else
 						kcp_mappings_ptr->egress_target_endpoint = *udp_endpoints.begin();

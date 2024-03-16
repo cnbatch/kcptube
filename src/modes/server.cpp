@@ -33,7 +33,7 @@ bool server_mode::start()
 	std::set<uint16_t> listen_ports = convert_to_port_list(current_settings);
 
 	udp::endpoint listen_on_ep;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		listen_on_ep = udp::endpoint(udp::v4(), *listen_ports.begin());
 	else
 		listen_on_ep = udp::endpoint(udp::v6(), *listen_ports.begin());
@@ -50,7 +50,7 @@ bool server_mode::start()
 			return false;
 		}
 
-		if (local_address.is_v4() && !current_settings.ipv4_only)
+		if (local_address.is_v4() && current_settings.ip_version_only == ip_only_options::not_set)
 			listen_on_ep.address(asio::ip::make_address_v6(asio::ip::v4_mapped, local_address.to_v4()));
 		else
 			listen_on_ep.address(local_address);
@@ -86,7 +86,7 @@ bool server_mode::start()
 
 		if (!current_settings.stun_server.empty())
 		{
-			stun_header = send_stun_8489_request(*udp_servers.begin()->second, current_settings.stun_server, current_settings.ipv4_only);
+			stun_header = send_stun_8489_request(*udp_servers.begin()->second, current_settings.stun_server, current_settings.ip_version_only);
 			timer_stun.expires_after(std::chrono::seconds(1));
 			timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });
 		}
@@ -569,7 +569,7 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 	{
 		tcp_connector_incoming(std::move(data), data_size, target_session, weak_data_kcp);
 	};
-	tcp_client target_connector(io_context, callback_function, current_settings.ipv4_only);
+	tcp_client target_connector(io_context, callback_function, current_settings.ip_version_only);
 	std::string destination_address = current_settings.destination_address;
 	uint16_t destination_port = current_settings.destination_port;
 
@@ -633,7 +633,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	{
 		try
 		{
-			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, current_settings.ipv4_only);
+			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, current_settings.ip_version_only);
 		}
 		catch (...)
 		{
@@ -646,7 +646,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 		return false;
 
 	asio::error_code ec;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
 	else
 		target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
@@ -673,7 +673,8 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 			return false;
 
 		asio::ip::address target_address = asio::ip::address::from_string(user_input_address);
-		if (current_settings.ipv4_only && !target_address.is_v4())
+		if ((current_settings.ip_version_only == ip_only_options::ipv4 && target_address.is_v6()) ||
+			(current_settings.ip_version_only == ip_only_options::ipv6 && target_address.is_v4()))
 			return false;
 
 		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(user_input_address, user_input_port, ec);
@@ -756,7 +757,7 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_tcp_connection(uint32_
 		{
 			mux_tunnels->read_tcp_data_to_cache(std::move(data), data_size, target_session, kcp_session_weak, mux_records_ptr_weak);
 		};
-	tcp_client target_connector(io_context, callback_function, current_settings.ipv4_only);
+	tcp_client target_connector(io_context, callback_function, current_settings.ip_version_only);
 	std::string destination_address = current_settings.destination_address;
 	uint16_t destination_port = current_settings.destination_port;
 
@@ -807,7 +808,7 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_udp_connection(uint32_
 	{
 		try
 		{
-			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, current_settings.ipv4_only);
+			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, current_settings.ip_version_only);
 		}
 		catch (...)
 		{
@@ -820,7 +821,7 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_udp_connection(uint32_
 		return nullptr;
 
 	asio::error_code ec;
-	if (current_settings.ipv4_only)
+	if (current_settings.ip_version_only == ip_only_options::ipv4)
 		target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v4, ec);
 	else
 		target_connector->send_out(create_raw_random_data(current_settings.kcp_mtu), local_empty_target_v6, ec);
@@ -1310,7 +1311,7 @@ void server_mode::send_stun_request(const asio::error_code &e)
 	if (current_settings.stun_server.empty())
 		return;
 
-	resend_stun_8489_request(*udp_servers.begin()->second, current_settings.stun_server, stun_header.get(), current_settings.ipv4_only);
+	resend_stun_8489_request(*udp_servers.begin()->second, current_settings.stun_server, stun_header.get(), current_settings.ip_version_only);
 
 	timer_stun.expires_after(gbv_stun_resend);
 	timer_stun.async_wait([this](const asio::error_code &e) { send_stun_request(e); });

@@ -22,6 +22,7 @@ constexpr std::string_view app_name = "kcptube";
 enum class running_mode { unknow, server, client, relay, relay_ingress, relay_egress };
 enum class kcp_mode { unknow, regular1, regular2, regular3, regular4, regular5, fast1, fast2, fast3, fast4, fast5, fast6, manual };
 enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
+enum class ip_only_options : uint8_t { not_set = 0, ipv4 = 1, ipv6 = 2 };
 
 namespace constant_values
 {
@@ -45,6 +46,50 @@ namespace constant_values
 	constexpr int udp_header = 4;
 };
 
+inline constexpr ip_only_options
+operator&(ip_only_options option_1, ip_only_options option_2)
+{
+	return static_cast<ip_only_options>(static_cast<uint8_t>(option_1) & static_cast<uint8_t>(option_2));
+}
+
+inline constexpr ip_only_options
+operator|(ip_only_options option_1, ip_only_options option_2)
+{
+	return static_cast<ip_only_options>(static_cast<uint8_t>(option_1) | static_cast<uint8_t>(option_2));
+}
+
+inline constexpr ip_only_options
+operator^(ip_only_options option_1, ip_only_options option_2)
+{
+	return static_cast<ip_only_options>(static_cast<uint8_t>(option_1) ^ static_cast<uint8_t>(option_2));
+}
+
+inline constexpr ip_only_options
+operator~(ip_only_options input_option)
+{
+	return static_cast<ip_only_options>(~static_cast<int>(input_option));
+}
+
+inline ip_only_options &
+operator&=(ip_only_options &option_1, ip_only_options option_2)
+{
+	option_1 = option_1 & option_2;
+	return option_1;
+}
+
+inline ip_only_options &
+operator|=(ip_only_options &option_1, ip_only_options option_2)
+{
+	option_1 = option_1 | option_2;
+	return option_1;
+}
+
+inline ip_only_options &
+operator^=(ip_only_options &option_1, ip_only_options option_2)
+{
+	option_1 = option_1 ^ option_2;
+	return option_1;
+}
 
 template<typename T>
 T generate_random_number()
@@ -96,7 +141,7 @@ struct user_settings
 	uint32_t kcp_rcvwnd = 0;
 	uint64_t outbound_bandwidth = 0;
 	uint64_t inbound_bandwidth = 0;
-	bool ipv4_only = false;
+	ip_only_options ip_version_only = ip_only_options::not_set;
 	bool blast = 1;
 	bool ignore_listen_address = false;
 	bool ignore_listen_port = false;

@@ -93,6 +93,7 @@ The following configuration options can be used outside `[listener]` and `[forwa
 - udp_timeout
 - keep_alive
 - ipv4_only=1
+- ipv6_only=1
 - blast
 - fec
 

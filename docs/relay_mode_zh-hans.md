@@ -95,6 +95,7 @@ sequenceDiagram
 - udp_timeout
 - keep_alive
 - ipv4_only=1
+- ipv6_only=1
 - blast
 - fec
 
