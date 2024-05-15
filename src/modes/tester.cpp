@@ -92,9 +92,21 @@ int test_mode::kcp_sender(const char *buf, int len, void *user)
 		return 0;
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)user;
-	int buffer_size = 0;
-	std::unique_ptr<uint8_t[]> new_buffer = packet::create_packet((const uint8_t *)buf, len, buffer_size);
-	data_sender(kcp_mappings_ptr, std::move(new_buffer), buffer_size);
+	if (current_settings.fec_data == 0 || current_settings.fec_redundant == 0)
+	{
+		int buffer_size = 0;
+		std::unique_ptr<uint8_t[]> new_buffer = packet::create_packet((const uint8_t *)buf, len, buffer_size);
+		data_sender(kcp_mappings_ptr, std::move(new_buffer), buffer_size);
+	}
+	else
+	{
+		fec_control_data &fec_controllor = kcp_mappings_ptr->fec_egress_control;
+		int conv = kcp_mappings_ptr->egress_kcp->GetConv();
+		int fec_data_buffer_size = 0;
+		std::unique_ptr<uint8_t[]> fec_data_buffer = packet::create_fec_data_packet((const uint8_t *)buf, len, fec_data_buffer_size,
+			fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn.load());
+		data_sender(kcp_mappings_ptr, std::move(fec_data_buffer), fec_data_buffer_size);
+	}
 
 	return 0;
 }
