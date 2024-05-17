@@ -19,7 +19,7 @@
 
 int main(int argc, char *argv[])
 {
-	printf("%.*s version 20240515\n", (int)app_name.length(), app_name.data());
+	printf("%.*s version 20240517\n", (int)app_name.length(), app_name.data());
 
 	if (argc <= 1)
 	{

@@ -715,7 +715,7 @@ void client_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<ui
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
 				auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
-				if (!error_message.empty() || cipher_size == 0)
+				if (kcp_mappings_ptr->egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
 					return;
 				kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, kcp_mappings_ptr->egress_target_endpoint);
 				change_new_port(kcp_mappings_ptr);
@@ -725,7 +725,7 @@ void client_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<ui
 	}
 
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
-	if (!error_message.empty() || cipher_size == 0)
+	if (kcp_mappings_ptr->egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
 		return;
 	kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, kcp_mappings_ptr->egress_target_endpoint);
 	change_new_port(kcp_mappings_ptr);
@@ -1013,11 +1013,9 @@ void client_mode::change_new_port(kcp_mappings *kcp_mappings_ptr)
 		return;
 	kcp_mappings_ptr->changeport_timestamp.store(LLONG_MAX);
 
-	uint16_t destination_port_start = current_settings.destination_port_start;
-	uint16_t destination_port_end = current_settings.destination_port_end;
-	if (destination_port_start != destination_port_end || kcp_mappings_ptr->changeport_available.load())
+	if (current_settings.destination_port == 0 || kcp_mappings_ptr->changeport_available.load())
 		switch_new_port(kcp_mappings_ptr);
-	else
+	else if (kcp_mappings_ptr->changeport_testing_ptr.expired())
 		test_before_change(kcp_mappings_ptr);
 }
 
@@ -1597,6 +1595,8 @@ void client_mode::resume_tcp(kcp_mappings *kcp_mappings_ptr)
 	{
 		kcp_data_sender->push_task((size_t)kcp_mappings_ptr, [kcp_mappings_ptr]()
 			{
+				if (kcp_mappings_ptr->local_tcp == nullptr)
+					return;
 				if (kcp_mappings_ptr->local_tcp->is_pause() && kcp_mappings_ptr->egress_kcp->WaitQueueBelowHalfCapacity())
 					kcp_mappings_ptr->local_tcp->pause(false);
 			});

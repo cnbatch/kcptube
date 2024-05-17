@@ -34,7 +34,9 @@ namespace constant_values
 	constexpr int kcp_receive_window = 1024;
 	constexpr int packet_length = 1420;
 	constexpr int iv_checksum_block_size = 2;
+	constexpr int fec_header_size = 13;
 	constexpr int kcp_mtu = packet_length - iv_checksum_block_size;
+	constexpr int kcp_mtu_with_fec = kcp_mtu - fec_header_size;
 	constexpr int encryption_block_reserve = 48;
 	constexpr int packet_layer_header = 4;
 	constexpr int packet_layer_data_header = 9;
@@ -94,7 +96,7 @@ operator^=(ip_only_options &option_1, ip_only_options option_2)
 template<typename T>
 T generate_random_number()
 {
-	thread_local std::mt19937 mt(std::random_device{}());
+	std::mt19937 mt(std::random_device{}());
 	std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
 	return uniform_dist(mt);
 }
@@ -102,7 +104,7 @@ T generate_random_number()
 template<typename T>
 T generate_random_number(T start_num, T end_num)
 {
-	thread_local std::mt19937 mt(std::random_device{}());
+	std::mt19937 mt(std::random_device{}());
 	std::uniform_int_distribution<T> uniform_dist(start_num, end_num);
 	return uniform_dist(mt);
 }

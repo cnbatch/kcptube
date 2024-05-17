@@ -1055,8 +1055,13 @@ void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::
 		current_user_settings.kcp_mtu = current_user_settings.mtu - outter_verify_size - headers_length;
 	}
 
-	if (current_user_settings.kcp_mtu < 0)
-		current_user_settings.kcp_mtu = constant_values::kcp_mtu;
+	if (current_user_settings.kcp_mtu <= 0)
+	{
+		if (current_user_settings.fec_data > 0 && current_user_settings.fec_redundant > 0)
+			current_user_settings.kcp_mtu = constant_values::kcp_mtu_with_fec;
+		else
+			current_user_settings.kcp_mtu = constant_values::kcp_mtu;
+	}
 }
 
 void verify_server_listen_port(user_settings &current_user_settings, std::vector<std::string> &error_msg)
