@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <climits>
 #include <asio.hpp>
 #include "configurations.hpp"
@@ -572,15 +573,15 @@ std::pair<std::string, std::string> split_address(const std::string &input_addre
 	bool correct_address = false;
 	bool correct_port = false;
 
-	std::string ip_address = input_address.substr(0, colon);
-	std::string ip_port = input_address.substr(colon + 1);
+	std::string address_name = input_address.substr(0, colon);
+	std::string input_port = input_address.substr(colon + 1);
 
-	trim(ip_address);
-	trim(ip_port);
+	trim(address_name);
+	trim(input_port);
 
 	try
 	{
-		int32_t port_number = std::stoi(ip_port);
+		int32_t port_number = std::stoi(input_port);
 		if (port_number > 0 && port_number < 65536)
 			correct_port = true;
 	}
@@ -589,45 +590,58 @@ std::pair<std::string, std::string> split_address(const std::string &input_addre
 		correct_port = false;
 	}
 
-	if (ip_address.empty())
+	if (address_name.empty())
 	{
 		correct_address = true;
 	}
 	else
 	{
-		if (ip_address.front() == '[' || ip_address.back() == ']')
+		if (address_name.front() == '[' || address_name.back() == ']')
 		{
-			if (ip_address.front() == '[' && ip_address.back() == ']')
+			if (address_name.front() == '[' && address_name.back() == ']')
 			{
-				ip_address = ip_address.substr(1);
-				ip_address.pop_back();
+				address_name = address_name.substr(1);
+				address_name.pop_back();
 
 				asio::error_code ec;
-				asio::ip::address_v6::from_string(ip_address, ec);
+				asio::ip::address_v6::from_string(address_name, ec);
 				correct_address = !ec;
 			}
 		}
 		else
 		{
 			asio::error_code ec;
-			asio::ip::address_v4::from_string(ip_address, ec);
+			asio::ip::address_v4::from_string(address_name, ec);
 			correct_address = !ec;
 		}
 	}
 
 	if (!correct_address)
 	{
-		ip_address.clear();
-		error_msg.emplace_back("Address Incorrect");
+		bool found_colon = address_name.find(':') != address_name.npos;
+		size_t dot_pos = address_name.find_last_of('.');
+		if (!found_colon && dot_pos != address_name.npos && dot_pos > 0)
+		{
+			std::string suffix = address_name.substr(dot_pos + 1);
+			if (std::ranges::any_of(suffix, isdigit))
+			{
+				address_name.clear();
+				error_msg.emplace_back("Address Incorrect");
+			}
+			else
+			{
+				correct_address = true;
+			}
+		}
 	}
 
 	if (!correct_port)
 	{
-		ip_port.clear();
+		input_port.clear();
 		error_msg.emplace_back("Port Number Incorrect");
 	}
 
-	return std::pair{ ip_address, ip_port };
+	return std::pair{ address_name, input_port };
 }
 
 void check_settings(user_settings &current_user_settings, std::vector<std::string> &error_msg)

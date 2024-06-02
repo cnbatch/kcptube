@@ -19,19 +19,33 @@
 
 int main(int argc, char *argv[])
 {
-	printf("%.*s version 20240517\n", (int)app_name.length(), app_name.data());
-
+#ifdef __cpp_lib_format
+	std::cout << std::format("{} version 20240602\n", app_name);
 	if (argc <= 1)
 	{
-		printf("Usage: %.*s config1.conf\n", (int)app_name.length(), app_name.data());
-		printf("       %.*s config1.conf config2.conf...\n", (int)app_name.length(), app_name.data());
-		printf("Connectivity Testing:\n");
-		printf("       %.*s --try config1.conf\n", (int)app_name.length(), app_name.data());
-		printf("       %.*s --try config1.conf config2.conf...\n", (int)app_name.length(), app_name.data());
-		printf("       %.*s config1.conf --try\n", (int)app_name.length(), app_name.data());
-		printf("       %.*s config1.conf config2.conf... --try\n", (int)app_name.length(), app_name.data());
+		std::cout << std::format("Usage: {} config1.conf\n", app_name);
+		std::cout << std::format("       {} config1.conf config2.conf...\n", app_name);
+		std::cout << std::format("Connectivity Testing:\n");
+		std::cout << std::format("       {} --try config1.conf\n", app_name);
+		std::cout << std::format("       {} --try config1.conf config2.conf...\n", app_name);
+		std::cout << std::format("       {} config1.conf --try\n", app_name);
+		std::cout << std::format("       {} config1.conf config2.conf... --try\n", app_name);
 		return 0;
 	}
+#else
+	std::cout << app_name << "version 20240602\n";
+	if (argc <= 1)
+	{
+		std::cout << "Usage: " << app_name << " config1.conf\n";
+		std::cout << "       " << app_name << " config1.conf config2.conf...\n";
+		std::cout << "Connectivity Testing:\n";
+		std::cout << "       " << app_name << " --try config1.conf\n";
+		std::cout << "       " << app_name << " --try config1.conf config2.conf...\n";
+		std::cout << "       " << app_name << " config1.conf --try\n";
+		std::cout << "       " << app_name << " config1.conf config2.conf... --try\n";
+		return 0;
+	}
+#endif
 
 	constexpr size_t task_count_limit = 8192u;
 	uint16_t thread_group_count = 1;
@@ -85,10 +99,18 @@ int main(int argc, char *argv[])
 		}
 
 		std::vector<std::string> error_msg;
-		profile_settings.emplace_back(parse_from_args(lines, error_msg));
+		user_settings current_settings = parse_from_args(lines, error_msg);
+		std::filesystem::path config_input_name = argv[i];
+		current_settings.config_filename = argv[i];
+		current_settings.log_status = current_settings.log_directory / (config_input_name.filename().string() + "_status.log");
+		profile_settings.emplace_back(std::move(current_settings));
 		if (error_msg.size() > 0)
 		{
+#ifdef __cpp_lib_format
+			std::cout << std::format("Error(s) found in setting file {}\n", argv[i]);
+#else
 			printf("Error(s) found in setting file %s\n", argv[i]);
+#endif
 			for (const std::string &each_one : error_msg)
 			{
 				std::cerr << "\t" << each_one << "\n";

@@ -41,11 +41,15 @@ class relay_mode
 	std::shared_mutex mutex_kcp_keepalive_egress;
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive_egress;
 
+	status_records listener_status_counters;
+	status_records forwarder_status_counters;
+
 	asio::steady_timer timer_find_expires;
 	asio::steady_timer timer_expiring_kcp;
 	asio::steady_timer timer_stun;
 	asio::steady_timer timer_keep_alive_ingress;
 	asio::steady_timer timer_keep_alive_egress;
+	asio::steady_timer timer_status_log;
 	ttp::task_group_pool &sequence_task_pool_local;
 	ttp::task_group_pool &sequence_task_pool_peer;
 	const size_t task_limit;
@@ -70,7 +74,7 @@ class relay_mode
 	std::shared_ptr<KCP::KCP> verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv, const udp::endpoint &peer);
 	void data_sender_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
 	void data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
-	bool fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
+	std::pair<bool, size_t> fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 	void fec_maker_via_listener(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size);
 	void fec_maker_via_forwarder(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size);
 
@@ -90,6 +94,8 @@ class relay_mode
 	void expiring_kcp_loops(const asio::error_code &e);
 	void keep_alive_ingress(const asio::error_code &e);
 	void keep_alive_egress(const asio::error_code &e);
+	void log_status(const asio::error_code &e);
+	void loop_get_status();
 
 public:
 	relay_mode() = delete;
@@ -102,7 +108,8 @@ public:
 		kcp_data_sender(kcp_data_sender_ref),
 		timer_find_expires(io_context), timer_expiring_kcp(io_context),
 		timer_stun(io_context),
-		timer_keep_alive_ingress(io_context),timer_keep_alive_egress(io_context),
+		timer_keep_alive_ingress(io_context), timer_keep_alive_egress(io_context),
+		timer_status_log(io_context),
 		sequence_task_pool_local(seq_task_pool_local),
 		sequence_task_pool_peer(seq_task_pool_peer),
 		task_limit(task_count_limit),
@@ -122,6 +129,7 @@ public:
 		timer_stun(std::move(existing_relay.timer_stun)),
 		timer_keep_alive_ingress(std::move(existing_relay.timer_keep_alive_ingress)),
 		timer_keep_alive_egress(std::move(existing_relay.timer_keep_alive_egress)),
+		timer_status_log(std::move(existing_relay.timer_status_log)),
 		sequence_task_pool_local(existing_relay.sequence_task_pool_local),
 		sequence_task_pool_peer(existing_relay.sequence_task_pool_peer),
 		task_limit(existing_relay.task_limit),

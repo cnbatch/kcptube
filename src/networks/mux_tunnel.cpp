@@ -109,6 +109,8 @@ void mux_tunnel::read_tcp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t 
 
 	mux_records_ptr->last_data_transfer_time.store(packet::right_now());
 	move_cached_data_to_tunnel();
+
+	tcp_recv_traffic += data_size;
 }
 
 void mux_tunnel::client_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
@@ -204,6 +206,7 @@ void mux_tunnel::client_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_
 	}
 
 	read_udp_data_to_cache(std::move(data), data_size, mux_records_ptr.get(), kcp_ptr);
+	udp_recv_traffic += data_size;
 }
 
 void mux_tunnel::server_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, std::weak_ptr<KCP::KCP> kcp_session_weak, std::weak_ptr<mux_records> mux_records_weak)
@@ -289,6 +292,7 @@ void mux_tunnel::transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_p
 		if (tcp_channel != nullptr)
 			tcp_channel->async_send_data(std::move(buffer_cache), mux_data, mux_data_size);
 		mux_records_ptr->last_data_transfer_time.store(packet::right_now());
+		tcp_send_traffic += mux_data_size;
 	}
 
 	if (prtcl == protocol_type::udp)
@@ -310,6 +314,7 @@ void mux_tunnel::transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_p
 		}
 
 		mux_records_ptr->last_data_transfer_time.store(packet::right_now());
+		udp_send_traffic += mux_data_size;
 	}
 }
 

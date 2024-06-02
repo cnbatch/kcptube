@@ -39,10 +39,13 @@ class server_mode
 
 	std::unique_ptr<mux_tunnel> mux_tunnels;
 
+	status_records status_counters;
+
 	asio::steady_timer timer_find_expires;
 	asio::steady_timer timer_expiring_kcp;
 	asio::steady_timer timer_stun;
 	asio::steady_timer timer_keep_alive;
+	asio::steady_timer timer_status_log;
 	ttp::task_group_pool &sequence_task_pool_local;
 	ttp::task_group_pool &sequence_task_pool_peer;
 	const size_t task_limit;
@@ -82,6 +85,8 @@ class server_mode
 	void find_expires(const asio::error_code &e);
 	void expiring_kcp_loops(const asio::error_code &e);
 	void keep_alive(const asio::error_code &e);
+	void log_status(const asio::error_code &e);
+	void loop_get_status();
 
 public:
 	server_mode() = delete;
@@ -94,6 +99,7 @@ public:
 		kcp_data_sender(kcp_data_sender_ref),
 		timer_find_expires(io_context), timer_expiring_kcp(io_context),
 		timer_stun(io_context), timer_keep_alive(io_context),
+		timer_status_log(io_context),
 		sequence_task_pool_local(seq_task_pool_local),
 		sequence_task_pool_peer(seq_task_pool_peer),
 		task_limit(task_count_limit),
@@ -112,6 +118,7 @@ public:
 		timer_expiring_kcp(std::move(existing_server.timer_expiring_kcp)),
 		timer_stun(std::move(existing_server.timer_stun)),
 		timer_keep_alive(std::move(existing_server.timer_keep_alive)),
+		timer_status_log(std::move(existing_server.timer_status_log)),
 		sequence_task_pool_local(existing_server.sequence_task_pool_local),
 		sequence_task_pool_peer(existing_server.sequence_task_pool_peer),
 		task_limit(existing_server.task_limit),

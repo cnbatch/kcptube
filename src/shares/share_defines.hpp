@@ -12,10 +12,14 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <sstream>
 #include <numeric>
 #include <memory>
 #include <vector>
 #include <filesystem>
+#ifdef __cpp_lib_format
+#include <format>
+#endif
 
 constexpr std::string_view app_name = "kcptube";
 
@@ -34,9 +38,6 @@ namespace constant_values
 	constexpr int kcp_receive_window = 1024;
 	constexpr int packet_length = 1420;
 	constexpr int iv_checksum_block_size = 2;
-	constexpr int fec_header_size = 13;
-	constexpr int kcp_mtu = packet_length - iv_checksum_block_size;
-	constexpr int kcp_mtu_with_fec = kcp_mtu - fec_header_size;
 	constexpr int encryption_block_reserve = 48;
 	constexpr int packet_layer_header = 4;
 	constexpr int packet_layer_data_header = 9;
@@ -46,6 +47,8 @@ namespace constant_values
 	constexpr int mux_data_wrapper_header = 4;
 	constexpr int ip_header = 36;
 	constexpr int udp_header = 4;
+	constexpr int kcp_mtu = packet_length - iv_checksum_block_size;
+	constexpr int kcp_mtu_with_fec = kcp_mtu - packet_layer_fec_header;
 };
 
 inline constexpr ip_only_options
@@ -96,17 +99,21 @@ operator^=(ip_only_options &option_1, ip_only_options option_2)
 template<typename T>
 T generate_random_number()
 {
-	std::mt19937 mt(std::random_device{}());
-	std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
-	return uniform_dist(mt);
+	thread_local std::random_device rd;
+	thread_local std::mt19937 mt(rd());
+	thread_local std::uniform_int_distribution<T> uniform_dist(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
+	T number = uniform_dist(mt);
+	return number;
 }
 
 template<typename T>
 T generate_random_number(T start_num, T end_num)
 {
-	std::mt19937 mt(std::random_device{}());
-	std::uniform_int_distribution<T> uniform_dist(start_num, end_num);
-	return uniform_dist(mt);
+	thread_local std::random_device rd;
+	thread_local std::mt19937 mt(rd());
+	thread_local std::uniform_int_distribution<T> uniform_dist;
+	T number = uniform_dist(mt, decltype(uniform_dist)::param_type(start_num, end_num));
+	return number;
 }
 
 template<typename T>
@@ -156,11 +163,22 @@ struct user_settings
 	std::filesystem::path log_directory;
 	std::filesystem::path log_ip_address;
 	std::filesystem::path log_messages;
+	std::filesystem::path log_status;
+	std::string config_filename;
 	std::shared_ptr<user_settings> ingress;
 	std::shared_ptr<user_settings> egress;
 	std::shared_ptr<user_input_address_mapping> user_input_mappings;
 	std::shared_ptr<user_input_address_mapping> user_input_mappings_tcp;
 	std::shared_ptr<user_input_address_mapping> user_input_mappings_udp;
+};
+
+struct status_records
+{
+	std::atomic<size_t> ingress_raw_traffic;
+	std::atomic<size_t> egress_raw_traffic;
+	std::atomic<size_t> ingress_inner_traffic;
+	std::atomic<size_t> egress_inner_traffic;
+	std::atomic<size_t> fec_recovery_count;
 };
 
 #pragma pack (push, 1)
@@ -178,5 +196,7 @@ std::string time_to_string();
 std::string time_to_string_with_square_brackets();
 void print_ip_to_file(const std::string &message, const std::filesystem::path &log_file);
 void print_message_to_file(const std::string &message, const std::filesystem::path &log_file);
+void print_status_to_file(const std::string &message, const std::filesystem::path &log_file);
+std::string to_speed_unit(size_t value);
 
 #endif // !_SHARE_HEADER_

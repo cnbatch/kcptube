@@ -29,6 +29,10 @@ struct mux_tunnel
 
 	client_mode *client_ptr = nullptr;
 	server_mode *server_ptr = nullptr;
+	std::atomic<size_t> tcp_recv_traffic;
+	std::atomic<size_t> udp_recv_traffic;
+	std::atomic<size_t> tcp_send_traffic;
+	std::atomic<size_t> udp_send_traffic;
 
 	mux_tunnel() = delete;
 	mux_tunnel(KCP::KCPUpdater &kcp_updater, user_settings &input_settings, void *running_mode_ptr)

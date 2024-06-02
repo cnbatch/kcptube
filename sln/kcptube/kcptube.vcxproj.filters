@@ -31,6 +31,12 @@
     <Filter Include="Source Files\3rd_party">
       <UniqueIdentifier>{cc2a35b1-bc0b-4f2e-a955-bb9773b414b1}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\modes">
+      <UniqueIdentifier>{a73f957a-f22f-4c13-80b6-bd742abc5229}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\modes">
+      <UniqueIdentifier>{474ebfb2-1a97-48a9-aeb7-ed3ae7b90e0b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\main.cpp">
@@ -39,16 +45,10 @@
     <ClCompile Include="..\..\src\shares\share_defines.cpp">
       <Filter>Source Files\shares</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\networks\client.cpp">
-      <Filter>Source Files\networks</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\networks\connections.cpp">
       <Filter>Source Files\networks</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\networks\kcp.cpp">
-      <Filter>Source Files\networks</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\networks\server.cpp">
       <Filter>Source Files\networks</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\networks\stun.cpp">
@@ -59,9 +59,6 @@
     </ClCompile>
     <ClCompile Include="..\..\src\shares\configurations.cpp">
       <Filter>Source Files\shares</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\networks\relay.cpp">
-      <Filter>Source Files\networks</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\3rd_party\ikcp.cpp">
       <Filter>Source Files\3rd_party</Filter>
@@ -78,6 +75,18 @@
     <ClCompile Include="..\..\src\3rd_party\fecpp.cpp">
       <Filter>Source Files\3rd_party</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\modes\server.cpp">
+      <Filter>Source Files\modes</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\modes\relay.cpp">
+      <Filter>Source Files\modes</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\modes\client.cpp">
+      <Filter>Source Files\modes</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\modes\tester.cpp">
+      <Filter>Source Files\modes</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\shares\share_defines.hpp">
@@ -85,12 +94,6 @@
     </ClInclude>
     <ClInclude Include="..\..\src\shares\string_utils.hpp">
       <Filter>Header Files\shares</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\networks\server.hpp">
-      <Filter>Header Files\networks</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\networks\client.hpp">
-      <Filter>Header Files\networks</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\networks\connections.hpp">
       <Filter>Header Files\networks</Filter>
@@ -116,9 +119,6 @@
     <ClInclude Include="..\..\src\shares\configurations.hpp">
       <Filter>Header Files\shares</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\networks\relay.hpp">
-      <Filter>Header Files\networks</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\src\3rd_party\ikcp.hpp">
       <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
@@ -130,6 +130,18 @@
     </ClInclude>
     <ClInclude Include="..\..\src\3rd_party\fecpp.hpp">
       <Filter>Header Files\3rd_party</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\modes\server.hpp">
+      <Filter>Header Files\modes</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\modes\relay.hpp">
+      <Filter>Header Files\modes</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\modes\client.hpp">
+      <Filter>Header Files\modes</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\modes\tester.hpp">
+      <Filter>Header Files\modes</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -23,11 +23,12 @@ server_mode::~server_mode()
 	timer_expiring_kcp.cancel();
 	timer_stun.cancel();
 	timer_keep_alive.cancel();
+	timer_status_log.cancel();
 }
 
 bool server_mode::start()
 {
-	printf("%.*s is running in server mode\n", (int)app_name.length(), app_name.data());
+	std::cout << app_name << " is running in server mode\n";
 
 	auto func = std::bind(&server_mode::udp_listener_incoming, this, _1, _2, _3, _4);
 	std::set<uint16_t> listen_ports = convert_to_port_list(current_settings);
@@ -97,6 +98,12 @@ bool server_mode::start()
 			timer_keep_alive.async_wait([this](const asio::error_code &e) { keep_alive(e); });
 		}
 
+		if (!current_settings.log_status.empty())
+		{
+			timer_status_log.expires_after(gbv_logging_gap);
+			timer_status_log.async_wait([this](const asio::error_code& e) { log_status(e); });
+		}
+
 		mux_tunnels = std::make_unique<mux_tunnel>(kcp_updater, current_settings, this);
 	}
 	catch (std::exception &ex)
@@ -127,6 +134,8 @@ void server_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t 
 			return;
 		}
 	}
+
+	status_counters.ingress_raw_traffic += data_size;
 
 	auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
 	if (!error_message.empty())
@@ -239,7 +248,7 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 
 		kcp_mappings_ptr->ingress_listener.store(udp_servers[server_port_number].get());
 
-		auto [ftr, prtcl, unbacked_data_ptr, unbacked_data_size] = packet::unpack_inner(buffer_ptr, kcp_data_size);
+		auto [ftr, prtcl, unpacked_data_ptr, unpacked_data_size] = packet::unpack_inner(buffer_ptr, kcp_data_size);
 		switch (ftr)
 		{
 		case feature::raw_data:
@@ -249,16 +258,16 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 				std::shared_ptr<tcp_session> &tcp_channel = kcp_mappings_ptr->local_tcp;
 				if (tcp_channel != nullptr)
 				{
-					tcp_channel->async_send_data(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
+					tcp_channel->async_send_data(std::move(buffer_cache), unpacked_data_ptr, unpacked_data_size);
 				}
 			}
 			else if (prtcl == protocol_type::udp)
 			{
 				std::shared_ptr<udp_client> &udp_channel = kcp_mappings_ptr->local_udp;
 				if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
-					udp_channel->async_send_out(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size, kcp_mappings_ptr->egress_target_endpoint);
+					udp_channel->async_send_out(std::move(buffer_cache), unpacked_data_ptr, unpacked_data_size, kcp_mappings_ptr->egress_target_endpoint);
 				else
-					udp_channel->async_send_out(std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size, *udp_target);
+					udp_channel->async_send_out(std::move(buffer_cache), unpacked_data_ptr, unpacked_data_size, *udp_target);
 			}
 			break;
 		}
@@ -299,22 +308,23 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 		}
 		case feature::mux_transfer:
 		{
-			mux_tunnels->transfer_data(prtcl, kcp_mappings_ptr.get(), std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
+			mux_tunnels->transfer_data(prtcl, kcp_mappings_ptr.get(), std::move(buffer_cache), unpacked_data_ptr, unpacked_data_size);
 			break;
 		}
 		case feature::mux_cancel:
 		{
-			mux_tunnels->delete_channel(prtcl, kcp_mappings_ptr.get(), unbacked_data_ptr, unbacked_data_size);
+			mux_tunnels->delete_channel(prtcl, kcp_mappings_ptr.get(), unpacked_data_ptr, unpacked_data_size);
 			break;
 		}
 		case feature::pre_connect_custom_address:
 		{
-			mux_tunnels->pre_connect_custom_address(prtcl, kcp_mappings_ptr.get(), std::move(buffer_cache), unbacked_data_ptr, unbacked_data_size);
+			mux_tunnels->pre_connect_custom_address(prtcl, kcp_mappings_ptr.get(), std::move(buffer_cache), unpacked_data_ptr, unpacked_data_size);
 			break;
 		}
 		default:
 			break;
 		}
+		status_counters.ingress_inner_traffic += unpacked_data_size;
 	}
 }
 
@@ -337,6 +347,8 @@ void server_mode::tcp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t
 	kcp_session->Send((const char *)data_ptr, new_data_size);
 	uint32_t next_update_time = current_settings.blast ? kcp_session->Refresh() : kcp_session->Check();
 	kcp_updater.submit(kcp_session, next_update_time);
+
+	status_counters.egress_inner_traffic += data_size;
 }
 
 void server_mode::udp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, std::weak_ptr<KCP::KCP> kcp_session_weak)
@@ -357,6 +369,8 @@ void server_mode::udp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t
 	kcp_session->Send((const char *)data_ptr, new_data_size);
 	uint32_t next_update_time = kcp_session->Check();
 	kcp_updater.submit(kcp_session, next_update_time);
+
+	status_counters.egress_inner_traffic += data_size;
 }
 
 void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number)
@@ -876,6 +890,7 @@ void server_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<ui
 					return;
 				udp::endpoint ingress_source_endpoint = *kcp_mappings_ptr->ingress_source_endpoint;
 				kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
+				status_counters.egress_raw_traffic += cipher_size;
 			};
 		kcp_data_sender->push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
 		return;
@@ -886,6 +901,7 @@ void server_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<ui
 		return;
 	udp::endpoint ingress_source_endpoint = *kcp_mappings_ptr->ingress_source_endpoint;
 	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
+	status_counters.egress_raw_traffic += cipher_size;
 	return;
 }
 
@@ -960,6 +976,7 @@ bool server_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_con
 		{
 			auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
 			kcp_ptr->Input((const char *)missed_data_ptr, (long)missed_data_size);
+			status_counters.fec_recovery_count++;
 		}
 
 		fec_controllor.fec_rcv_restored.insert(sn);
@@ -1356,4 +1373,71 @@ void server_mode::keep_alive(const asio::error_code &e)
 
 	timer_keep_alive.expires_after(gbv_keepalive_update_interval);
 	timer_keep_alive.async_wait([this](const asio::error_code& e) { keep_alive(e); });
+}
+
+void server_mode::log_status(const asio::error_code & e)
+{
+	if (e == asio::error::operation_aborted)
+		return;
+
+	loop_get_status();
+
+	timer_status_log.expires_after(gbv_logging_gap);
+	timer_status_log.async_wait([this](const asio::error_code& e) { log_status(e); });
+}
+
+void server_mode::loop_get_status()
+{
+	std::string output_text = time_to_string_with_square_brackets() + "Summary of " + current_settings.config_filename + "\n";
+	auto listener_receives_raw = to_speed_unit(status_counters.ingress_raw_traffic.exchange(0));
+	auto listener_receives_inner = to_speed_unit(status_counters.ingress_inner_traffic.exchange(0));
+	auto listener_send_inner = to_speed_unit(status_counters.egress_inner_traffic.exchange(0));
+	auto listener_send_raw = to_speed_unit(status_counters.egress_raw_traffic.exchange(0));
+	auto listener_fec_recovery = status_counters.fec_recovery_count.exchange(0);
+	
+#ifdef __cpp_lib_format
+	output_text += std::format("receive (raw): {}, receive (inner): {}, send (inner): {}, send (raw): {}, fec recover: {}\n",
+		listener_receives_raw, listener_receives_inner, listener_send_inner, listener_send_raw, listener_fec_recovery);
+#else
+	std::ostringstream oss;
+	oss << "receive (raw): " << listener_receives_raw << ", receive (inner): " << listener_receives_inner <<
+		", send (inner): " << listener_send_inner << ", send (raw): " << listener_send_raw << ", fec recover: " << listener_fec_recovery << "\n";
+	output_text += oss.str();
+#endif
+
+	std::shared_lock locker{ mutex_kcp_channels };
+	for (auto &[conv, kcp_mappings_pr] : kcp_channels)
+	{
+#ifdef __cpp_lib_format
+		output_text += std::format("KCP#{} average latency: {} ms\n", conv, kcp_mappings_pr->ingress_kcp->GetRxSRTT());
+#else
+		oss.clear();
+		oss << "KCP#" << conv << " average latency: " << kcp_mappings_pr->ingress_kcp->GetRxSRTT() << " ms\n";
+		output_text += oss.str();
+#endif
+	}
+	locker.unlock();
+
+	if (mux_tunnels != nullptr)
+	{
+		auto mux_tcp_recv_traffic = to_speed_unit(mux_tunnels->tcp_recv_traffic.exchange(0));
+		auto mux_tcp_send_traffic = to_speed_unit(mux_tunnels->tcp_send_traffic.exchange(0));
+		auto mux_udp_recv_traffic = to_speed_unit(mux_tunnels->udp_recv_traffic.exchange(0));
+		auto mux_udp_send_traffic = to_speed_unit(mux_tunnels->udp_send_traffic.exchange(0));
+#ifdef __cpp_lib_format
+		output_text += std::format("mux_tunnels:\treceive (tcp): {}, receive (udp): {}, send (tcp): {}, send (udp): {}\n",
+			mux_tcp_recv_traffic, mux_tcp_send_traffic, mux_udp_recv_traffic, mux_udp_send_traffic);
+#else
+		oss.clear();
+		oss << "mux_tunnels:\treceive (tcp): " << mux_tcp_recv_traffic << ", receive (udp): " << mux_tcp_send_traffic <<
+			", send (tcp): " << mux_udp_recv_traffic << ", send (udp): " << mux_udp_send_traffic << "\n";
+		output_text += oss.str();
+#endif
+	}
+
+	output_text += "\n";
+	
+	if (!current_settings.log_status.empty())
+		print_status_to_file(output_text, current_settings.log_status);
+	std::cout << output_text << std::endl;
 }

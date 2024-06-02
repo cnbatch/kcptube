@@ -44,6 +44,7 @@ constexpr size_t gbv_handshake_timeout = 30;	//seconds
 constexpr auto gbv_expring_update_interval = std::chrono::seconds(1);
 constexpr auto gbv_keepalive_update_interval = std::chrono::seconds(1);
 constexpr auto gbv_stun_resend = std::chrono::seconds(30);
+constexpr auto gbv_logging_gap = std::chrono::seconds(60);
 const asio::ip::udp::endpoint local_empty_target_v4(asio::ip::make_address_v4("127.0.0.1"), 70);
 const asio::ip::udp::endpoint local_empty_target_v6(asio::ip::make_address_v6("::1"), 70);
 

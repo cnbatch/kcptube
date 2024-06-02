@@ -13,11 +13,12 @@ relay_mode::~relay_mode()
 	timer_stun.cancel();
 	timer_keep_alive_ingress.cancel();
 	timer_keep_alive_egress.cancel();
+	timer_status_log.cancel();
 }
 
 bool relay_mode::start()
 {
-	printf("%.*s running in relay mode\n", (int)app_name.length(), app_name.data());
+	std::cout << app_name << " running in relay mode\n";
 
 	auto func = std::bind(&relay_mode::udp_listener_incoming, this, _1, _2, _3, _4);
 
@@ -95,6 +96,12 @@ bool relay_mode::start()
 			timer_keep_alive_egress.expires_after(gbv_keepalive_update_interval);
 			timer_keep_alive_egress.async_wait([this](const asio::error_code &e) { keep_alive_egress(e); });
 		}
+
+		if (!current_settings.log_status.empty())
+		{
+			timer_status_log.expires_after(gbv_logging_gap);
+			timer_status_log.async_wait([this](const asio::error_code& e) { log_status(e); });
+		}
 	}
 	catch (std::exception &ex)
 	{
@@ -124,6 +131,8 @@ void relay_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t d
 			return;
 		}
 	}
+
+	listener_status_counters.ingress_raw_traffic += data_size;
 
 	auto [error_message, plain_size] = decrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, data_ptr, (int)data_size);
 	if (!error_message.empty())
@@ -172,8 +181,10 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 			original_data.second = redundant_data_size;
 			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
 			kcp_mappings_ptr->fec_ingress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
-			if (!fec_find_missings(kcp_mappings_ptr->ingress_kcp.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.ingress->fec_data))
+			auto [recovered, restored_count] = fec_find_missings(kcp_mappings_ptr->ingress_kcp.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.ingress->fec_data);
+			if (!recovered)
 				return;
+			listener_status_counters.fec_recovery_count += restored_count;
 			data_ptr = nullptr;
 			packet_data_size = 0;
 		}
@@ -218,7 +229,8 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 		if (current_settings.ingress->fec_data > 0 && current_settings.ingress->fec_redundant > 0)
 		{
 			kcp_mappings_ptr->fec_ingress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
-			fec_find_missings(kcp_ptr_ingress.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.ingress->fec_data);
+			auto [recovered, restored_count] = fec_find_missings(kcp_ptr_ingress.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.ingress->fec_data);
+			listener_status_counters.fec_recovery_count += restored_count;
 		}
 
 		kcp_ptr_ingress->Input((const char *)data_ptr, (long)packet_data_size);
@@ -239,7 +251,7 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 
 		kcp_mappings_ptr->ingress_listener.store(udp_servers[server_port_number].get());
 
-		auto [ftr, prtcl, unbacked_data_ptr, unbacked_data_size] = packet::unpack_inner(buffer_ptr, kcp_data_size);
+		auto [ftr, prtcl, unpacked_data_ptr, unpacked_data_size] = packet::unpack_inner(buffer_ptr, kcp_data_size);
 		switch (ftr)
 		{
 		case feature::keep_alive:
@@ -282,6 +294,9 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 		default:
 			break;
 		}
+
+		listener_status_counters.ingress_inner_traffic += kcp_data_size;
+		forwarder_status_counters.egress_inner_traffic += kcp_data_size;
 	}
 }
 
@@ -348,13 +363,13 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 			if (kcp_data_size = handshake_kcp_ingress->Receive((char *)data_ptr, buffer_size); kcp_data_size < 0)
 				return;
 
-			auto [ftr, prtcl, unbacked_data_ptr, unbacked_data_size] = packet::unpack_inner(data_ptr, kcp_data_size);
+			auto [ftr, prtcl, unpacked_data_ptr, unpacked_data_size] = packet::unpack_inner(data_ptr, kcp_data_size);
 			switch (ftr)
 			{
 			case feature::initialise:
 			{
-				std::unique_ptr<uint8_t[]> settings_data_ptr = std::make_unique<uint8_t[]>(unbacked_data_size);
-				packet::convert_wrapper_byte_order(unbacked_data_ptr, settings_data_ptr.get(), unbacked_data_size);
+				std::unique_ptr<uint8_t[]> settings_data_ptr = std::make_unique<uint8_t[]>(unpacked_data_size);
+				packet::convert_wrapper_byte_order(unpacked_data_ptr, settings_data_ptr.get(), unpacked_data_size);
 				const packet::settings_wrapper *basic_settings_ptr = packet::get_initialise_details_from_unpacked_data(settings_data_ptr.get());
 				packet::settings_wrapper basic_settings = *basic_settings_ptr;
 
@@ -364,7 +379,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 				if (basic_settings.outbound_bandwidth > 0 && basic_settings.outbound_bandwidth > current_settings.egress->outbound_bandwidth)
 					basic_settings.outbound_bandwidth = current_settings.egress->outbound_bandwidth;
 
-				packet::modify_initialise_details_of_unpacked_data(unbacked_data_ptr, basic_settings);
+				packet::modify_initialise_details_of_unpacked_data(unpacked_data_ptr, basic_settings);
 
 				handshake_kcp_mappings->ingress_kcp = handshake_kcp_ingress;
 				handshake_kcp_mappings->connection_protocol = prtcl;
@@ -492,6 +507,8 @@ void relay_mode::udp_forwarder_incoming(std::shared_ptr<KCP::KCP> kcp_ptr, std::
 	if (data == nullptr || data_size == 0 || kcp_ptr == nullptr)
 		return;
 
+	forwarder_status_counters.ingress_raw_traffic += data_size;
+
 	uint8_t *data_ptr = data.get();
 	auto [error_message, plain_size] = decrypt_data(current_settings.egress->encryption_password, current_settings.egress->encryption, data_ptr, (int)data_size);
 
@@ -529,7 +546,8 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 			original_data.second = redundant_data_size;
 			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
 			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
-			fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.egress->fec_data);
+			auto [recovered, restored_count] = fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.egress->fec_data);
+			forwarder_status_counters.fec_recovery_count += restored_count;
 			data_ptr = nullptr;
 			packet_data_size = 0;
 		}
@@ -547,7 +565,8 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 			if (kcp_mappings_ptr == nullptr)
 				return;
 			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
-			fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.egress->fec_data);
+			auto [recovered, restored_count] = fec_find_missings(kcp_ptr.get(), kcp_mappings_ptr->fec_egress_control, fec_sn, current_settings.egress->fec_data);
+			forwarder_status_counters.fec_recovery_count += restored_count;
 		}
 	}
 	else
@@ -662,6 +681,9 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 		default:
 			break;
 		}
+
+		forwarder_status_counters.ingress_inner_traffic += kcp_data_size;
+		listener_status_counters.egress_inner_traffic += kcp_data_size;
 	}
 }
 
@@ -672,7 +694,7 @@ void relay_mode::change_new_port(kcp_mappings *kcp_mappings_ptr)
 		return;
 	kcp_mappings_ptr->changeport_timestamp.store(LLONG_MAX);
 
-	if (current_settings.destination_port == 0 || kcp_mappings_ptr->changeport_available.load())
+	if (kcp_mappings_ptr->changeport_available.load())
 		switch_new_port(kcp_mappings_ptr);
 	else if (kcp_mappings_ptr->changeport_testing_ptr.expired())
 		test_before_change(kcp_mappings_ptr);
@@ -1012,9 +1034,9 @@ void relay_mode::handle_test_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::u
 		case feature::test_connection:
 		{
 			std::shared_ptr<kcp_mappings> kcp_mapping_share = kcp_mappings_ptr->self_share();
+			std::scoped_lock lock_handshake{ mutex_expiring_forwarders };
 			kcp_mappings_ptr->mapping_function();
 			kcp_mappings_ptr->mapping_function = []() {};
-			std::scoped_lock lock_handshake{ mutex_expiring_forwarders };
 			expiring_forwarders[kcp_mappings_ptr->egress_forwarder] = packet::right_now();
 			kcp_mappings_ptr->egress_forwarder->stop();
 			kcp_mappings_ptr->egress_forwarder = nullptr;
@@ -1148,6 +1170,7 @@ void relay_mode::data_sender_via_listener(kcp_mappings * kcp_mappings_ptr, std::
 				std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
 				kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
 				change_new_port(kcp_mappings_ptr);
+				listener_status_counters.egress_raw_traffic += buffer_size;
 			};
 		kcp_data_sender->push_task((size_t)kcp_mappings_ptr->ingress_kcp.get(), func, std::move(new_buffer));
 		return;
@@ -1159,6 +1182,7 @@ void relay_mode::data_sender_via_listener(kcp_mappings * kcp_mappings_ptr, std::
 	std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
 	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
 	change_new_port(kcp_mappings_ptr);
+	listener_status_counters.egress_raw_traffic += buffer_size;
 }
 
 void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
@@ -1176,6 +1200,7 @@ void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::
 
 				kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, peer);
 				change_new_port(kcp_mappings_ptr);
+				forwarder_status_counters.egress_raw_traffic += buffer_size;
 			};
 		kcp_data_sender->push_task((size_t)kcp_mappings_ptr->egress_kcp.get(), func, std::move(new_buffer));
 		return;
@@ -1190,11 +1215,13 @@ void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::
 
 	kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, peer);
 	change_new_port(kcp_mappings_ptr);
+	forwarder_status_counters.egress_raw_traffic += buffer_size;
 }
 
-bool relay_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
+std::pair<bool, size_t> relay_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
 {
 	bool recovered = false;
+	size_t restored_count = 0;
 	for (auto iter = fec_controllor.fec_rcv_cache.begin(), next_iter = iter; iter != fec_controllor.fec_rcv_cache.end(); iter = next_iter)
 	{
 		++next_iter;
@@ -1228,12 +1255,13 @@ bool relay_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_cont
 		{
 			auto [missed_data_ptr, missed_data_size] = extract_from_container(data);
 			kcp_ptr->Input((const char *)missed_data_ptr, (long)missed_data_size);
+			restored_count++;
 		}
 
 		fec_controllor.fec_rcv_restored.insert(sn);
 		recovered = true;
 	}
-	return recovered;
+	return { recovered, restored_count };
 }
 
 void relay_mode::fec_maker_via_listener(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size)
@@ -1695,4 +1723,65 @@ void relay_mode::keep_alive_egress(const asio::error_code &e)
 
 	timer_keep_alive_egress.expires_after(gbv_keepalive_update_interval);
 	timer_keep_alive_egress.async_wait([this](const asio::error_code& e) { keep_alive_egress(e); });
+}
+
+void relay_mode::log_status(const asio::error_code & e)
+{
+	if (e == asio::error::operation_aborted)
+		return;
+
+	loop_get_status();
+
+	timer_status_log.expires_after(gbv_logging_gap);
+	timer_status_log.async_wait([this](const asio::error_code& e) { log_status(e); });
+}
+
+void relay_mode::loop_get_status()
+{
+	std::string output_text = time_to_string_with_square_brackets() + "Summary of " + current_settings.config_filename + "\n";
+	auto listener_receives_raw = to_speed_unit(listener_status_counters.ingress_raw_traffic.exchange(0));
+	auto listener_receives_inner = to_speed_unit(listener_status_counters.ingress_inner_traffic.exchange(0));
+	auto listener_send_inner = to_speed_unit(listener_status_counters.egress_inner_traffic.exchange(0));
+	auto listener_send_raw = to_speed_unit(listener_status_counters.egress_raw_traffic.exchange(0));
+	auto listener_fec_recovery = forwarder_status_counters.fec_recovery_count.exchange(0);
+	auto forwarder_receives_raw = to_speed_unit(forwarder_status_counters.ingress_raw_traffic.exchange(0));
+	auto forwarder_receives_inner = to_speed_unit(forwarder_status_counters.ingress_inner_traffic.exchange(0));
+	auto forwarder_send_inner = to_speed_unit(forwarder_status_counters.egress_inner_traffic.exchange(0));
+	auto forwarder_send_raw = to_speed_unit(forwarder_status_counters.egress_raw_traffic.exchange(0));
+	auto forwarder_fec_recovery = forwarder_status_counters.fec_recovery_count.exchange(0);
+
+#ifdef __cpp_lib_format
+	output_text += std::format("[Client <-> This] receive (raw): {}, receive (inner): {}, send (inner): {}, send (raw): {}, fec recover: {}\n",
+		listener_receives_raw, listener_receives_inner, listener_send_inner, listener_send_raw, listener_fec_recovery);
+	output_text += std::format("[This <-> Remote] receive (raw): {}, receive (inner): {}, send (inner): {}, send (raw): {}, fec recover: {}\n",
+		forwarder_receives_raw, forwarder_receives_inner, forwarder_send_inner, forwarder_send_raw, forwarder_fec_recovery);
+#else
+	std::ostringstream oss;
+	oss << "[Client <-> This] receive (raw): " << listener_receives_raw << ", receive (inner): " << listener_receives_inner <<
+		", send (inner): " << listener_send_inner << ", send (raw): " << listener_send_raw << ", fec recover: " << listener_fec_recovery << "\n";
+	oss << "[This <-> Remote] receive (raw): " << forwarder_receives_raw << ", receive (inner): " << forwarder_receives_inner <<
+		", send (inner): " << forwarder_send_inner << ", send (raw): " << forwarder_send_raw << ", fec recover: " << forwarder_fec_recovery << "\n";
+	output_text += oss.str();
+#endif
+
+	std::shared_lock locker{ mutex_id_map_to_both_sides };
+	for (auto &[conv, kcp_mappings_pr] : id_map_to_both_sides)
+	{
+#ifdef __cpp_lib_format
+		output_text += std::format("[Client <-> This] KCP#{} average latency: {} ms\n", conv, kcp_mappings_pr->ingress_kcp->GetRxSRTT());
+		output_text += std::format("[This <-> Remote] KCP#{} average latency: {} ms\n", conv, kcp_mappings_pr->egress_kcp->GetRxSRTT());
+#else
+		oss.clear();
+		oss << "[Client <-> This] KCP#" << conv << " average latency: " << kcp_mappings_pr->ingress_kcp->GetRxSRTT() << " ms\n";
+		oss << "[This <-> Remote] KCP#" << conv << " average latency: " << kcp_mappings_pr->egress_kcp->GetRxSRTT() << " ms\n";
+		output_text += oss.str();
+#endif
+	}
+	locker.unlock();
+
+	output_text += "\n";
+
+	if (!current_settings.log_status.empty())
+		print_status_to_file(output_text, current_settings.log_status);
+	std::cout << output_text << std::endl;
 }

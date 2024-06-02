@@ -2,7 +2,6 @@
 #include <iterator>
 #include <stdexcept>
 #include <fstream>
-#include <sstream>
 #include <mutex>
 #include "share_defines.hpp"
 #include "string_utils.hpp"
@@ -101,4 +100,37 @@ void print_message_to_file(const std::string &message, const std::filesystem::pa
 	if (output_file.is_open() && output_file.good())
 		output_file << message;
 	output_file.close();
+}
+
+void print_status_to_file(const std::string &message, const std::filesystem::path &log_file)
+{
+	if (log_file.empty())
+		return;
+
+	static std::ofstream output_file{};
+	static std::mutex mtx;
+	std::unique_lock locker{ mtx };
+	output_file.open(log_file, std::ios::out | std::ios::trunc);
+	if (output_file.is_open() && output_file.good())
+		output_file << message;
+	output_file.close();
+}
+
+std::string to_speed_unit(size_t value)
+{
+	if (value == 0)
+		return "0 Byte/s";
+
+	size_t length = (size_t)std::log10(value);
+
+	if (length <= 3)
+		return (std::to_string(value) + " Bytes/s");
+
+	if (length <= 6)
+		return (std::to_string((value / 1024)) + " KiB/s");
+
+	if (length <= 9)
+		return (std::to_string((value / 1024 / 1024)) + " MiB/s");
+
+	return (std::to_string((value / 1024 / 1024 / 1024)) + " GiB/s");
 }
