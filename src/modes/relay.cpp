@@ -1739,15 +1739,16 @@ void relay_mode::log_status(const asio::error_code & e)
 void relay_mode::loop_get_status()
 {
 	std::string output_text = time_to_string_with_square_brackets() + "Summary of " + current_settings.config_filename + "\n";
-	auto listener_receives_raw = to_speed_unit(listener_status_counters.ingress_raw_traffic.exchange(0));
-	auto listener_receives_inner = to_speed_unit(listener_status_counters.ingress_inner_traffic.exchange(0));
-	auto listener_send_inner = to_speed_unit(listener_status_counters.egress_inner_traffic.exchange(0));
-	auto listener_send_raw = to_speed_unit(listener_status_counters.egress_raw_traffic.exchange(0));
+	constexpr auto duration_seconds = gbv_logging_gap.count();
+	auto listener_receives_raw = to_speed_unit(listener_status_counters.ingress_raw_traffic.exchange(0) / duration_seconds);
+	auto listener_receives_inner = to_speed_unit(listener_status_counters.ingress_inner_traffic.exchange(0) / duration_seconds);
+	auto listener_send_inner = to_speed_unit(listener_status_counters.egress_inner_traffic.exchange(0) / duration_seconds);
+	auto listener_send_raw = to_speed_unit(listener_status_counters.egress_raw_traffic.exchange(0) / duration_seconds);
 	auto listener_fec_recovery = forwarder_status_counters.fec_recovery_count.exchange(0);
-	auto forwarder_receives_raw = to_speed_unit(forwarder_status_counters.ingress_raw_traffic.exchange(0));
-	auto forwarder_receives_inner = to_speed_unit(forwarder_status_counters.ingress_inner_traffic.exchange(0));
-	auto forwarder_send_inner = to_speed_unit(forwarder_status_counters.egress_inner_traffic.exchange(0));
-	auto forwarder_send_raw = to_speed_unit(forwarder_status_counters.egress_raw_traffic.exchange(0));
+	auto forwarder_receives_raw = to_speed_unit(forwarder_status_counters.ingress_raw_traffic.exchange(0) / duration_seconds);
+	auto forwarder_receives_inner = to_speed_unit(forwarder_status_counters.ingress_inner_traffic.exchange(0) / duration_seconds);
+	auto forwarder_send_inner = to_speed_unit(forwarder_status_counters.egress_inner_traffic.exchange(0) / duration_seconds);
+	auto forwarder_send_raw = to_speed_unit(forwarder_status_counters.egress_raw_traffic.exchange(0) / duration_seconds);
 	auto forwarder_fec_recovery = forwarder_status_counters.fec_recovery_count.exchange(0);
 
 #ifdef __cpp_lib_format

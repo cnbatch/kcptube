@@ -20,7 +20,7 @@ client_mode::~client_mode()
 
 bool client_mode::start()
 {
-	std::cout << app_name << "{} is running in client mode\n";
+	std::cout << app_name << " is running in client mode\n";
 
 	uint16_t port_number = current_settings.listen_port;
 	if (port_number == 0 && !current_settings.ignore_listen_port && !current_settings.ignore_listen_address)
@@ -1541,10 +1541,11 @@ void client_mode::log_status(const asio::error_code & e)
 void client_mode::loop_get_status()
 {
 	std::string output_text = time_to_string_with_square_brackets() + "Summary of " + current_settings.config_filename + "\n";
-	auto forwarder_receives_raw = to_speed_unit(status_counters.ingress_raw_traffic.exchange(0));
-	auto forwarder_receives_inner = to_speed_unit(status_counters.ingress_inner_traffic.exchange(0));
-	auto forwarder_send_inner = to_speed_unit(status_counters.egress_inner_traffic.exchange(0));
-	auto forwarder_send_raw = to_speed_unit(status_counters.egress_raw_traffic.exchange(0));
+	constexpr auto duration_seconds = gbv_logging_gap.count();
+	auto forwarder_receives_raw = to_speed_unit(status_counters.ingress_raw_traffic.exchange(0) / duration_seconds);
+	auto forwarder_receives_inner = to_speed_unit(status_counters.ingress_inner_traffic.exchange(0) / duration_seconds);
+	auto forwarder_send_inner = to_speed_unit(status_counters.egress_inner_traffic.exchange(0) / duration_seconds);
+	auto forwarder_send_raw = to_speed_unit(status_counters.egress_raw_traffic.exchange(0) / duration_seconds);
 	auto forwarder_fec_recovery = status_counters.fec_recovery_count.exchange(0);
 
 #ifdef __cpp_lib_format
@@ -1572,10 +1573,10 @@ void client_mode::loop_get_status()
 
 	if (mux_tunnels != nullptr)
 	{
-		auto mux_tcp_recv_traffic = to_speed_unit(mux_tunnels->tcp_recv_traffic.exchange(0));
-		auto mux_tcp_send_traffic = to_speed_unit(mux_tunnels->tcp_send_traffic.exchange(0));
-		auto mux_udp_recv_traffic = to_speed_unit(mux_tunnels->udp_recv_traffic.exchange(0));
-		auto mux_udp_send_traffic = to_speed_unit(mux_tunnels->udp_send_traffic.exchange(0));
+		auto mux_tcp_recv_traffic = to_speed_unit(mux_tunnels->tcp_recv_traffic.exchange(0) / duration_seconds);
+		auto mux_tcp_send_traffic = to_speed_unit(mux_tunnels->tcp_send_traffic.exchange(0) / duration_seconds);
+		auto mux_udp_recv_traffic = to_speed_unit(mux_tunnels->udp_recv_traffic.exchange(0) / duration_seconds);
+		auto mux_udp_send_traffic = to_speed_unit(mux_tunnels->udp_send_traffic.exchange(0) / duration_seconds);
 #ifdef __cpp_lib_format
 		output_text += std::format("mux_tunnels:\treceive (tcp): {}, receive (udp): {}, send (tcp): {}, send (udp): {}\n",
 			mux_tcp_recv_traffic, mux_tcp_send_traffic, mux_udp_recv_traffic, mux_udp_send_traffic);

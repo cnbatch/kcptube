@@ -131,7 +131,6 @@ namespace packet
 
 	constexpr size_t empty_data_size = sizeof(data_layer);
 
-	// from https://stackoverflow.com/questions/3022552/is-there-any-standard-htonl-like-function-for-64-bits-integers-in-c
 	uint64_t htonll(uint64_t value);
 	uint64_t ntohll(uint64_t value);
 

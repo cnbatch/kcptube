@@ -174,11 +174,11 @@ struct user_settings
 
 struct status_records
 {
-	std::atomic<size_t> ingress_raw_traffic;
-	std::atomic<size_t> egress_raw_traffic;
-	std::atomic<size_t> ingress_inner_traffic;
-	std::atomic<size_t> egress_inner_traffic;
-	std::atomic<size_t> fec_recovery_count;
+	alignas(64) std::atomic<size_t> ingress_raw_traffic;
+	alignas(64) std::atomic<size_t> egress_raw_traffic;
+	alignas(64) std::atomic<size_t> ingress_inner_traffic;
+	alignas(64) std::atomic<size_t> egress_inner_traffic;
+	alignas(64) std::atomic<size_t> fec_recovery_count;
 };
 
 #pragma pack (push, 1)
