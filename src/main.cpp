@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 #else
-	std::cout << app_name << "version 20240713\n";
+	std::cout << app_name << " version 20240713\n";
 	if (argc <= 1)
 	{
 		std::cout << "Usage: " << app_name << " config1.conf\n";
