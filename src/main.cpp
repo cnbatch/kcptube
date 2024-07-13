@@ -20,7 +20,7 @@
 int main(int argc, char *argv[])
 {
 #ifdef __cpp_lib_format
-	std::cout << std::format("{} version 20240706\n", app_name);
+	std::cout << std::format("{} version 20240713\n", app_name);
 	if (argc <= 1)
 	{
 		std::cout << std::format("Usage: {} config1.conf\n", app_name);
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 #else
-	std::cout << app_name << "version 20240706\n";
+	std::cout << app_name << "version 20240713\n";
 	if (argc <= 1)
 	{
 		std::cout << "Usage: " << app_name << " config1.conf\n";
@@ -102,7 +102,8 @@ int main(int argc, char *argv[])
 		user_settings current_settings = parse_from_args(lines, error_msg);
 		std::filesystem::path config_input_name = argv[i];
 		current_settings.config_filename = argv[i];
-		current_settings.log_status = current_settings.log_directory / (config_input_name.filename().string() + "_status.log");
+		if (!current_settings.log_directory.empty())
+			current_settings.log_status = current_settings.log_directory / (config_input_name.filename().string() + "_status.log");
 		profile_settings.emplace_back(std::move(current_settings));
 		if (error_msg.size() > 0)
 		{

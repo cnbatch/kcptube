@@ -14,6 +14,7 @@ class server_mode
 	KCP::KCPUpdater &kcp_updater;
 	const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender;
 	user_settings current_settings;
+	connection_options conn_options;
 	std::unique_ptr<rfc8489::stun_header> stun_header;
 	std::atomic<uint16_t> external_ipv4_port;
 	std::atomic<uint32_t> external_ipv4_address;
@@ -108,7 +109,11 @@ public:
 		external_ipv6_port(0),
 		external_ipv6_address{},
 		zero_value_array{},
-		current_settings(settings) {}
+		current_settings(settings),
+		conn_options{ .ip_version_only = current_settings.ip_version_only,
+					  .fib_ingress = current_settings.fib_ingress,
+					  .fib_egress = current_settings.fib_egress }
+	{}
 
 	server_mode(server_mode &&existing_server) noexcept
 		: io_context(existing_server.io_context),
@@ -127,7 +132,11 @@ public:
 		external_ipv6_port(existing_server.external_ipv6_port.load()),
 		external_ipv6_address{ existing_server.external_ipv6_address },
 		zero_value_array{},
-		current_settings(std::move(existing_server.current_settings)) {}
+		current_settings(std::move(existing_server.current_settings)),
+		conn_options{ .ip_version_only = current_settings.ip_version_only,
+					  .fib_ingress = current_settings.fib_ingress,
+					  .fib_egress = current_settings.fib_egress }
+	{}
 
 	~server_mode();
 

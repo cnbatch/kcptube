@@ -430,6 +430,28 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				}
 				break;
 
+			case strhash("fib_ingress"):
+			{
+				if (int fib_value = std::stoi(value); fib_value <= 0)
+					current_settings->fib_ingress = 0;
+				else if (fib_value > 0 && fib_value < USHRT_MAX)
+					current_settings->fib_ingress = fib_value;
+				else
+					current_settings->fib_ingress = USHRT_MAX;
+				break;
+			}
+
+			case strhash("fib_egress"):
+			{
+				if (int fib_value = std::stoi(value); fib_value <= 0)
+					current_settings->fib_egress = 0;
+				else if (fib_value > 0 && fib_value < USHRT_MAX)
+					current_settings->fib_egress = fib_value;
+				else
+					current_settings->fib_egress = USHRT_MAX;
+				break;
+			}
+
 			case strhash("[listener]"):
 			{
 				if (current_user_settings.mode == running_mode::relay)
@@ -876,6 +898,12 @@ void copy_settings(user_settings &inner, user_settings &outter)
 
 	if (outter.blast)
 		inner.blast = outter.blast;
+
+	if (outter.fib_ingress)
+		inner.fib_ingress = outter.fib_ingress;
+
+	if (outter.fib_egress)
+		inner.fib_egress = outter.fib_egress;
 }
 
 void verify_kcp_settings(user_settings &current_user_settings, std::vector<std::string> &error_msg)

@@ -56,7 +56,13 @@ bool relay_mode::start()
 		listen_on_ep.port(port_number);
 		try
 		{
-			udp_servers.insert({ port_number, std::make_unique<udp_server>(io_context, sequence_task_pool_peer, task_limit, listen_on_ep, func) });
+			connection_options conn_options = 
+			{
+				.ip_version_only = current_settings.ingress->ip_version_only,
+				.fib_ingress = current_settings.fib_ingress,
+				.fib_egress = current_settings.fib_egress
+			};
+			udp_servers.insert({ port_number, std::make_unique<udp_server>(io_context, sequence_task_pool_peer, task_limit, listen_on_ep, func, conn_options) });
 		}
 		catch (std::exception &ex)
 		{
@@ -389,8 +395,14 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 				std::shared_ptr<forwarder> udp_forwarder = nullptr;
 				try
 				{
+					connection_options conn_options =
+					{
+						.ip_version_only = current_settings.egress->ip_version_only,
+						.fib_ingress = current_settings.fib_ingress,
+						.fib_egress = current_settings.fib_egress
+					};
 					auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-					udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, handshake_kcp_egress, udp_func, current_settings.egress->ip_version_only);
+					udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, handshake_kcp_egress, udp_func, conn_options);
 					if (udp_forwarder == nullptr)
 					{
 						expiring_handshakes[handshake_kcp_mappings_ptr] = packet::right_now();
@@ -733,8 +745,14 @@ void relay_mode::switch_new_port(kcp_mappings * kcp_mappings_ptr)
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
+		connection_options conn_options =
+		{
+			.ip_version_only = current_settings.egress->ip_version_only,
+			.fib_ingress = current_settings.fib_ingress,
+			.fib_egress = current_settings.fib_egress
+		};
 		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ip_version_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, kcp_ptr_egress, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -828,8 +846,14 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
+		connection_options conn_options =
+		{
+			.ip_version_only = current_settings.egress->ip_version_only,
+			.fib_ingress = current_settings.fib_ingress,
+			.fib_egress = current_settings.fib_egress
+		};
 		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr_egress, udp_func, current_settings.egress->ip_version_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr_egress, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -928,8 +952,14 @@ std::shared_ptr<kcp_mappings> relay_mode::create_test_handshake()
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
+		connection_options conn_options =
+		{
+			.ip_version_only = current_settings.egress->ip_version_only,
+			.fib_ingress = current_settings.fib_ingress,
+			.fib_egress = current_settings.fib_egress
+		};
 		auto udp_func = std::bind(&relay_mode::handle_test_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ip_version_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}

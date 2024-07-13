@@ -204,6 +204,12 @@ encryption_algorithm=AES-GCM
 
 Note: `encryption_algorithm` and `encryption_password` must be consistent at both ends of the communication.
 
+## FreeBSD only
+|  Name   | Value  | Require |Note|
+|  ----  | ----  | :----: | ---- |
+| fib_ingress  | 0 - 65535 |No|FIB for ingress connections|
+| fib_egress | 0 - 65535 |No|FIB for egress connections|
+
 #### outbound_bandwidth and inbound_bandwidth
 Available suffixes: K / M / G
 

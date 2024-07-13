@@ -84,8 +84,8 @@ bool client_mode::start()
 			{
 				tcp_server::acceptor_callback_t tcp_func_acceptor = std::bind(&client_mode::tcp_listener_accept_incoming, this, _1, "", 0);
 				udp_callback_t udp_func_ap = std::bind(&client_mode::udp_listener_incoming, this, _1, _2, _3, _4, "", 0);
-				auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback);
-				auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap);
+				auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback, conn_options);
+				auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap, conn_options);
 				tcp_access_points.insert({ port_number, std::move(tcp_access_point) });
 				udp_access_points.insert({ port_number, std::move(udp_access_point) });
 			}
@@ -110,8 +110,8 @@ bool client_mode::start()
 			}
 			else
 			{
-				auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback);
-				auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap);
+				auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback, conn_options);
+				auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap, conn_options);
 				tcp_access_points.insert({ port_number, std::move(tcp_access_point) });
 				udp_access_points.insert({ port_number, std::move(udp_access_point) });
 			}
@@ -182,7 +182,7 @@ void client_mode::multiple_listening_tcp(user_settings::user_input_address_mappi
 		else
 			tcp_func_acceptor = std::bind(&client_mode::tcp_listener_accept_incoming, this, _1, remote_address, remote_port);
 
-		auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback);
+		auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback, conn_options);
 		tcp_access_points.insert({ local_port, std::move(tcp_access_point) });
 	}
 }
@@ -222,7 +222,7 @@ void client_mode::multiple_listening_udp(user_settings::user_input_address_mappi
 		else
 			udp_func_ap = std::bind(&client_mode::udp_listener_incoming, this, _1, _2, _3, _4, remote_address, remote_port);
 
-		auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap);
+		auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap, conn_options);
 		udp_access_points.insert({ local_port, std::move(udp_access_point) });
 	}
 }
@@ -1083,7 +1083,7 @@ void client_mode::switch_new_port(kcp_mappings *kcp_mappings_ptr)
 	try
 	{
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ip_version_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -1627,7 +1627,7 @@ std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protoco
 	try
 	{
 		auto udp_func = std::bind(&client_mode::handle_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, current_settings.ip_version_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}
@@ -1777,7 +1777,7 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 	try
 	{
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, current_settings.ip_version_only);
+		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return;
 	}

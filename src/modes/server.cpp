@@ -63,7 +63,7 @@ bool server_mode::start()
 		listen_on_ep.port(port_number);
 		try
 		{
-			udp_servers.insert({ port_number, std::make_unique<udp_server>(io_context, sequence_task_pool_peer, task_limit, listen_on_ep, func) });
+			udp_servers.insert({ port_number, std::make_unique<udp_server>(io_context, sequence_task_pool_peer, task_limit, listen_on_ep, func, conn_options) });
 		}
 		catch (std::exception &ex)
 		{
@@ -583,7 +583,7 @@ bool server_mode::create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_
 	{
 		tcp_connector_incoming(std::move(data), data_size, target_session, weak_data_kcp);
 	};
-	tcp_client target_connector(io_context, callback_function, current_settings.ip_version_only);
+	tcp_client target_connector(io_context, callback_function, conn_options);
 	std::string destination_address = current_settings.destination_address;
 	uint16_t destination_port = current_settings.destination_port;
 
@@ -647,7 +647,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	{
 		try
 		{
-			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, current_settings.ip_version_only);
+			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, conn_options);
 		}
 		catch (...)
 		{
@@ -771,7 +771,7 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_tcp_connection(uint32_
 		{
 			mux_tunnels->read_tcp_data_to_cache(std::move(data), data_size, target_session, kcp_session_weak, mux_records_ptr_weak);
 		};
-	tcp_client target_connector(io_context, callback_function, current_settings.ip_version_only);
+	tcp_client target_connector(io_context, callback_function, conn_options);
 	std::string destination_address = current_settings.destination_address;
 	uint16_t destination_port = current_settings.destination_port;
 
@@ -822,7 +822,7 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_udp_connection(uint32_
 	{
 		try
 		{
-			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, current_settings.ip_version_only);
+			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, conn_options);
 		}
 		catch (...)
 		{

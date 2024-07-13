@@ -38,6 +38,12 @@
 
 其中，`encryption_algorithm` 以及 `encryption_password` 在通讯的两端必须保持一致。
 
+## FreeBSD only
+|  名称   | 可设置值  | 必填 |备注|
+|  ----  | ----  | :----: | ---- |
+| fib_ingress  | 0 - 65535 |否|入站连接使用的FIB|
+| fib_egress | 0 - 65535 |否|出站连接使用的FIB|
+
 ## outbound_bandwidth 与 inbound_bandwidth
 可用后缀：K / M / G
 

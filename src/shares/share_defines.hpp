@@ -151,6 +151,8 @@ struct user_settings
 	uint64_t outbound_bandwidth = 0;
 	uint64_t inbound_bandwidth = 0;
 	ip_only_options ip_version_only = ip_only_options::not_set;
+	int fib_ingress = -1;
+	int fib_egress = -1;
 	bool blast = 1;
 	bool ignore_listen_address = false;
 	bool ignore_listen_port = false;

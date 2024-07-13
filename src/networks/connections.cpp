@@ -912,6 +912,15 @@ void tcp_server::acceptor_initialise(const tcp::endpoint &ep)
 		tcp_acceptor.set_option(v6_option);
 	tcp_acceptor.set_option(keep_alive_option);
 	tcp_acceptor.set_option(tcp::no_delay(true));
+
+#if __FreeBSD__
+	if (fib_ingress >= 0)
+	{
+		asio::detail::socket_option::integer<ASIO_OS_DEF(SOL_SOCKET), SO_SETFIB> fib_option(fib_ingress);
+		tcp_acceptor.set_option(fib_option);
+	}
+#endif
+
 	tcp_acceptor.bind(ep);
 	tcp_acceptor.listen(tcp_acceptor.max_connections);
 }
@@ -965,6 +974,15 @@ std::shared_ptr<tcp_session> tcp_client::connect(asio::error_code &ec)
 		current_socket.set_option(tcp::no_delay(true));
 		if (endpoint_entry.endpoint().protocol() == tcp::v6())
 			current_socket.set_option(asio::ip::v6_only(false));
+
+#if __FreeBSD__
+		if (fib_egress >= 0)
+		{
+			asio::detail::socket_option::integer<ASIO_OS_DEF(SOL_SOCKET), SO_SETFIB> fib_option(fib_egress);
+			current_socket.set_option(fib_option);
+		}
+#endif
+
 		current_socket.connect(endpoint_entry, ec);
 		if (!ec)
 			break;
@@ -1038,6 +1056,15 @@ void udp_server::initialise(const udp::endpoint &ep)
 	connection_socket.open(ep.protocol());
 	if (ep.address().is_v6())
 		connection_socket.set_option(v6_option);
+
+#if __FreeBSD__
+	if (fib_ingress >= 0)
+	{
+		asio::detail::socket_option::integer<ASIO_OS_DEF(SOL_SOCKET), SO_SETFIB> fib_option(fib_ingress);
+		connection_socket.set_option(fib_option);
+	}
+#endif
+
 	connection_socket.bind(ep);
 }
 
@@ -1244,6 +1271,13 @@ void udp_client::initialise()
 		connection_socket.open(udp::v6());
 		connection_socket.set_option(v6_option);
 	}
+#if __FreeBSD__
+	if (fib_egress >= 0)
+	{
+		asio::detail::socket_option::integer<ASIO_OS_DEF(SOL_SOCKET), SO_SETFIB> fib_option(fib_egress);
+		connection_socket.set_option(fib_option);
+	}
+#endif
 }
 
 void udp_client::start_receive()

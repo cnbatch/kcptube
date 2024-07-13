@@ -12,6 +12,7 @@ class test_mode
 	KCP::KCPUpdater &kcp_updater;
 	const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender;
 	user_settings current_settings;
+	connection_options conn_options;
 	std::vector<uint16_t> destination_ports;
 
 	std::shared_mutex mutex_handshakes;
@@ -60,7 +61,11 @@ public:
 		sequence_task_pool_local(seq_task_pool_local),
 		sequence_task_pool_peer(seq_task_pool_peer),
 		task_limit(task_count_limit),
-		current_settings(settings) {}
+		current_settings(settings),
+		conn_options{ .ip_version_only = current_settings.ip_version_only,
+					  .fib_ingress = current_settings.fib_ingress,
+					  .fib_egress = current_settings.fib_egress }
+	{}
 
 	test_mode(test_mode &&existing_client) noexcept :
 		io_context(existing_client.io_context),
@@ -70,7 +75,11 @@ public:
 		sequence_task_pool_local(existing_client.sequence_task_pool_local),
 		sequence_task_pool_peer(existing_client.sequence_task_pool_peer),
 		task_limit(existing_client.task_limit),
-		current_settings(std::move(existing_client.current_settings)) {}
+		current_settings(std::move(existing_client.current_settings)),
+		conn_options{ .ip_version_only = current_settings.ip_version_only,
+					  .fib_ingress = current_settings.fib_ingress,
+					  .fib_egress = current_settings.fib_egress }
+	{}
 
 	~test_mode();
 
