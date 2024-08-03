@@ -116,21 +116,28 @@ void print_status_to_file(const std::string &message, const std::filesystem::pat
 	output_file.close();
 }
 
-std::string to_speed_unit(size_t value)
+std::string to_speed_unit(size_t value, size_t duration_seconds)
 {
 	if (value == 0)
 		return "0 Byte/s";
 
-	size_t length = (size_t)std::log10(value);
+	if (duration_seconds == 0)
+		duration_seconds = 1;
+
+	size_t value_per_second = value / duration_seconds;
+	int64_t length = value_per_second == 0 ? 0 : (int64_t)std::log10(value_per_second);
+
+	if (length == 0)
+		return (std::to_string(value) + " Bytes / " + std::to_string(duration_seconds) + " seconds");
 
 	if (length <= 3)
-		return (std::to_string(value) + " Bytes/s");
+		return (std::to_string(value_per_second) + " Bytes/s");
 
 	if (length <= 6)
-		return (std::to_string((value / 1024)) + " KiB/s");
+		return (std::to_string((value_per_second / 1024)) + " KiB/s");
 
 	if (length <= 9)
-		return (std::to_string((value / 1024 / 1024)) + " MiB/s");
+		return (std::to_string((value_per_second / 1024 / 1024)) + " MiB/s");
 
-	return (std::to_string((value / 1024 / 1024 / 1024)) + " GiB/s");
+	return (std::to_string((value_per_second / 1024 / 1024 / 1024)) + " GiB/s");
 }

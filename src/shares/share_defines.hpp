@@ -199,6 +199,6 @@ std::string time_to_string_with_square_brackets();
 void print_ip_to_file(const std::string &message, const std::filesystem::path &log_file);
 void print_message_to_file(const std::string &message, const std::filesystem::path &log_file);
 void print_status_to_file(const std::string &message, const std::filesystem::path &log_file);
-std::string to_speed_unit(size_t value);
+std::string to_speed_unit(size_t value, size_t duration_seconds);
 
 #endif // !_SHARE_HEADER_
