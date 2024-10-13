@@ -84,8 +84,10 @@ bool client_mode::start()
 			{
 				tcp_server::acceptor_callback_t tcp_func_acceptor = std::bind(&client_mode::tcp_listener_accept_incoming, this, _1, "", 0);
 				udp_callback_t udp_func_ap = std::bind(&client_mode::udp_listener_incoming, this, _1, _2, _3, _4, "", 0);
+				auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+				auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_local_network_task_count(number) > gbv_task_count_limit; };
 				auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback, conn_options);
-				auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap, conn_options);
+				auto udp_access_point = std::make_unique<udp_server>(io_context, bind_push_func, bind_check_limit_func, listen_on_udp, udp_func_ap, conn_options);
 				tcp_access_points.insert({ port_number, std::move(tcp_access_point) });
 				udp_access_points.insert({ port_number, std::move(udp_access_point) });
 			}
@@ -110,8 +112,10 @@ bool client_mode::start()
 			}
 			else
 			{
+				auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+				auto bind_check_limit_func = [this](size_t number) -> bool { return sequence_task_pool.get_local_network_task_count(number) > gbv_task_count_limit; };
 				auto tcp_access_point = std::make_unique<tcp_server>(io_context, listen_on_tcp, tcp_func_acceptor, empty_tcp_callback, conn_options);
-				auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap, conn_options);
+				auto udp_access_point = std::make_unique<udp_server>(io_context, bind_push_func, bind_check_limit_func, listen_on_udp, udp_func_ap, conn_options);
 				tcp_access_points.insert({ port_number, std::move(tcp_access_point) });
 				udp_access_points.insert({ port_number, std::move(udp_access_point) });
 			}
@@ -222,7 +226,9 @@ void client_mode::multiple_listening_udp(user_settings::user_input_address_mappi
 		else
 			udp_func_ap = std::bind(&client_mode::udp_listener_incoming, this, _1, _2, _3, _4, remote_address, remote_port);
 
-		auto udp_access_point = std::make_unique<udp_server>(io_context, sequence_task_pool_local, task_limit, listen_on_udp, udp_func_ap, conn_options);
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_local_network_task_count(number) > gbv_task_count_limit; };
+		auto udp_access_point = std::make_unique<udp_server>(io_context, bind_push_func, bind_check_limit_func, listen_on_udp, udp_func_ap, conn_options);
 		udp_access_points.insert({ local_port, std::move(udp_access_point) });
 	}
 }
@@ -729,7 +735,7 @@ int client_mode::kcp_sender(const char *buf, int len, void *user)
 
 void client_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (kcp_data_sender != nullptr)
+	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
@@ -740,7 +746,7 @@ void client_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<ui
 				change_new_port(kcp_mappings_ptr);
 				status_counters.egress_raw_traffic += cipher_size;
 			};
-		kcp_data_sender->push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
+		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
 		return;
 	}
 
@@ -1082,8 +1088,10 @@ void client_mode::switch_new_port(kcp_mappings *kcp_mappings_ptr)
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_peer_network_task_count(number) > gbv_task_count_limit; };
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, kcp_ptr, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -1204,7 +1212,7 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 				uint32_t next_update_time = new_kcp_mappings_ptr->egress_kcp->Check();
 				kcp_updater.submit(new_kcp_mappings_ptr->egress_kcp, next_update_time);
 			};
-		sequence_task_pool_local.push_task((size_t)kcp_mappings_ptr, func);
+		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func);
 	}
 	else
 	{
@@ -1225,7 +1233,7 @@ bool client_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 				uint32_t next_update_time = new_kcp_mappings_ptr->egress_kcp->Check();
 				kcp_updater.submit(new_kcp_mappings_ptr->egress_kcp, next_update_time);
 			};
-		sequence_task_pool_local.push_task((size_t)kcp_mappings_ptr, func);
+		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func);
 	}
 	return true;
 }
@@ -1626,8 +1634,10 @@ std::shared_ptr<kcp_mappings> client_mode::create_handshake(feature ftr, protoco
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_peer_network_task_count(number) > gbv_task_count_limit; };
 		auto udp_func = std::bind(&client_mode::handle_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}
@@ -1695,9 +1705,9 @@ void client_mode::resume_tcp(kcp_mappings *kcp_mappings_ptr)
 	if (kcp_mappings_ptr->local_tcp == nullptr)
 		return;
 
-	if (kcp_data_sender != nullptr)
+	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
 	{
-		kcp_data_sender->push_task((size_t)kcp_mappings_ptr, [kcp_mappings_ptr]()
+		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, [kcp_mappings_ptr]()
 			{
 				if (kcp_mappings_ptr->local_tcp == nullptr)
 					return;
@@ -1776,8 +1786,10 @@ void client_mode::on_handshake_success(kcp_mappings *handshake_ptr, const packet
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_peer_network_task_count(number) > gbv_task_count_limit; };
 		auto udp_func = std::bind(&client_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, kcp_ptr, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return;
 	}

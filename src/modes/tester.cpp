@@ -113,7 +113,7 @@ int test_mode::kcp_sender(const char *buf, int len, void *user)
 
 void test_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (kcp_data_sender != nullptr)
+	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
@@ -122,7 +122,7 @@ void test_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint
 					return;
 				kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, kcp_mappings_ptr->egress_target_endpoint);
 			};
-		kcp_data_sender->push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
+		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
 		return;
 	}
 
@@ -194,7 +194,7 @@ bool test_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 		return false;
 
 	auto func = [this, kcp_mappings_ptr]() { handshake_test_failure(kcp_mappings_ptr); };
-	sequence_task_pool_local.push_task((size_t)kcp_mappings_ptr, func);
+	sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func);
 	return true;
 }
 
@@ -213,8 +213,10 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(asio::ip::port_type te
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_peer_network_task_count(number) > gbv_task_count_limit; };
 		auto udp_func = std::bind(&test_mode::handle_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}

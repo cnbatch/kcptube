@@ -63,7 +63,9 @@ bool server_mode::start()
 		listen_on_ep.port(port_number);
 		try
 		{
-			udp_servers.insert({ port_number, std::make_unique<udp_server>(io_context, sequence_task_pool_peer, task_limit, listen_on_ep, func, conn_options) });
+			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
+			auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_peer_network_task_count(number) > gbv_task_count_limit; };
+			udp_servers.insert({ port_number, std::make_unique<udp_server>(io_context, bind_push_func, bind_check_limit_func, listen_on_ep, func, conn_options) });
 		}
 		catch (std::exception &ex)
 		{
@@ -217,7 +219,8 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 				return;
 		}
 
-		if (kcp_mappings_ptr->ingress_source_endpoint == nullptr || *kcp_mappings_ptr->ingress_source_endpoint != peer)
+		if (std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+			ingress_source_endpoint == nullptr || *ingress_source_endpoint != peer)
 			kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 
 		kcp_ptr = kcp_mappings_ptr->ingress_kcp;
@@ -647,7 +650,9 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 	{
 		try
 		{
-			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, conn_options);
+			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+			auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_local_network_task_count(number) > gbv_task_count_limit; };
+			target_connector = std::make_shared<udp_client>(io_context, bind_push_func, bind_check_limit_func, udp_func_ap, conn_options);
 		}
 		catch (...)
 		{
@@ -726,9 +731,9 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 
 void server_mode::resume_tcp(kcp_mappings* kcp_mappings_ptr)
 {
-	if (kcp_data_sender != nullptr)
+	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
 	{
-		kcp_data_sender->push_task((size_t)kcp_mappings_ptr, [kcp_mappings_ptr]()
+		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, [kcp_mappings_ptr]()
 			{
 				std::shared_ptr data_kcp = kcp_mappings_ptr->ingress_kcp;
 				std::shared_ptr session = kcp_mappings_ptr->local_tcp;
@@ -822,7 +827,9 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_udp_connection(uint32_
 	{
 		try
 		{
-			target_connector = std::make_shared<udp_client>(io_context, sequence_task_pool_local, task_limit, udp_func_ap, conn_options);
+			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+			auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_local_network_task_count(number) > gbv_task_count_limit; };
+			target_connector = std::make_shared<udp_client>(io_context, bind_push_func, bind_check_limit_func, udp_func_ap, conn_options);
 		}
 		catch (...)
 		{
@@ -881,26 +888,26 @@ int server_mode::kcp_sender(const char *buf, int len, void *user)
 
 void server_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (kcp_data_sender != nullptr)
+	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
 				auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
 				if (!error_message.empty() || cipher_size == 0)
 					return;
-				udp::endpoint ingress_source_endpoint = *kcp_mappings_ptr->ingress_source_endpoint;
-				kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
+				std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+				kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
 				status_counters.egress_raw_traffic += cipher_size;
 			};
-		kcp_data_sender->push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
+		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
 		return;
 	}
 
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
 	if (!error_message.empty() || cipher_size == 0)
 		return;
-	udp::endpoint ingress_source_endpoint = *kcp_mappings_ptr->ingress_source_endpoint;
-	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, ingress_source_endpoint);
+	std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
 	status_counters.egress_raw_traffic += cipher_size;
 	return;
 }
@@ -1051,7 +1058,7 @@ void server_mode::process_tcp_disconnect(tcp_session *session, std::weak_ptr<KCP
 
 	std::unique_ptr<uint8_t[]> empty_ptr;
 	auto func = [this, kcp_ptr_weak](std::unique_ptr<uint8_t[]> data) mutable { mux_tunnels->refresh_mux_queue(kcp_ptr_weak); };
-	sequence_task_pool_local.push_task((size_t)this, func, std::move(empty_ptr));
+	sequence_task_pool.push_task((size_t)this, func, std::move(empty_ptr));
 
 	session->session_is_ending(true);
 	session->pause(false);
@@ -1159,8 +1166,8 @@ void server_mode::cleanup_expiring_handshake_connections()
 		kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
 		kcp_ptr->SetUserData(nullptr);
 		kcp_updater.remove(kcp_ptr);
-		udp::endpoint ep = *kcp_mappings_ptr->ingress_source_endpoint;
-		handshake_channels.erase(ep);
+		std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+		handshake_channels.erase(*ingress_source_endpoint);
 		expiring_handshakes.erase(iter);
 	}
 }

@@ -10,7 +10,6 @@ class test_mode
 	friend struct mux_tunnel;
 	asio::io_context &io_context;
 	KCP::KCPUpdater &kcp_updater;
-	const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender;
 	user_settings current_settings;
 	connection_options conn_options;
 	std::vector<uint16_t> destination_ports;
@@ -28,9 +27,7 @@ class test_mode
 	std::set<uint16_t> failure_ports;
 
 	asio::steady_timer timer_find_expires;
-	ttp::task_group_pool &sequence_task_pool_local;
-	ttp::task_group_pool &sequence_task_pool_peer;
-	const size_t task_limit;
+	ttp::task_group_pool &sequence_task_pool;
 
 	int kcp_sender(const char *buf, int len, void *user);
 	void data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
@@ -52,15 +49,11 @@ public:
 	test_mode(const test_mode &) = delete;
 	test_mode& operator=(const test_mode &) = delete;
 
-	test_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender_ref,
-		ttp::task_group_pool &seq_task_pool_local, ttp::task_group_pool &seq_task_pool_peer, size_t task_count_limit, const user_settings &settings) :
+	test_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, ttp::task_group_pool &seq_task_pool, /*size_t task_count_limit,*/ const user_settings &settings) :
 		io_context(io_context_ref),
 		kcp_updater(kcp_updater_ref),
-		kcp_data_sender(kcp_data_sender_ref),
 		timer_find_expires(io_context_ref),
-		sequence_task_pool_local(seq_task_pool_local),
-		sequence_task_pool_peer(seq_task_pool_peer),
-		task_limit(task_count_limit),
+		sequence_task_pool(seq_task_pool),
 		current_settings(settings),
 		conn_options{ .ip_version_only = current_settings.ip_version_only,
 					  .fib_ingress = current_settings.fib_ingress,
@@ -70,11 +63,8 @@ public:
 	test_mode(test_mode &&existing_client) noexcept :
 		io_context(existing_client.io_context),
 		kcp_updater(existing_client.kcp_updater),
-		kcp_data_sender(existing_client.kcp_data_sender),
 		timer_find_expires(std::move(existing_client.timer_find_expires)),
-		sequence_task_pool_local(existing_client.sequence_task_pool_local),
-		sequence_task_pool_peer(existing_client.sequence_task_pool_peer),
-		task_limit(existing_client.task_limit),
+		sequence_task_pool(existing_client.sequence_task_pool),
 		current_settings(std::move(existing_client.current_settings)),
 		conn_options{ .ip_version_only = current_settings.ip_version_only,
 					  .fib_ingress = current_settings.fib_ingress,

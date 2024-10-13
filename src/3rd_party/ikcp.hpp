@@ -89,11 +89,12 @@ namespace KCP
 		uint32_t nodelay, updated;
 		uint32_t ts_probe, probe_wait;
 		uint32_t dead_link, incr;
+		uint32_t fastack_higest;
 		std::list<std::unique_ptr<segment>> snd_queue;
 		std::list<segment> rcv_queue;
 		std::map<uint32_t, std::shared_ptr<segment>> snd_buf;	// SN -> segment
 		std::map<uint32_t, std::unordered_map<uint32_t, std::weak_ptr<segment>>> resendts_buf;	// resendts -> segment
-		std::map<uint32_t, std::unordered_map<uint32_t, std::weak_ptr<segment>>> fastack_buf;	// fastack -> segment
+		std::map<uint32_t, std::unordered_map<uint32_t, std::weak_ptr<segment>>, std::greater<>> fastack_buf;	// fastack -> segment
 		std::map<uint32_t, std::unique_ptr<segment>> rcv_buf;	// SN -> segment
 		std::vector<std::pair<uint32_t, uint32_t>> acklist;
 		void *user;
@@ -146,12 +147,20 @@ namespace KCP
 		// schedule ikcp_update (eg. implementing an epoll-like mechanism, 
 		// or optimize ikcp_update when handling massive kcp connections)
 		uint32_t check(uint32_t current);
+		uint32_t check_blast(uint32_t current);
+		uint32_t check_minimal(uint32_t current) const;
+		uint32_t check_fresh(uint32_t current) const;
+		uint32_t check_timeout_resend(uint32_t current);
+		uint32_t check_fast_resend(uint32_t current);
 
 		// when you received a low level packet (eg. UDP packet), call it
 		int input(const char *data, long size);
 
 		// flush pending data
 		void flush(uint32_t current = 0);
+		void flush_fresh(uint32_t current = 0);
+		void flush_timeout_resend(uint32_t current = 0);
+		void flush_fast_resend(uint32_t current = 0);
 
 		// check the size of next message in the recv queue
 		int peek_size();

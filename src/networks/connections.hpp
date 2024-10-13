@@ -24,6 +24,7 @@
 #include "stun.hpp"
 #include "kcp.hpp"
 
+constexpr size_t gbv_task_count_limit = 8192u;
 constexpr int32_t gbv_time_gap_seconds = std::numeric_limits<uint8_t>::max();	//seconds
 constexpr int32_t gbv_mux_channels_cleanup = gbv_time_gap_seconds >> 3;	//seconds
 constexpr int32_t gbv_keepalive_timeout = gbv_time_gap_seconds >> 3;	//seconds
@@ -71,12 +72,15 @@ enum class feature : uint8_t
 
 enum class protocol_type : uint8_t { not_care, mux, tcp, udp };
 
+enum class task_type { sequence, direct, in_place };
+
 uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);
 
 std::string_view feature_to_string(feature ftr);
 std::string protocol_type_to_string(protocol_type prtcl);
 std::string debug_data_to_string(const uint8_t *data, size_t len);
 void debug_print_data(const uint8_t *data, size_t len);
+bool return_false(size_t);
 
 namespace packet
 {
@@ -138,8 +142,22 @@ namespace packet
 
 	constexpr size_t empty_data_size = sizeof(data_layer);
 
-	uint64_t htonll(uint64_t value);
-	uint64_t ntohll(uint64_t value);
+	uint64_t htonll(uint64_t value) noexcept;
+	uint64_t ntohll(uint64_t value) noexcept;
+	int64_t htonll(int64_t value) noexcept;
+	int64_t ntohll(int64_t value) noexcept;
+	uint16_t little_endian_to_host(uint16_t value) noexcept;
+	uint16_t host_to_little_endian(uint16_t value) noexcept;
+	uint32_t little_endian_to_host(uint32_t value) noexcept;
+	uint32_t host_to_little_endian(uint32_t value) noexcept;
+	uint64_t little_endian_to_host(uint64_t value) noexcept;
+	uint64_t host_to_little_endian(uint64_t value) noexcept;
+	int16_t little_endian_to_host(int16_t value) noexcept;
+	int16_t host_to_little_endian(int16_t value) noexcept;
+	int32_t little_endian_to_host(int32_t value) noexcept;
+	int32_t host_to_little_endian(int32_t value) noexcept;
+	int64_t little_endian_to_host(int64_t value) noexcept;
+	int64_t host_to_little_endian(int64_t value) noexcept;
 
 	int64_t right_now();
 
@@ -204,6 +222,8 @@ class tcp_session;
 
 using tcp_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, std::shared_ptr<tcp_session>)>;
 using udp_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
+using sequence_callback_t = std::function<void(size_t, ttp::task_callback, std::unique_ptr<uint8_t[]>)>;
+using diret_callback_t = std::function<void(ttp::task_callback, std::unique_ptr<uint8_t[]>)>;
 
 void empty_tcp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, std::shared_ptr<tcp_session> tmp2);
 void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
@@ -215,21 +235,20 @@ void empty_task_callback(std::unique_ptr<uint8_t[]> null_data);
 class tcp_session : public std::enable_shared_from_this<tcp_session>
 {
 public:
-
 	tcp_session(asio::io_context &net_io, tcp_callback_t callback_func)
-		: network_io(net_io), connection_socket(network_io), task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0),
+		: network_io(net_io), connection_socket(network_io), task_type_running(task_type::in_place),
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false), session_ending(false) {}
 
-	tcp_session(asio::io_context &net_io, ttp::task_group_pool &task_groups, size_t task_count_limit, tcp_callback_t callback_func)
-		: network_io(net_io), connection_socket(network_io), task_assigner(nullptr), sequence_task_pool(&task_groups), task_limit(task_count_limit),
+	tcp_session(asio::io_context &net_io, sequence_callback_t task_function, tcp_callback_t callback_func)
+		: network_io(net_io), connection_socket(network_io), task_type_running(task_type::sequence), push_task_seq(task_function),
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false), session_ending(false) {}
 
-	tcp_session(asio::io_context &net_io, ttp::task_thread_pool &task_pool, size_t task_count_limit, tcp_callback_t callback_func)
-		: network_io(net_io), connection_socket(network_io), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit),
+	tcp_session(asio::io_context &net_io, diret_callback_t task_function,  tcp_callback_t callback_func)
+		: network_io(net_io), connection_socket(network_io), task_type_running(task_type::direct), push_task(task_function),
 		callback(callback_func), callback_for_disconnect(empty_tcp_disconnect),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false), session_ending(false) {}
@@ -277,8 +296,6 @@ private:
 	void transfer_data_to_next_function(std::unique_ptr<uint8_t[]> buffer_cache, size_t bytes_transferred);
 
 	asio::io_context &network_io;
-	ttp::task_thread_pool *task_assigner;
-	ttp::task_group_pool *sequence_task_pool;
 	tcp::socket connection_socket;
 	tcp_callback_t callback;
 	std::function<void(std::shared_ptr<tcp_session>)> callback_for_disconnect;
@@ -287,7 +304,9 @@ private:
 	alignas(64) std::atomic<bool> paused;
 	alignas(64) std::atomic<bool> stopped;
 	alignas(64) std::atomic<bool> session_ending;
-	const size_t task_limit;
+	task_type task_type_running;
+	sequence_callback_t push_task_seq;
+	diret_callback_t push_task;
 };
 
 class tcp_server
@@ -298,7 +317,7 @@ public:
 
 	tcp_server(asio::io_context &io_context, const tcp::endpoint &ep,
 		acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func, connection_options conn_options)
-		: internal_io_context(io_context), task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), tcp_acceptor(io_context),
+		: internal_io_context(io_context), task_type_running(task_type::in_place), tcp_acceptor(io_context),
 		acceptor_callback(acceptor_callback_func), session_callback(callback_func), ip_version_only(conn_options.ip_version_only),
 		fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
@@ -306,9 +325,9 @@ public:
 		start_accept();
 	}
 
-	tcp_server(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, const tcp::endpoint &ep,
+	tcp_server(asio::io_context &io_context, sequence_callback_t task_function, const tcp::endpoint &ep,
 		acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func, connection_options conn_options)
-		: internal_io_context(io_context), task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), tcp_acceptor(io_context),
+		: internal_io_context(io_context), task_type_running(task_type::sequence), push_task_seq(task_function), tcp_acceptor(io_context),
 		acceptor_callback(acceptor_callback_func), session_callback(callback_func), ip_version_only(conn_options.ip_version_only),
 		fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
@@ -316,9 +335,9 @@ public:
 		start_accept();
 	}
 
-	tcp_server(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, const tcp::endpoint &ep,
+	tcp_server(asio::io_context &io_context, diret_callback_t task_function, const tcp::endpoint &ep,
 		acceptor_callback_t acceptor_callback_func, tcp_callback_t callback_func, connection_options conn_options)
-		: internal_io_context(io_context), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), tcp_acceptor(io_context),
+		: internal_io_context(io_context), task_type_running(task_type::direct), push_task(task_function), tcp_acceptor(io_context),
 		acceptor_callback(acceptor_callback_func), session_callback(callback_func), ip_version_only(conn_options.ip_version_only),
 		fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
@@ -332,12 +351,12 @@ private:
 	void handle_accept(std::shared_ptr<tcp_session> new_connection, const asio::error_code &error_code);
 
 	asio::io_context &internal_io_context;
-	ttp::task_thread_pool *task_assigner;
-	ttp::task_group_pool *sequence_task_pool;
 	tcp::acceptor tcp_acceptor;
 	acceptor_callback_t acceptor_callback;
 	tcp_callback_t session_callback;
-	const size_t task_limit;
+	task_type task_type_running;
+	sequence_callback_t push_task_seq;
+	diret_callback_t push_task;
 	const ip_only_options ip_version_only;
 	int fib_ingress;
 	int fib_egress;
@@ -350,16 +369,16 @@ public:
 	tcp_client() = delete;
 
 	tcp_client(asio::io_context &io_context, tcp_callback_t callback_func, connection_options conn_options)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), session_callback(callback_func),
+		: internal_io_context(io_context), resolver(internal_io_context), task_type_running(task_type::in_place), session_callback(callback_func),
 		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress) {}
 
-	tcp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, tcp_callback_t callback_func, connection_options conn_options)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), session_callback(callback_func),
-		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress) {}
+	tcp_client(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, tcp_callback_t callback_func, connection_options conn_options)
+		: internal_io_context(io_context), resolver(internal_io_context), task_type_running(task_type::sequence), push_task_seq(task_function), task_limit_reached(gbv_task_count_limit),
+		session_callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress) {}
 
-	tcp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, tcp_callback_t callback_func, connection_options conn_options)
-		: internal_io_context(io_context), resolver(internal_io_context), task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), session_callback(callback_func),
-		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress) {}
+	tcp_client(asio::io_context &io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, tcp_callback_t callback_func, connection_options conn_options)
+		: internal_io_context(io_context), resolver(internal_io_context), task_type_running(task_type::direct), push_task(task_function), task_limit_reached(gbv_task_count_limit),
+		session_callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress) {}
 
 	std::shared_ptr<tcp_session> connect(asio::error_code &ec);
 
@@ -369,12 +388,13 @@ public:
 private:
 
 	asio::io_context &internal_io_context;
-	ttp::task_thread_pool *task_assigner;
-	ttp::task_group_pool *sequence_task_pool;
 	tcp_callback_t session_callback;
 	tcp::resolver resolver;
 	asio::ip::basic_resolver_results<asio::ip::tcp> remote_endpoints;
-	const size_t task_limit;
+	task_type task_type_running;
+	std::function<bool(size_t)> task_limit_reached = return_false;
+	sequence_callback_t push_task_seq;
+	diret_callback_t push_task;
 	const ip_only_options ip_version_only;
 	int fib_ingress;
 	int fib_egress;
@@ -388,23 +408,27 @@ public:
 	udp_server() = delete;
 
 	udp_server(asio::io_context &io_context, const udp::endpoint &ep, udp_callback_t callback_func, connection_options conn_options)
-		: task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func),
+		: task_type_running(task_type::in_place), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func),
 		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise(ep);
 		start_receive();
 	}
 
-	udp_server(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, const udp::endpoint &ep, udp_callback_t callback_func, connection_options conn_options)
-		: task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit), port_number(ep.port()), resolver(io_context), connection_socket(io_context),
+	udp_server(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit,
+		const udp::endpoint &ep, udp_callback_t callback_func, connection_options conn_options)
+		: task_type_running(task_type::sequence), push_task_seq(task_function), task_limit_reached(gbv_task_count_limit),
+		port_number(ep.port()), resolver(io_context), connection_socket(io_context),
 		callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise(ep);
 		start_receive();
 	}
 
-	udp_server(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, const udp::endpoint &ep, udp_callback_t callback_func, connection_options conn_options)
-		: task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit), port_number(ep.port()), resolver(io_context), connection_socket(io_context),
+	udp_server(asio::io_context &io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit,
+		const udp::endpoint &ep, udp_callback_t callback_func, connection_options conn_options)
+		: task_type_running(task_type::direct), push_task(task_function), task_limit_reached(gbv_task_count_limit),
+		port_number(ep.port()), resolver(io_context), connection_socket(io_context),
 		callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise(ep);
@@ -426,14 +450,18 @@ private:
 
 	asio::ip::port_type get_port_number();
 
-	ttp::task_thread_pool *task_assigner;
-	ttp::task_group_pool *sequence_task_pool;
+	//ttp::task_thread_pool *task_assigner;
+	//ttp::task_group_pool *sequence_task_pool;
 	const asio::ip::port_type port_number;
 	udp::resolver resolver;
 	udp::socket connection_socket;
 	udp::endpoint incoming_endpoint;
 	udp_callback_t callback;
-	const size_t task_limit;
+	task_type task_type_running;
+	std::function<bool(size_t)> task_limit_reached = return_false;
+	sequence_callback_t push_task_seq;
+	diret_callback_t push_task;
+	//const size_t task_limit;
 	const ip_only_options ip_version_only;
 	int fib_ingress;
 	int fib_egress;
@@ -444,8 +472,17 @@ class udp_client : public std::enable_shared_from_this<udp_client>
 public:
 	udp_client() = delete;
 
-	udp_client(asio::io_context &io_context, udp_callback_t callback_func, connection_options conn_options)
-		: task_assigner(nullptr), sequence_task_pool(nullptr), task_limit(0),
+	udp_client(asio::io_context& io_context, udp_callback_t callback_func, connection_options conn_options)
+		: task_type_running(task_type::in_place), connection_socket(io_context), resolver(io_context),
+		callback(callback_func), last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
+		paused(false), stopped(false), ip_version_only(conn_options.ip_version_only),
+		fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
+	{
+		initialise();
+	}
+
+	udp_client(asio::io_context& io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, udp_callback_t callback_func, connection_options conn_options)
+		: task_type_running(task_type::sequence), push_task_seq(task_function), task_limit_reached(gbv_task_count_limit),
 		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false), ip_version_only(conn_options.ip_version_only),
@@ -454,18 +491,8 @@ public:
 		initialise();
 	}
 
-	udp_client(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, udp_callback_t callback_func, connection_options conn_options)
-		: task_assigner(nullptr), sequence_task_pool(&group_pool), task_limit(task_count_limit),
-		connection_socket(io_context), resolver(io_context), callback(callback_func),
-		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false), ip_version_only(conn_options.ip_version_only),
-		fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
-	{
-		initialise();
-	}
-
-	udp_client(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, udp_callback_t callback_func, connection_options conn_options)
-		: task_assigner(&task_pool), sequence_task_pool(nullptr), task_limit(task_count_limit),
+	udp_client(asio::io_context& io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, udp_callback_t callback_func, connection_options conn_options)
+		: task_type_running(task_type::direct), push_task(task_function), task_limit_reached(gbv_task_count_limit),
 		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false), ip_version_only(conn_options.ip_version_only),
@@ -504,8 +531,8 @@ protected:
 
 	void handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
 
-	ttp::task_thread_pool *task_assigner;
-	ttp::task_group_pool *sequence_task_pool;
+	//ttp::task_thread_pool *task_assigner;
+	//ttp::task_group_pool *sequence_task_pool;
 	udp::socket connection_socket;
 	udp::resolver resolver;
 	udp::endpoint incoming_endpoint;
@@ -514,7 +541,11 @@ protected:
 	alignas(64) std::atomic<int64_t> last_send_time;
 	alignas(64) std::atomic<bool> paused;
 	alignas(64) std::atomic<bool> stopped;
-	const size_t task_limit;
+	task_type task_type_running;
+	std::function<bool(size_t)> task_limit_reached = return_false;
+	sequence_callback_t push_task_seq;
+	diret_callback_t push_task;
+	//const size_t task_limit;
 	const ip_only_options ip_version_only;
 	int fib_ingress;
 	int fib_egress;
@@ -532,12 +563,12 @@ public:
 			std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
 		kcp(input_kcp), callback(callback_func) {}
 
-	forwarder(asio::io_context &io_context, ttp::task_group_pool &group_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
-		udp_client(io_context, group_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
+	forwarder(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
+		udp_client(io_context, task_function, gbv_task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
 		kcp(input_kcp), callback(callback_func) {}
 
-	forwarder(asio::io_context &io_context, ttp::task_thread_pool &task_pool, size_t task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
-		udp_client(io_context, task_pool, task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
+	forwarder(asio::io_context &io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
+		udp_client(io_context, task_function, gbv_task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
 		kcp(input_kcp), callback(callback_func) {}
 
 	void replace_callback(process_data_t callback_func)

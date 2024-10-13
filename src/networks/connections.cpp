@@ -221,9 +221,14 @@ void debug_print_data(const uint8_t *data, size_t len)
 	std::cout << ss.str();
 }
 
+bool return_false(size_t)
+{
+	return false;
+}
+
 namespace packet
 {
-	uint64_t htonll(uint64_t value)
+	uint64_t htonll(uint64_t value) noexcept
 	{
 		// Check the endianness
 		if constexpr (std::endian::native == std::endian::little)
@@ -236,7 +241,7 @@ namespace packet
 		else return value;
 	}
 
-	uint64_t ntohll(uint64_t value)
+	uint64_t ntohll(uint64_t value) noexcept
 	{
 		if constexpr (std::endian::native == std::endian::little)
 		{
@@ -246,6 +251,106 @@ namespace packet
 			return converted_value;
 		}
 		else return value;
+	}
+
+	int64_t htonll(int64_t value) noexcept
+	{
+		return ((int64_t)htonll((uint64_t)value));
+	}
+
+	int64_t ntohll(int64_t value) noexcept
+	{
+		return ((int64_t)ntohll((uint64_t)value));
+	}
+
+	uint16_t little_endian_to_host(uint16_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+			return (value >> 8) | (value << 8);
+		else return value;
+	}
+
+	uint16_t host_to_little_endian(uint16_t value) noexcept
+	{
+		return little_endian_to_host(value);
+	}
+
+	uint32_t little_endian_to_host(uint32_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+		{
+			const uint16_t high_part = little_endian_to_host(static_cast<uint16_t>(value >> 16));
+			const uint16_t low_part = little_endian_to_host(static_cast<uint16_t>(value & 0xFFFF));
+			uint32_t converted_value = (static_cast<uint32_t>(low_part) << 16) | high_part;
+			return converted_value;
+		}
+		else return value;
+	}
+
+	uint32_t host_to_little_endian(uint32_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+		{
+			const uint16_t high_part = host_to_little_endian(static_cast<uint16_t>(value >> 16));
+			const uint16_t low_part = host_to_little_endian(static_cast<uint16_t>(value & 0xFFFF));
+			uint32_t converted_value = (static_cast<uint32_t>(low_part) << 16) | high_part;
+			return converted_value;
+		}
+		else return value;
+	}
+
+	uint64_t little_endian_to_host(uint64_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+		{
+			const uint32_t high_part = little_endian_to_host(static_cast<uint32_t>(value >> 32));
+			const uint32_t low_part = little_endian_to_host(static_cast<uint32_t>(value & 0xFFFFFFFFLL));
+			uint64_t converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+			return converted_value;
+		}
+		else return value;
+	}
+
+	uint64_t host_to_little_endian(uint64_t value) noexcept
+	{
+		if constexpr (std::endian::native == std::endian::big)
+		{
+			const uint32_t high_part = host_to_little_endian(static_cast<uint32_t>(value >> 32));
+			const uint32_t low_part = host_to_little_endian(static_cast<uint32_t>(value & 0xFFFFFFFFLL));
+			uint64_t converted_value = (static_cast<uint64_t>(low_part) << 32) | high_part;
+			return converted_value;
+		}
+		else return value;
+	}
+
+	int16_t little_endian_to_host(int16_t value) noexcept
+	{
+		return ((int16_t)little_endian_to_host((uint16_t)value));
+	}
+
+	int16_t host_to_little_endian(int16_t value) noexcept
+	{
+		return ((int16_t)host_to_little_endian((uint16_t)value));
+	}
+
+	int32_t little_endian_to_host(int32_t value) noexcept
+	{
+		return ((int32_t)little_endian_to_host((uint32_t)value));
+	}
+
+	int32_t host_to_little_endian(int32_t value) noexcept
+	{
+		return ((int32_t)host_to_little_endian((uint32_t)value));
+	}
+
+	int64_t little_endian_to_host(int64_t value) noexcept
+	{
+		return ((int64_t)little_endian_to_host((uint64_t)value));
+	}
+
+	int64_t host_to_little_endian(int64_t value) noexcept
+	{
+		return ((int64_t)host_to_little_endian((uint64_t)value));
 	}
 
 	int64_t right_now()
@@ -259,7 +364,7 @@ namespace packet
 		int64_t timestamp = right_now();
 		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + gbv_buffer_expand_size);
 		packet_layer *ptr = (packet_layer *)new_buffer.get();
-		ptr->timestamp = htonl((uint32_t)timestamp);
+		ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
 		uint8_t *data_ptr = ptr->data;
 		if (data_size > 0)
 			std::copy_n(input_data, data_size, data_ptr);
@@ -275,7 +380,7 @@ namespace packet
 		packet_layer_data *pkt_data_ptr = (packet_layer_data *)new_buffer.get();
 		uint8_t *data_ptr = pkt_data_ptr->data;
 
-		pkt_data_ptr->timestamp = htonl((uint32_t)timestamp);
+		pkt_data_ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
 		pkt_data_ptr->sn = htonl(fec_sn);
 		pkt_data_ptr->sub_sn = fec_sub_sn;
 		data_ptr = pkt_data_ptr->data;
@@ -293,7 +398,7 @@ namespace packet
 		packet_layer_fec *pkt_fec_ptr = (packet_layer_fec *)new_buffer.get();
 		uint8_t *data_ptr = pkt_fec_ptr->data;
 
-		pkt_fec_ptr->timestamp = htonl((uint32_t)timestamp);
+		pkt_fec_ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
 		pkt_fec_ptr->sn = htonl(fec_sn);
 		pkt_fec_ptr->sub_sn = fec_sub_sn;
 		pkt_fec_ptr->kcp_conv = htonl(kcp_conv);
@@ -355,7 +460,7 @@ namespace packet
 	std::tuple<uint32_t, uint8_t*, size_t> unpack(uint8_t *data, size_t length)
 	{
 		packet_layer *ptr = (packet_layer *)data;
-		uint32_t timestamp = ntohl(ptr->timestamp);
+		uint32_t timestamp = little_endian_to_host(ptr->timestamp);
 		uint8_t *data_ptr = ptr->data;
 		size_t data_size = length - (data_ptr - data);
 		return { timestamp, data_ptr, data_size };
@@ -365,7 +470,7 @@ namespace packet
 	{
 		packet_layer_data packet_header{};
 		packet_layer_data *ptr = (packet_layer_data *)data;
-		packet_header.timestamp = ntohl(ptr->timestamp);
+		packet_header.timestamp = little_endian_to_host(ptr->timestamp);
 		packet_header.sn = ntohl(ptr->sn);
 		packet_header.sub_sn = ptr->sub_sn;
 		uint8_t *data_ptr = ptr->data;
@@ -377,7 +482,7 @@ namespace packet
 	{
 		packet_layer_fec packet_header{};
 		packet_layer_fec *ptr = (packet_layer_fec *)data;
-		packet_header.timestamp = ntohl(ptr->timestamp);
+		packet_header.timestamp = little_endian_to_host(ptr->timestamp);
 		packet_header.sn = ntohl(ptr->sn);
 		packet_header.sub_sn = ptr->sub_sn;
 		packet_header.kcp_conv = ntohl(ptr->kcp_conv);
@@ -882,22 +987,28 @@ void tcp_session::transfer_data_to_next_function(std::unique_ptr<uint8_t[]> buff
 		buffer_cache.swap(new_buffer);
 	}
 
-	if (sequence_task_pool != nullptr)
+	switch (task_type_running)
+	{
+	case task_type::sequence:
 	{
 		size_t pointer_to_number = (size_t)this;
-		sequence_task_pool->push_task(pointer_to_number, [this, bytes_transferred, self_shared = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
+		push_task_seq(pointer_to_number, [this, bytes_transferred, self_shared = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, self_shared); },
 			std::move(buffer_cache));
+		break;
 	}
-	else if (task_assigner != nullptr)
+	case task_type::direct:
 	{
-		task_assigner->push_task([this, bytes_transferred, self_shared = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
+		push_task([this, bytes_transferred, self_shared = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, self_shared); },
 			std::move(buffer_cache));
+		break;
 	}
-	else
-	{
+	case task_type::in_place:
 		callback(std::move(buffer_cache), bytes_transferred, shared_from_this());
+		break;
+	default:
+		break;
 	}
 }
 
@@ -928,12 +1039,25 @@ void tcp_server::acceptor_initialise(const tcp::endpoint &ep)
 void tcp_server::start_accept()
 {
 	std::shared_ptr<tcp_session> new_connection;
-	if (sequence_task_pool != nullptr)
-		new_connection = std::make_shared<tcp_session>(internal_io_context, *sequence_task_pool, task_limit, session_callback);
-	else if (task_assigner != nullptr)
-		new_connection = std::make_shared<tcp_session>(internal_io_context, *task_assigner, task_limit, session_callback);
-	else
+	switch (task_type_running)
+	{
+	case task_type::sequence:
+	{
+		new_connection = std::make_shared<tcp_session>(internal_io_context, push_task_seq, session_callback);
+		break;
+	}
+	case task_type::direct:
+	{
+		new_connection = std::make_shared<tcp_session>(internal_io_context, push_task, session_callback);
+		break;
+	}
+	case task_type::in_place:
 		new_connection = std::make_shared<tcp_session>(internal_io_context, session_callback);
+		break;
+	default:
+		return;
+		break;
+	}
 
 	tcp_acceptor.async_accept(new_connection->socket(),
 		[this, new_connection](const asio::error_code &error_code)
@@ -959,12 +1083,21 @@ void tcp_server::handle_accept(std::shared_ptr<tcp_session> new_connection, cons
 std::shared_ptr<tcp_session> tcp_client::connect(asio::error_code &ec)
 {
 	std::shared_ptr<tcp_session> new_connection;
-	if (sequence_task_pool != nullptr)
-		new_connection = std::make_shared<tcp_session>(internal_io_context, *sequence_task_pool, task_limit, session_callback);
-	else if (task_assigner != nullptr && sequence_task_pool != nullptr)
-		new_connection = std::make_shared<tcp_session>(internal_io_context, *task_assigner, task_limit, session_callback);
-	else
+	switch (task_type_running)
+	{
+	case task_type::sequence:
+		new_connection = std::make_shared<tcp_session>(internal_io_context, push_task_seq, session_callback);
+		break;
+	case task_type::direct:
+		new_connection = std::make_shared<tcp_session>(internal_io_context, push_task, session_callback);
+		break;
+	case task_type::in_place:
 		new_connection = std::make_shared<tcp_session>(internal_io_context, session_callback);
+		break;
+	default:
+		return new_connection;
+		break;
+	}
 
 	tcp::socket &current_socket = new_connection->socket();
 	for (auto &endpoint_entry : remote_endpoints)
@@ -1100,26 +1233,26 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 
-	if (sequence_task_pool != nullptr)
+	if (task_limit_reached((size_t)this))
+		return;
+
+	switch (task_type_running)
 	{
-		size_t pointer_to_number = (size_t)this;
-		if (task_limit > 0 && sequence_task_pool->get_task_count(pointer_to_number) > task_limit)
-			return;
-		sequence_task_pool->push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
-			std::move(buffer_cache));
-	}
-	else if (task_assigner != nullptr)
-	{
-		if (task_limit > 0 && task_assigner->get_task_count() > task_limit)
-			return;
-		task_assigner->push_task([this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
-			std::move(buffer_cache));
-	}
-	else
-	{
+	case task_type::sequence:
+		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+		              { callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
+		              std::move(buffer_cache));
+		break;
+	case task_type::direct:
+		push_task([this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+		          { callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
+		          std::move(buffer_cache));
+		break;
+	case task_type::in_place:
 		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, port_number);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -1297,24 +1430,21 @@ void udp_client::start_receive()
 
 void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred)
 {
-	if (stopped.load() || buffer_cache == nullptr)
-		return;
-
 	if (error)
 	{
-		if (connection_socket.is_open())
+		if (!stopped.load() && !paused.load() && connection_socket.is_open())
 			start_receive();
 		return;
 	}
+
+	if (stopped.load() || buffer_cache == nullptr || bytes_transferred == 0)
+		return;
 
 	last_receive_time.store(packet::right_now());
 	udp::endpoint copy_of_incoming_endpoint = incoming_endpoint;
 	asio::error_code ec;
 
 	start_receive();
-
-	if (bytes_transferred == 0)
-		return;
 
 	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)
 	{
@@ -1323,25 +1453,25 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 
-	if (sequence_task_pool != nullptr)
+	if (task_limit_reached((size_t)this))
+		return;
+
+	switch (task_type_running)
 	{
-		size_t pointer_to_number = (size_t)this;
-		if (task_limit > 0 && sequence_task_pool->get_task_count(pointer_to_number) > task_limit)
-			return;
-		sequence_task_pool->push_task(pointer_to_number, [this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
+	case task_type::sequence:
+		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
 			std::move(buffer_cache));
-	}
-	else if (task_assigner != nullptr)
-	{
-		if (task_limit > 0 && task_assigner->get_task_count() > task_limit)
-			return;
-		task_assigner->push_task([this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
+		break;
+	case task_type::direct:
+		push_task([this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
 			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
 			std::move(buffer_cache));
-	}
-	else
-	{
+		break;
+	case task_type::in_place:
 		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, 0);
+		break;
+	default:
+		break;
 	}
 }

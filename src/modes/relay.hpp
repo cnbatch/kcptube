@@ -10,7 +10,6 @@ class relay_mode
 {
 	asio::io_context &io_context;
 	KCP::KCPUpdater &kcp_updater;
-	const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender;
 	user_settings current_settings;
 	std::unique_ptr<rfc8489::stun_header> stun_header;
 	std::atomic<uint16_t> external_ipv4_port;
@@ -50,9 +49,7 @@ class relay_mode
 	asio::steady_timer timer_keep_alive_ingress;
 	asio::steady_timer timer_keep_alive_egress;
 	asio::steady_timer timer_status_log;
-	ttp::task_group_pool &sequence_task_pool_local;
-	ttp::task_group_pool &sequence_task_pool_peer;
-	const size_t task_limit;
+	ttp::task_group_pool &sequence_task_pool;
 
 	std::shared_mutex mutex_egress_target_address;
 	std::unique_ptr<asio::ip::address> target_address;
@@ -102,17 +99,13 @@ public:
 	relay_mode(const relay_mode &) = delete;
 	relay_mode& operator=(const relay_mode &) = delete;
 
-	relay_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender_ref,
-		ttp::task_group_pool &seq_task_pool_local, ttp::task_group_pool &seq_task_pool_peer, size_t task_count_limit, const user_settings &settings)
+	relay_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, ttp::task_group_pool& seq_task_pool, const user_settings &settings)
 		: io_context(io_context_ref), kcp_updater(kcp_updater_ref),
-		kcp_data_sender(kcp_data_sender_ref),
 		timer_find_expires(io_context), timer_expiring_kcp(io_context),
 		timer_stun(io_context),
 		timer_keep_alive_ingress(io_context), timer_keep_alive_egress(io_context),
 		timer_status_log(io_context),
-		sequence_task_pool_local(seq_task_pool_local),
-		sequence_task_pool_peer(seq_task_pool_peer),
-		task_limit(task_count_limit),
+		sequence_task_pool(seq_task_pool),
 		external_ipv4_port(0),
 		external_ipv4_address(0),
 		external_ipv6_port(0),
@@ -123,16 +116,13 @@ public:
 	relay_mode(relay_mode &&existing_relay) noexcept
 		: io_context(existing_relay.io_context),
 		kcp_updater(existing_relay.kcp_updater),
-		kcp_data_sender(existing_relay.kcp_data_sender),
 		timer_find_expires(std::move(existing_relay.timer_find_expires)),
 		timer_expiring_kcp(std::move(existing_relay.timer_expiring_kcp)),
 		timer_stun(std::move(existing_relay.timer_stun)),
 		timer_keep_alive_ingress(std::move(existing_relay.timer_keep_alive_ingress)),
 		timer_keep_alive_egress(std::move(existing_relay.timer_keep_alive_egress)),
 		timer_status_log(std::move(existing_relay.timer_status_log)),
-		sequence_task_pool_local(existing_relay.sequence_task_pool_local),
-		sequence_task_pool_peer(existing_relay.sequence_task_pool_peer),
-		task_limit(existing_relay.task_limit),
+		sequence_task_pool(existing_relay.sequence_task_pool),
 		external_ipv4_port(existing_relay.external_ipv4_port.load()),
 		external_ipv4_address(existing_relay.external_ipv4_address.load()),
 		external_ipv6_port(existing_relay.external_ipv6_port.load()),

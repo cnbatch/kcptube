@@ -101,8 +101,8 @@ namespace KCP
 
 		std::condition_variable kcp_tasks_available_cv = {};
 		std::condition_variable kcp_tasks_done_cv = {};
-		//std::map<std::weak_ptr<KCP>, uint32_t, std::owner_less<>> pile_of_kcp = {};	// uint32_t is for storing next update time
-		std::map<uint32_t, std::set<std::weak_ptr<KCP>, std::owner_less<>>> kcp_time_list;
+		std::map<std::weak_ptr<KCP>, uint32_t, std::owner_less<>> each_kcp_next_time = {};	// uint32_t is for storing next update time
+		std::map<uint32_t, std::set<std::weak_ptr<KCP>, std::owner_less<>>> kcp_time_list;	// map<time£¬list of KCP>¡£
 		std::set<std::weak_ptr<KCP>, std::owner_less<>> expired_kcp;
 		std::atomic<size_t> kcp_tasks_total = 0;
 		mutable std::mutex kcp_tasks_mutex = {};

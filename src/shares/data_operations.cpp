@@ -202,7 +202,6 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 		iv_raw[1] = simple_hashing::checksum8(data_ptr, length);
 		cipher_length = length;
 		no_encryption = true;
-		//bitwise_not(data_ptr, cipher_length);
 		break;
 	}
 	};
@@ -215,7 +214,7 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 	}
 
 	if (no_encryption)
-		xor_backward(data_ptr, cipher_length);
+		xor_forward(data_ptr, cipher_length);
 
 	return { std::move(error_message), cipher_length };
 }
@@ -284,7 +283,7 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	}
 
 	if (no_encryption)
-		xor_backward(cipher_cache);
+		xor_forward(cipher_cache);
 
 	return cipher_cache;
 }
@@ -346,7 +345,7 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	input_data[cipher_length + 1] = iv_raw[1];
 
 	if (no_encryption)
-		xor_backward(input_data);
+		xor_forward(input_data);
 
 	return input_data;
 }
@@ -396,7 +395,7 @@ std::pair<std::string, size_t> decrypt_data(const std::string &password, encrypt
 	}
 	default:
 	{
-		xor_forward(data_ptr, length);
+		xor_backward(data_ptr, length);
 		iv_raw[0] = data_ptr[length - 2];
 		iv_raw[1] = data_ptr[length - 1];
 		//bitwise_not(data_ptr, length);
@@ -461,7 +460,7 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	{
 		data_cache.resize(length);
 		std::copy_n((const uint8_t *)data_ptr, length, data_cache.begin());
-		xor_forward(data_cache);
+		xor_backward(data_cache);
 		iv_raw[0] = data_cache[length - 2];
 		iv_raw[1] = data_cache[length - 1];
 		data_cache.resize(data_length);
@@ -529,7 +528,7 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 	}
 	default:
 	{
-		xor_forward(input_data);
+		xor_backward(input_data);
 		iv_raw[0] = input_data[input_data.size() - 2];
 		iv_raw[1] = input_data[input_data.size() - 1];
 		uint8_t first_hash = simple_hashing::xor_u8(input_data.data(), input_data.size());

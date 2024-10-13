@@ -20,7 +20,7 @@
 int main(int argc, char *argv[])
 {
 #ifdef __cpp_lib_format
-	std::cout << std::format("{} version 20240803\n", app_name);
+	std::cout << std::format("{} version 20241013\n", app_name);
 	if (argc <= 1)
 	{
 		std::cout << std::format("Usage: {} config1.conf\n", app_name);
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 #else
-	std::cout << app_name << " version 20240803\n";
+	std::cout << app_name << " version 20241013\n";
 	if (argc <= 1)
 	{
 		std::cout << "Usage: " << app_name << " config1.conf\n";
@@ -47,25 +47,19 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-	constexpr size_t task_count_limit = 8192u;
 	uint16_t thread_group_count = 1;
 	int io_thread_count = 1;
 	if (std::thread::hardware_concurrency() > 3)
 	{
 		auto thread_counts = std::thread::hardware_concurrency();
-		thread_group_count = (uint16_t)(thread_counts / 2);
-		io_thread_count = (int)std::log2(thread_counts);
+		thread_group_count = (uint16_t)thread_counts;
+		io_thread_count = (int)std::log2(thread_counts) + 1;
 	}
 
 	asio::io_context ioc{ io_thread_count };
 
 	KCP::KCPUpdater kcp_updater;
-	std::unique_ptr<ttp::task_group_pool> kcp_data_sender;
-	ttp::task_group_pool task_groups_local{ thread_group_count };
-	ttp::task_group_pool task_groups_peer{ thread_group_count };
-
-	if (std::thread::hardware_concurrency() > 3)
-		kcp_data_sender = std::make_unique<ttp::task_group_pool>(std::thread::hardware_concurrency());
+	ttp::task_group_pool task_groups{ thread_group_count };
 
 	std::vector<client_mode> clients;
 	std::vector<relay_mode> relays;
@@ -132,18 +126,18 @@ int main(int argc, char *argv[])
 		{
 		case running_mode::client:
 			if (test_connection)
-				testers.emplace_back(test_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
+				testers.emplace_back(test_mode(ioc, kcp_updater, task_groups, settings));
 			else
-				clients.emplace_back(client_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
+				clients.emplace_back(client_mode(ioc, kcp_updater, task_groups, settings));
 			break;
 		case running_mode::relay:
 			if (test_connection)
-				testers.emplace_back(test_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
+				testers.emplace_back(test_mode(ioc, kcp_updater, task_groups, settings));
 			else
-				relays.emplace_back(relay_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
+				relays.emplace_back(relay_mode(ioc, kcp_updater, task_groups, settings));
 			break;
 		case running_mode::server:
-			servers.emplace_back(server_mode(ioc, kcp_updater, kcp_data_sender, task_groups_local, task_groups_peer, task_count_limit, settings));
+			servers.emplace_back(server_mode(ioc, kcp_updater, task_groups, settings));
 			break;
 		default:
 			break;

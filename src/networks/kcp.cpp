@@ -167,8 +167,8 @@ namespace KCP
 	uint32_t KCP::Refresh()
 	{
 		std::unique_lock unique_locker{ mtx };
-		kcp_ptr->flush(TimeNowForKCP());
-		uint32_t ret = kcp_ptr->check(TimeNowForKCP());
+		kcp_ptr->flush_fresh(TimeNowForKCP());
+		uint32_t ret = kcp_ptr->check_blast(TimeNowForKCP());
 		unique_locker.unlock();
 		return ret;
 	}

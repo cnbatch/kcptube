@@ -11,7 +11,6 @@ class client_mode
 	friend struct mux_tunnel;
 	asio::io_context &io_context;
 	KCP::KCPUpdater &kcp_updater;
-	const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender;
 	user_settings current_settings;
 	connection_options conn_options;
 
@@ -53,9 +52,7 @@ class client_mode
 	asio::steady_timer timer_expiring_kcp;
 	asio::steady_timer timer_keep_alive;
 	asio::steady_timer timer_status_log;
-	ttp::task_group_pool &sequence_task_pool_local;
-	ttp::task_group_pool &sequence_task_pool_peer;
-	const size_t task_limit;
+	ttp::task_group_pool &sequence_task_pool;
 
 	void multiple_listening_tcp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled);
 	void multiple_listening_udp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled);
@@ -114,18 +111,14 @@ public:
 	client_mode(const client_mode &) = delete;
 	client_mode& operator=(const client_mode &) = delete;
 
-	client_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, const std::unique_ptr<ttp::task_group_pool> &kcp_data_sender_ref,
-		ttp::task_group_pool &seq_task_pool_local, ttp::task_group_pool &seq_task_pool_peer, size_t task_count_limit, const user_settings &settings) :
+	client_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, ttp::task_group_pool &seq_task_pool, const user_settings &settings) :
 		io_context(io_context_ref),
 		kcp_updater(kcp_updater_ref),
-		kcp_data_sender(kcp_data_sender_ref),
 		timer_find_expires(io_context),
 		timer_expiring_kcp(io_context),
 		timer_keep_alive(io_context),
 		timer_status_log(io_context),
-		sequence_task_pool_local(seq_task_pool_local),
-		sequence_task_pool_peer(seq_task_pool_peer),
-		task_limit(task_count_limit),
+		sequence_task_pool(seq_task_pool),
 		current_settings(settings),
 		conn_options{ .ip_version_only = current_settings.ip_version_only,
 		              .fib_ingress = current_settings.fib_ingress,
@@ -135,14 +128,11 @@ public:
 	client_mode(client_mode &&existing_client) noexcept :
 		io_context(existing_client.io_context),
 		kcp_updater(existing_client.kcp_updater),
-		kcp_data_sender(existing_client.kcp_data_sender),
 		timer_find_expires(std::move(existing_client.timer_find_expires)),
 		timer_expiring_kcp(std::move(existing_client.timer_expiring_kcp)),
 		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
 		timer_status_log(std::move(existing_client.timer_status_log)),
-		sequence_task_pool_local(existing_client.sequence_task_pool_local),
-		sequence_task_pool_peer(existing_client.sequence_task_pool_peer),
-		task_limit(existing_client.task_limit),
+		sequence_task_pool(existing_client.sequence_task_pool),
 		current_settings(std::move(existing_client.current_settings)),
 		conn_options{ .ip_version_only = current_settings.ip_version_only,
 					  .fib_ingress = current_settings.fib_ingress,

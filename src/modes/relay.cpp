@@ -62,7 +62,9 @@ bool relay_mode::start()
 				.fib_ingress = current_settings.fib_ingress,
 				.fib_egress = current_settings.fib_egress
 			};
-			udp_servers.insert({ port_number, std::make_unique<udp_server>(io_context, sequence_task_pool_peer, task_limit, listen_on_ep, func, conn_options) });
+			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
+			auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_peer_network_task_count(number) > gbv_task_count_limit; };
+			udp_servers.insert({ port_number, std::make_unique<udp_server>(io_context, bind_push_func, bind_check_limit_func, listen_on_ep, func, conn_options) });
 		}
 		catch (std::exception &ex)
 		{
@@ -226,7 +228,8 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 				return;
 		}
 
-		if (kcp_mappings_ptr->ingress_source_endpoint == nullptr || *kcp_mappings_ptr->ingress_source_endpoint != peer)
+		if (std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+			ingress_source_endpoint == nullptr || *ingress_source_endpoint != peer)
 			kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 
 		kcp_ptr_ingress = kcp_mappings_ptr->ingress_kcp;
@@ -401,8 +404,10 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 						.fib_ingress = current_settings.fib_ingress,
 						.fib_egress = current_settings.fib_egress
 					};
+					auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+					auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_local_network_task_count(number) > gbv_task_count_limit; };
 					auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-					udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, handshake_kcp_egress, udp_func, conn_options);
+					udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, handshake_kcp_egress, udp_func, conn_options);
 					if (udp_forwarder == nullptr)
 					{
 						expiring_handshakes[handshake_kcp_mappings_ptr] = packet::right_now();
@@ -751,8 +756,10 @@ void relay_mode::switch_new_port(kcp_mappings * kcp_mappings_ptr)
 			.fib_ingress = current_settings.fib_ingress,
 			.fib_egress = current_settings.fib_egress
 		};
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_local_network_task_count(number) > gbv_task_count_limit; };
 		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_local, task_limit, kcp_ptr_egress, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, kcp_ptr_egress, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -852,8 +859,10 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 			.fib_ingress = current_settings.fib_ingress,
 			.fib_egress = current_settings.fib_egress
 		};
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_local_network_task_count(number) > gbv_task_count_limit; };
 		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, kcp_ptr_egress, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, kcp_ptr_egress, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -958,8 +967,10 @@ std::shared_ptr<kcp_mappings> relay_mode::create_test_handshake()
 			.fib_ingress = current_settings.fib_ingress,
 			.fib_egress = current_settings.fib_egress
 		};
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_local, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_local_network_task_count(number) > gbv_task_count_limit; };
 		auto udp_func = std::bind(&relay_mode::handle_test_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, sequence_task_pool_peer, task_limit, handshake_kcp, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}
@@ -1121,7 +1132,7 @@ bool relay_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 			kcp_mappings_share->egress_kcp->SetUserData(nullptr);
 			kcp_updater.remove(kcp_mappings_share->egress_kcp);
 		};
-	sequence_task_pool_local.push_task((size_t)kcp_mappings_ptr, func);
+	sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func);
 
 	return true;
 }
@@ -1190,7 +1201,7 @@ std::shared_ptr<KCP::KCP> relay_mode::verify_kcp_conv(std::shared_ptr<KCP::KCP> 
 
 void relay_mode::data_sender_via_listener(kcp_mappings * kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (kcp_data_sender != nullptr)
+	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
@@ -1202,7 +1213,7 @@ void relay_mode::data_sender_via_listener(kcp_mappings * kcp_mappings_ptr, std::
 				change_new_port(kcp_mappings_ptr);
 				listener_status_counters.egress_raw_traffic += buffer_size;
 			};
-		kcp_data_sender->push_task((size_t)kcp_mappings_ptr->ingress_kcp.get(), func, std::move(new_buffer));
+		sequence_task_pool.push_task((size_t)kcp_mappings_ptr->ingress_kcp.get(), func, std::move(new_buffer));
 		return;
 	}
 
@@ -1217,7 +1228,7 @@ void relay_mode::data_sender_via_listener(kcp_mappings * kcp_mappings_ptr, std::
 
 void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (kcp_data_sender != nullptr)
+	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
@@ -1232,7 +1243,7 @@ void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::
 				change_new_port(kcp_mappings_ptr);
 				forwarder_status_counters.egress_raw_traffic += buffer_size;
 			};
-		kcp_data_sender->push_task((size_t)kcp_mappings_ptr->egress_kcp.get(), func, std::move(new_buffer));
+		sequence_task_pool.push_task((size_t)kcp_mappings_ptr->egress_kcp.get(), func, std::move(new_buffer));
 		return;
 	}
 
