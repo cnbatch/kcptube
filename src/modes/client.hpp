@@ -38,8 +38,11 @@ class client_mode
 	std::mutex mutex_expiring_forwarders;
 	std::unordered_map<std::shared_ptr<forwarder>, int64_t> expiring_forwarders;
 
-	std::shared_mutex mutex_target_address;
-	std::unique_ptr<asio::ip::address> target_address;
+#ifdef __cpp_lib_atomic_shared_ptr
+	std::atomic<std::shared_ptr<asio::ip::address>> target_address;
+#else
+	std::shared_ptr<asio::ip::address> target_address;
+#endif
 
 	std::shared_mutex mutex_kcp_keepalive;
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive;

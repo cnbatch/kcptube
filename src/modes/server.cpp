@@ -219,9 +219,9 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 				return;
 		}
 
-		if (std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+		if (std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(kcp_mappings_ptr->ingress_source_endpoint));
 			ingress_source_endpoint == nullptr || *ingress_source_endpoint != peer)
-			kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
+			std::atomic_store(&(kcp_mappings_ptr->ingress_source_endpoint), std::make_shared<udp::endpoint>(peer));
 
 		kcp_ptr = kcp_mappings_ptr->ingress_kcp;
 
@@ -267,8 +267,9 @@ void server_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, 
 			else if (prtcl == protocol_type::udp)
 			{
 				std::shared_ptr<udp_client> &udp_channel = kcp_mappings_ptr->local_udp;
+				std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(kcp_mappings_ptr->egress_target_endpoint));
 				if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
-					udp_channel->async_send_out(std::move(buffer_cache), unpacked_data_ptr, unpacked_data_size, kcp_mappings_ptr->egress_target_endpoint);
+					udp_channel->async_send_out(std::move(buffer_cache), unpacked_data_ptr, unpacked_data_size, *egress_target_endpoint);
 				else
 					udp_channel->async_send_out(std::move(buffer_cache), unpacked_data_ptr, unpacked_data_size, *udp_target);
 			}
@@ -408,6 +409,8 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 			handshake_kcp_mappings_ptr->ingress_kcp = handshake_kcp;
 			handshake_kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>(peer);
 			handshake_kcp_mappings_ptr->ingress_listener.store(udp_servers[port_number].get());
+			handshake_kcp_mappings->egress_target_endpoint = std::make_shared<udp::endpoint>();
+			handshake_kcp_mappings->egress_previous_target_endpoint = std::make_shared<udp::endpoint>();
 
 			if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
 			{
@@ -468,6 +471,9 @@ void server_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]
 				data_kcp_mappings_ptr->ingress_kcp = data_kcp;
 				data_kcp_mappings_ptr->connection_protocol = prtcl;
 				data_kcp_mappings_ptr->ingress_listener.store(udp_servers[port_number].get());
+				data_kcp_mappings_ptr->ingress_source_endpoint = std::make_shared<udp::endpoint>();
+				data_kcp_mappings_ptr->egress_target_endpoint = std::make_shared<udp::endpoint>();
+				data_kcp_mappings_ptr->egress_previous_target_endpoint = std::make_shared<udp::endpoint>();
 				data_kcp->SetUserData(data_kcp_mappings_ptr);
 				data_kcp->keep_alive_send_time.store(timestamp);
 				data_kcp->keep_alive_response_time.store(timestamp);
@@ -705,7 +711,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)data_kcp->GetUserData();
 		if (kcp_mappings_ptr == nullptr)
 			return false;
-		kcp_mappings_ptr->egress_target_endpoint = target_endpoint;
+		kcp_mappings_ptr->egress_target_endpoint = std::make_shared<udp::endpoint>(target_endpoint);
 
 		resolve_completed = true;
 	}
@@ -870,7 +876,7 @@ int server_mode::kcp_sender(const char *buf, int len, void *user)
 		return 0;
 
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)user;
-	if (kcp_mappings_ptr->ingress_source_endpoint == nullptr)
+	if (std::atomic_load(&(kcp_mappings_ptr->ingress_source_endpoint)) == nullptr)
 		return 0;
 
 	if (current_settings.fec_data == 0 || current_settings.fec_redundant == 0)
@@ -895,7 +901,7 @@ void server_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<ui
 				auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
 				if (!error_message.empty() || cipher_size == 0)
 					return;
-				std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+				std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(kcp_mappings_ptr->ingress_source_endpoint));
 				kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
 				status_counters.egress_raw_traffic += cipher_size;
 			};
@@ -906,7 +912,7 @@ void server_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<ui
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
 	if (!error_message.empty() || cipher_size == 0)
 		return;
-	std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+	std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(kcp_mappings_ptr->ingress_source_endpoint));
 	kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(new_buffer), cipher_size, *ingress_source_endpoint);
 	status_counters.egress_raw_traffic += cipher_size;
 	return;
@@ -1166,7 +1172,7 @@ void server_mode::cleanup_expiring_handshake_connections()
 		kcp_ptr->SetPostUpdate(empty_kcp_postupdate);
 		kcp_ptr->SetUserData(nullptr);
 		kcp_updater.remove(kcp_ptr);
-		std::shared_ptr<udp::endpoint> ingress_source_endpoint = kcp_mappings_ptr->ingress_source_endpoint;
+		std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(kcp_mappings_ptr->ingress_source_endpoint));
 		handshake_channels.erase(*ingress_source_endpoint);
 		expiring_handshakes.erase(iter);
 	}

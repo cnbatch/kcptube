@@ -118,18 +118,22 @@ void test_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
 				auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
-				if (!error_message.empty() || cipher_size == 0)
+				std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(kcp_mappings_ptr->egress_forwarder));
+				if (egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
 					return;
-				kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, kcp_mappings_ptr->egress_target_endpoint);
+				std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(kcp_mappings_ptr->egress_target_endpoint));
+				egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, *egress_target_endpoint);
 			};
 		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
 		return;
 	}
 
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
-	if (!error_message.empty() || cipher_size == 0)
+	std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(kcp_mappings_ptr->egress_forwarder));
+	if (egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
 		return;
-	kcp_mappings_ptr->egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, kcp_mappings_ptr->egress_target_endpoint);
+	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(kcp_mappings_ptr->egress_target_endpoint));
+	egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, *egress_target_endpoint);
 }
 
 bool test_mode::get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target)
@@ -205,10 +209,13 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(asio::ip::port_type te
 	handshake_kcp->SetUserData(handshake_kcp_mappings.get());
 	handshake_kcp_mappings->egress_kcp = handshake_kcp;
 	handshake_kcp_mappings->connection_protocol = protocol_type::not_care;
-	handshake_kcp_mappings->changeport_timestamp.store(LLONG_MAX);
+	handshake_kcp_mappings->hopping_timestamp.store(LLONG_MAX);
 	handshake_kcp_mappings->handshake_setup_time.store(packet::right_now());
 	handshake_kcp_mappings->remote_output_address = "";
 	handshake_kcp_mappings->remote_output_port = 0;
+	std::atomic_store(&(handshake_kcp_mappings->ingress_source_endpoint), std::make_shared<udp::endpoint>());
+	std::atomic_store(&(handshake_kcp_mappings->egress_target_endpoint), std::make_shared<udp::endpoint>());
+	std::atomic_store(&(handshake_kcp_mappings->egress_previous_target_endpoint), std::make_shared<udp::endpoint>());
 
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
@@ -228,10 +235,11 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(asio::ip::port_type te
 		return nullptr;
 	}
 
-	bool success = get_udp_target(udp_forwarder, handshake_kcp_mappings->egress_target_endpoint);
+	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(handshake_kcp_mappings->egress_target_endpoint));
+	bool success = get_udp_target(udp_forwarder, *egress_target_endpoint);
 	if (!success)
 		return nullptr;
-	handshake_kcp_mappings->egress_target_endpoint.port(test_port);
+	egress_target_endpoint->port(test_port);
 	handshake_kcp_mappings->egress_forwarder = udp_forwarder;
 	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
 	{
@@ -270,22 +278,25 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(asio::ip::port_type te
 
 void test_mode::on_handshake_test_success(kcp_mappings *handshake_ptr)
 {
+	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(handshake_ptr->egress_target_endpoint));
 	std::scoped_lock locker{ mutex_success_ports };
-	success_ports.insert(handshake_ptr->egress_target_endpoint.port());
+	success_ports.insert(egress_target_endpoint->port());
 	handshake_test_cleanup(handshake_ptr);
 }
 
 void test_mode::handshake_test_failure(kcp_mappings *handshake_ptr)
 {
+	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(handshake_ptr->egress_target_endpoint));
 	std::scoped_lock locker{ mutex_failure_ports };
-	failure_ports.insert(handshake_ptr->egress_target_endpoint.port());
+	failure_ports.insert(egress_target_endpoint->port());
 	handshake_test_cleanup(handshake_ptr);
 }
 
 void test_mode::handshake_test_cleanup(kcp_mappings *handshake_ptr)
 {
-	handshake_ptr->egress_forwarder->remove_callback();
-	handshake_ptr->egress_forwarder->stop();
+	std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(handshake_ptr->egress_forwarder));
+	egress_forwarder->remove_callback();
+	egress_forwarder->stop();
 
 	std::scoped_lock lock_handshake{ mutex_handshakes };
 	auto session_iter = handshakes.find(handshake_ptr);

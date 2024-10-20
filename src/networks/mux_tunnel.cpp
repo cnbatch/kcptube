@@ -300,8 +300,9 @@ void mux_tunnel::transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_p
 		if (current_settings.mode == running_mode::server)
 		{
 			udp_client *udp_channel = mux_records_ptr->local_udp.get();
+			std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(kcp_mappings_ptr->egress_target_endpoint));
 			if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
-				udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, kcp_mappings_ptr->egress_target_endpoint);
+				udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, *egress_target_endpoint);
 			else
 				udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, *server_ptr->udp_target);
 		}
@@ -412,7 +413,7 @@ void mux_tunnel::pre_connect_custom_address(protocol_type prtcl, kcp_mappings *k
 						(current_settings.ip_version_only == ip_only_options::ipv6 && user_input_address.is_v4()))
 						mux_records_ptr = nullptr;
 					else
-						kcp_mappings_ptr->egress_target_endpoint = *udp_endpoints.begin();
+						std::atomic_store(&(kcp_mappings_ptr->egress_target_endpoint), std::make_shared<udp::endpoint>(*udp_endpoints.begin()));
 				}
 
 				if (mux_records_ptr == nullptr)

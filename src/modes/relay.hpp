@@ -51,8 +51,11 @@ class relay_mode
 	asio::steady_timer timer_status_log;
 	ttp::task_group_pool &sequence_task_pool;
 
-	std::shared_mutex mutex_egress_target_address;
-	std::unique_ptr<asio::ip::address> target_address;
+#ifdef __cpp_lib_atomic_shared_ptr
+	std::atomic<std::shared_ptr<asio::ip::address>> target_address;
+#else
+	std::shared_ptr<asio::ip::address> target_address;
+#endif
 
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type server_port_number);
 	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type server_port_number);

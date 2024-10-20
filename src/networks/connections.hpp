@@ -615,21 +615,30 @@ struct fec_control_data
 struct kcp_mappings : public std::enable_shared_from_this<kcp_mappings>
 {
 	protocol_type connection_protocol;
+#ifdef __cpp_lib_atomic_shared_ptr
+	std::atomic<std::shared_ptr<udp::endpoint>> ingress_source_endpoint;
+	std::atomic<std::shared_ptr<udp::endpoint>> egress_target_endpoint;
+	std::atomic<std::shared_ptr<udp::endpoint>> egress_previous_target_endpoint;
+#else
 	std::shared_ptr<udp::endpoint> ingress_source_endpoint;
-	std::shared_mutex mutex_egress_endpoint;
-	udp::endpoint egress_target_endpoint;
-	udp::endpoint egress_previous_target_endpoint;
+	std::shared_ptr<udp::endpoint> egress_target_endpoint;
+	std::shared_ptr<udp::endpoint> egress_previous_target_endpoint;
+#endif
 	std::shared_ptr<KCP::KCP> ingress_kcp;
 	std::shared_ptr<KCP::KCP> egress_kcp;
 	alignas(64) std::atomic<udp_server *> ingress_listener;
+#ifdef __cpp_lib_atomic_shared_ptr
+	std::atomic<std::shared_ptr<forwarder>> egress_forwarder;
+#else
 	std::shared_ptr<forwarder> egress_forwarder;
+#endif
 	std::shared_ptr<tcp_session> local_tcp;
 	std::shared_ptr<udp_client> local_udp;
 	alignas(64) std::atomic<int64_t> handshake_setup_time;
 	alignas(64) std::atomic<int64_t> last_data_transfer_time;
-	alignas(64) std::atomic<int64_t> changeport_timestamp;
-	alignas(64) std::atomic<bool> changeport_available;
-	std::weak_ptr<kcp_mappings> changeport_testing_ptr;
+	alignas(64) std::atomic<int64_t> hopping_timestamp;
+	alignas(64) std::atomic<bool> hopping_available;
+	std::weak_ptr<kcp_mappings> hopping_testing_ptr;
 	asio::ip::port_type ingress_listen_port;	// client mode only
 	asio::ip::port_type remote_output_port;	// client mode only
 	std::string remote_output_address;	// client mode only
