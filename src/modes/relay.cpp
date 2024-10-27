@@ -1212,9 +1212,9 @@ std::shared_ptr<KCP::KCP> relay_mode::verify_kcp_conv(std::shared_ptr<KCP::KCP> 
 	return kcp_ptr;
 }
 
-void relay_mode::data_sender_via_listener(kcp_mappings * kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
+void relay_mode::data_sender_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
+	if (!kcp_updater.can_send_at_once(std::this_thread::get_id()))
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
@@ -1241,7 +1241,7 @@ void relay_mode::data_sender_via_listener(kcp_mappings * kcp_mappings_ptr, std::
 
 void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
+	if (!kcp_updater.can_send_at_once(std::this_thread::get_id()))
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
@@ -1548,7 +1548,12 @@ void relay_mode::cleanup_expiring_forwarders()
 		auto &[udp_forwrder, expire_time] = *iter;
 		int64_t time_elapsed = calculate_difference(time_right_now, expire_time);
 
-		if (time_elapsed > gbv_receiver_cleanup_waits / 2 &&
+		if (time_elapsed > gbv_receiver_cleanup_waits / 3 &&
+			time_elapsed <= gbv_receiver_cleanup_waits * 2 / 3 &&
+			udp_forwrder != nullptr)
+			udp_forwrder->pause(true);
+
+		if (time_elapsed > gbv_receiver_cleanup_waits * 2 / 3 &&
 			udp_forwrder != nullptr)
 		{
 			udp_forwrder->remove_callback();

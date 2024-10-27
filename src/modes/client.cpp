@@ -733,7 +733,7 @@ int client_mode::kcp_sender(const char *buf, int len, void *user)
 
 void client_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
+	if (!kcp_updater.can_send_at_once(std::this_thread::get_id()))
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{
@@ -1250,7 +1250,12 @@ void client_mode::cleanup_expiring_forwarders()
 		auto &[udp_forwrder, expire_time] = *iter;
 		int64_t time_elapsed = time_right_now - expire_time;
 
-		if (time_elapsed > gbv_receiver_cleanup_waits / 2 &&
+		if (time_elapsed > gbv_receiver_cleanup_waits / 3 &&
+			time_elapsed <= gbv_receiver_cleanup_waits * 2 / 3 &&
+			udp_forwrder != nullptr)
+			udp_forwrder->pause(true);
+
+		if (time_elapsed > gbv_receiver_cleanup_waits * 2 / 3 &&
 			udp_forwrder != nullptr)
 			udp_forwrder->stop();
 
@@ -1721,7 +1726,7 @@ void client_mode::resume_tcp(kcp_mappings *kcp_mappings_ptr)
 	if (kcp_mappings_ptr->local_tcp == nullptr)
 		return;
 
-	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
+	if (!kcp_updater.can_send_at_once(std::this_thread::get_id()))
 	{
 		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, [kcp_mappings_ptr]()
 			{

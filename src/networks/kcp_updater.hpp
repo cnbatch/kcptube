@@ -71,6 +71,11 @@ namespace KCP
 		*/
 		void wait_for_tasks();
 
+		bool can_send_at_once(std::thread::id tid)
+		{
+			return std::thread::hardware_concurrency() < 3 || tid != kcp_thread->get_id();
+		}
+
 	private:
 		// ========================
 		// Private member functions

@@ -113,7 +113,7 @@ int test_mode::kcp_sender(const char *buf, int len, void *user)
 
 void test_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (!sequence_task_pool.thread_id_exists(std::this_thread::get_id()))
+	if (!kcp_updater.can_send_at_once(std::this_thread::get_id()))
 	{
 		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
 			{

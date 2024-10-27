@@ -24,7 +24,7 @@
 #include "stun.hpp"
 #include "kcp.hpp"
 
-constexpr size_t gbv_task_count_limit = 8192u;
+constexpr size_t gbv_task_count_limit = 4096u;
 constexpr int32_t gbv_time_gap_seconds = std::numeric_limits<uint8_t>::max();	//seconds
 constexpr int32_t gbv_mux_channels_cleanup = gbv_time_gap_seconds >> 3;	//seconds
 constexpr int32_t gbv_keepalive_timeout = gbv_time_gap_seconds >> 3;	//seconds

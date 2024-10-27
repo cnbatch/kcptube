@@ -270,7 +270,6 @@ namespace KCP
 		this->nocwnd = 0;
 		this->xmit = 0;
 		this->dead_link = IKCP_DEADLINK;
-		this->fastack_higest = 0;
 
 		return true;
 	}
@@ -313,7 +312,6 @@ namespace KCP
 		this->nocwnd = other.nocwnd;
 		this->xmit = other.xmit;
 		this->dead_link = other.dead_link;
-		this->fastack_higest = other.fastack_higest;
 	}
 
 
@@ -601,7 +599,6 @@ namespace KCP
 
 				seg->fastack++;
 				this->fastack_buf[seg->fastack][seg_sn] = seg;
-				fastack_higest = _imax_(fastack_higest, seg->fastack);
 			}
 		}
 	}
@@ -1012,18 +1009,14 @@ namespace KCP
 				this->resendts_buf.erase(iter);
 		}
 
-		for (auto iter = this->fastack_buf.begin(), next = iter; iter != this->fastack_buf.end(); iter = next)
+		for (auto iter = this->fastack_buf.rbegin(), next = iter; iter != this->fastack_buf.rend(); iter = next)
 		{
 			++next;
 			auto &[fast_ack, seg_list] = *iter;
 			if (seg_list.empty())
 				continue;
 
-			if (fast_ack < resent)
-			{
-				fastack_higest = fast_ack;
-				break;
-			}
+			if (fast_ack < resent) break;
 
 			for (auto seg_iter = seg_list.begin(), seg_next = seg_iter;
 				seg_iter != seg_list.end();
@@ -1120,316 +1113,6 @@ namespace KCP
 		}
 	}
 
-	void kcp_core::flush_fresh(uint32_t current)
-	{
-		// 'ikcp_update' haven't been called. 
-		if (this->updated == 0) return;
-
-		if (current == 0)
-			current = this->current;
-		else
-			this->current = current;
-
-		char *buffer = this->buffer.get();
-		char *ptr = buffer;
-		
-		segment seg;
-		seg.conv = this->conv;
-		seg.cmd = IKCP_CMD_ACK;
-		seg.frg = 0;
-		seg.wnd = get_wnd_unused();
-		seg.una = this->rcv_nxt;
-		seg.sn = 0;
-		seg.ts = 0;
-
-		// flush acknowledges
-		for (auto [ack_sn, ack_ts] : this->acklist)
-		{
-			int size = (int)(ptr - buffer);
-			if (size + (int)IKCP_OVERHEAD > (int)this->mtu)
-			{
-				call_output(buffer, size);
-				ptr = buffer;
-			}
-			seg.sn = ack_sn;
-			seg.ts = ack_ts;
-			ptr = ikcp_encode_seg(ptr, seg);
-		}
-
-		this->acklist.clear();
-
-		// probe window size (if remote window size equals zero)
-		if (this->rmt_wnd == 0)
-		{
-			if (this->probe_wait == 0)
-			{
-				this->probe_wait = IKCP_PROBE_INIT;
-				this->ts_probe = this->current + this->probe_wait;
-			}
-			else
-			{
-				if (this->current >= this->ts_probe)
-				{
-					if (this->probe_wait < IKCP_PROBE_INIT)
-						this->probe_wait = IKCP_PROBE_INIT;
-					this->probe_wait += this->probe_wait / 2;
-					if (this->probe_wait > IKCP_PROBE_LIMIT)
-						this->probe_wait = IKCP_PROBE_LIMIT;
-					this->ts_probe = this->current + this->probe_wait;
-					this->probe |= IKCP_ASK_SEND;
-				}
-			}
-		}
-		else
-		{
-			this->ts_probe = 0;
-			this->probe_wait = 0;
-		}
-
-		// flush window probing commands
-		if (this->probe & IKCP_ASK_SEND)
-		{
-			seg.cmd = IKCP_CMD_WASK;
-			int size = (int)(ptr - buffer);
-			if (size + (int)IKCP_OVERHEAD > (int)this->mtu)
-			{
-				call_output(buffer, size);
-				ptr = buffer;
-			}
-			ptr = ikcp_encode_seg(ptr, seg);
-		}
-
-		// flush window probing commands
-		if (this->probe & IKCP_ASK_TELL)
-		{
-			seg.cmd = IKCP_CMD_WINS;
-			int size = (int)(ptr - buffer);
-			if (size + (int)IKCP_OVERHEAD > (int)this->mtu)
-			{
-				call_output(buffer, size);
-				ptr = buffer;
-			}
-			ptr = ikcp_encode_seg(ptr, seg);
-		}
-
-		this->probe = 0;
-
-		// calculate window size
-		cwnd = _imin_(this->snd_wnd, this->rmt_wnd);
-		if (this->nocwnd == 0) cwnd = _imin_(this->cwnd, cwnd);
-
-		// calculate resent
-		uint32_t resent = (this->fastresend > 0) ? (uint32_t)this->fastresend : 0xffffffff;
-		uint32_t rtomin = (this->nodelay == 0) ? (this->rx_rto >> 3) : 0;
-
-		// move data from snd_queue to snd_buf
-		while (this->snd_nxt < this->snd_una + cwnd && !this->snd_queue.empty())
-		{
-			auto iter = this->snd_queue.begin();
-			std::shared_ptr<segment> newseg = std::move(*iter);
-
-			newseg->conv = this->conv;
-			newseg->cmd = IKCP_CMD_PUSH;
-			newseg->wnd = seg.wnd;
-			newseg->ts = current;
-			newseg->sn = this->snd_nxt++;
-			newseg->una = this->rcv_nxt;
-			newseg->resendts = current + this->rx_rto + rtomin;
-			newseg->rto = this->rx_rto;
-			newseg->fastack = 0;
-			newseg->xmit = 1;
-
-			this->snd_buf[newseg->sn] = newseg;
-			this->snd_queue.pop_front();
-			resendts_buf[newseg->resendts][newseg->sn] = newseg;
-			fastack_buf[newseg->fastack][newseg->sn] = newseg;
-
-			ptr = send_out(ptr, buffer, newseg.get());
-		}
-
-		// flash remain segments	
-		if (int size = (int)(ptr - buffer); size > 0)
-			call_output(buffer, size);
-
-		if (this->cwnd < 1)
-		{
-			this->cwnd = 1;
-			this->incr = this->mss;
-		}
-	}
-
-	void kcp_core::flush_timeout_resend(uint32_t current)
-	{
-		// 'ikcp_update' haven't been called. 
-		if (this->updated == 0) return;
-
-		if (current == 0)
-			current = this->current;
-		else
-			this->current = current;
-
-		char *buffer = this->buffer.get();
-		char *ptr = buffer;
-		bool lost = false;
-
-		segment seg;
-		seg.conv = this->conv;
-		seg.cmd = IKCP_CMD_ACK;
-		seg.frg = 0;
-		seg.wnd = get_wnd_unused();
-		seg.una = this->rcv_nxt;
-		seg.sn = 0;
-		seg.ts = 0;
-
-		// flush data segments
-
-		for (auto iter = this->resendts_buf.begin(), next = iter; iter != this->resendts_buf.end(); iter = next)
-		{
-			++next;
-			auto &[resend_ts, seg_list] = *iter;
-			if (seg_list.empty())
-			{
-				this->resendts_buf.erase(iter);
-				continue;
-			}
-
-			if (current < resend_ts) break;
-
-			for (auto seg_iter = seg_list.begin(), seg_next = seg_iter;
-				seg_iter != seg_list.end();
-				seg_iter = seg_next)
-			{
-				++seg_next;
-				auto [seg_sn, seg_weak] = *seg_iter;
-				std::shared_ptr segptr = seg_weak.lock();
-				if (segptr == nullptr)
-				{
-					seg_list.erase(seg_iter);
-					continue;
-				}
-
-				segptr->xmit++;
-				this->xmit++;
-				if (this->nodelay == 0)
-				{
-					segptr->rto += _imax_(segptr->rto, (uint32_t)this->rx_rto);
-				}
-				else
-				{
-					int32_t step = (this->nodelay < 2) ?
-						((int32_t)(segptr->rto)) : this->rx_rto;
-					segptr->rto += step / 2;
-				}
-				segptr->resendts = current + segptr->rto;
-				lost = true;
-
-				seg_list.erase(seg_iter);
-				this->resendts_buf[segptr->resendts][seg_sn] = segptr;
-
-				segptr->ts = current;
-				segptr->wnd = seg.wnd;
-				segptr->una = this->rcv_nxt;
-				ptr = send_out(ptr, buffer, segptr.get());
-			}
-
-			if (seg_list.empty())
-				this->resendts_buf.erase(iter);
-		}
-
-		if (lost)
-		{
-			this->ssthresh = cwnd / 2;
-			if (this->ssthresh < IKCP_THRESH_MIN)
-				this->ssthresh = IKCP_THRESH_MIN;
-			this->cwnd = 1;
-			this->incr = this->mss;
-		}
-	}
-
-	void kcp_core::flush_fast_resend(uint32_t current)
-	{
-		// 'ikcp_update' haven't been called. 
-		if (this->updated == 0) return;
-
-		if (current == 0)
-			current = this->current;
-		else
-			this->current = current;
-
-		char *buffer = this->buffer.get();
-		char *ptr = buffer;
-		bool change = false;
-
-		segment seg;
-		seg.conv = this->conv;
-		seg.cmd = IKCP_CMD_ACK;
-		seg.frg = 0;
-		seg.wnd = get_wnd_unused();
-		seg.una = this->rcv_nxt;
-		seg.sn = 0;
-		seg.ts = 0;
-
-		uint32_t resent = (this->fastresend > 0) ? (uint32_t)this->fastresend : 0xffffffff;
-
-		for (auto iter = this->fastack_buf.begin(), next = iter; iter != this->fastack_buf.end(); iter = next)
-		{
-			++next;
-			auto &[fast_ack, seg_list] = *iter;
-			if (seg_list.empty())
-				continue;
-
-			if (fast_ack < resent) break;
-
-			for (auto seg_iter = seg_list.begin(), seg_next = seg_iter;
-				seg_iter != seg_list.end();
-				seg_iter = seg_next)
-			{
-				++seg_next;
-				auto [seg_sn, seg_weak] = *seg_iter;
-				std::shared_ptr segptr = seg_weak.lock();
-				if (segptr == nullptr)
-				{
-					seg_list.erase(seg_iter);
-					continue;
-				}
-
-				if ((int)segptr->xmit <= this->fastlimit || this->fastlimit <= 0)
-				{
-					uint32_t old_resendtrs = segptr->resendts;
-					segptr->xmit++;
-					segptr->fastack = 0;
-					segptr->resendts = current + segptr->rto;
-					change = true;
-
-					seg_list.erase(seg_iter);
-					this->fastack_buf[segptr->fastack][seg_sn] = segptr;
-
-					if (auto resendts_iter = this->resendts_buf.find(old_resendtrs); resendts_iter != this->resendts_buf.end())
-						if (auto um_iter = resendts_iter->second.find(seg_sn); um_iter != resendts_iter->second.end())
-							resendts_iter->second.erase(um_iter);
-
-					this->resendts_buf[segptr->resendts][seg_sn] = segptr;
-
-					segptr->ts = current;
-					segptr->wnd = seg.wnd;
-					segptr->una = this->rcv_nxt;
-					ptr = send_out(ptr, buffer, segptr.get());
-				}
-			}
-		}
-
-		// update ssthresh
-		if (change)
-		{
-			uint32_t inflight = this->snd_nxt - this->snd_una;
-			this->ssthresh = inflight / 2;
-			if (this->ssthresh < IKCP_THRESH_MIN)
-				this->ssthresh = IKCP_THRESH_MIN;
-			this->cwnd = this->ssthresh + resent;
-			this->incr = this->cwnd * this->mss;
-		}
-	}
-
 
 	//---------------------------------------------------------------------
 	// update state (call it repeatedly, every 10ms-100ms), or you can ask 
@@ -1512,128 +1195,6 @@ namespace KCP
 		if (minimal >= this->interval) minimal = this->interval;
 
 		return current + minimal;
-	}
-
-	uint32_t kcp_core::check_blast(uint32_t current)
-	{
-		uint32_t ts_flush = this->ts_flush;
-		int32_t tm_flush = 0x7fffffff;
-		int32_t tm_packet = 0x7fffffff;
-		uint32_t minimal = 0;
-
-		if (this->updated == 0 || !this->acklist.empty())
-			return current;
-
-		if (this->snd_nxt < this->snd_una + cwnd && !this->snd_queue.empty())
-			return current;
-		
-		if (_itimediff(current, ts_flush) >= 10000 || _itimediff(current, ts_flush) < -10000)
-			ts_flush = current;
-
-		if (current >= ts_flush)
-			return current;
-
-		uint32_t resent = (this->fastresend > 0) ? (uint32_t)this->fastresend : 0xffffffff;
-		if (fastack_higest > resent)
-			return current;
-
-		tm_flush = _itimediff(ts_flush, current);
-
-		if (!this->resendts_buf.empty())
-		{
-			auto& [resend_ts, seg_list] = *this->resendts_buf.begin();
-
-			int32_t diff = _itimediff(resend_ts, current);
-			if (diff <= 0)
-				return current;
-
-			if (diff < tm_packet)
-				tm_packet = diff;
-		}
-
-		minimal = (uint32_t)(tm_packet < tm_flush ? tm_packet : tm_flush);
-		if (minimal >= this->interval) minimal = this->interval;
-
-		return current + minimal;
-	}
-
-	uint32_t kcp_core::check_minimal(uint32_t current) const
-	{
-		uint32_t ts_flush = this->ts_flush;
-		int32_t tm_flush = 0x7fffffff;
-		int32_t tm_packet = 0x7fffffff;
-
-		if (this->updated == 0)
-			return current;
-
-		if (_itimediff(current, ts_flush) >= 10000 || _itimediff(current, ts_flush) < -10000)
-			ts_flush = current;
-
-		if (current >= ts_flush)
-			return current;
-
-		tm_flush = _itimediff(ts_flush, current);
-
-		uint32_t minimal = (uint32_t)(tm_packet < tm_flush ? tm_packet : tm_flush);
-		if (minimal >= this->interval) minimal = this->interval;
-
-		return current + minimal;
-	}
-
-	uint32_t kcp_core::check_fresh(uint32_t current) const
-	{
-		uint32_t ts_flush = this->ts_flush;
-
-		if (this->updated == 0 || !this->acklist.empty())
-			return current;
-
-		if (this->snd_nxt < this->snd_una + cwnd && !this->snd_queue.empty())
-			return current;
-
-		if (_itimediff(current, ts_flush) >= 10000 || _itimediff(current, ts_flush) < -10000)
-			ts_flush = current;
-
-		if (current >= ts_flush)
-			return current;
-
-		int32_t tm_packet = 0x7fffffff;
-		int32_t tm_flush = _itimediff(ts_flush, current);
-		uint32_t minimal = (uint32_t)(tm_packet < tm_flush ? tm_packet : tm_flush);
-		if (minimal >= this->interval) minimal = this->interval;
-
-		return 0;
-	}
-
-	uint32_t kcp_core::check_timeout_resend(uint32_t current)
-	{
-		if (this->updated == 0)
-			return current;
-
-		if (!this->resendts_buf.empty())
-		{
-			auto resend_ts = this->resendts_buf.begin()->first;
-			int32_t diff = _itimediff(resend_ts, current);
-			if (diff <= 0)
-				return current;
-		}
-
-		return 0;
-	}
-
-	uint32_t kcp_core::check_fast_resend(uint32_t current)
-	{
-		if (this->updated == 0)
-			return current;
-
-		uint32_t resent = (this->fastresend > 0) ? (uint32_t)this->fastresend : 0xffffffff;
-		if (!this->fastack_buf.empty())
-		{
-			auto fast_ack = this->fastack_buf.begin()->first;
-			if (fast_ack < resent)
-				return current;
-		}
-
-		return 0;
 	}
 
 	int kcp_core::set_mtu(int mtu)
