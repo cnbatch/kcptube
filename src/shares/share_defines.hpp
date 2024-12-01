@@ -20,6 +20,7 @@
 #ifdef __cpp_lib_format
 #include <format>
 #endif
+#include "../3rd_party/thread_pool.hpp"
 
 constexpr std::string_view app_name = "kcptube";
 
@@ -125,12 +126,6 @@ T calculate_difference(T number_left, T number_right)
 struct user_settings
 {
 	using user_input_address_mapping = std::map<std::pair<std::string, uint16_t>, std::pair<std::string, uint16_t>>;
-	uint16_t listen_port = 0;
-	uint16_t listen_port_start = 0;
-	uint16_t listen_port_end = 0;
-	uint16_t destination_port = 0;
-	uint16_t destination_port_start = 0;
-	uint16_t destination_port_end = 0;
 	int16_t dynamic_port_refresh = -1;	// seconds
 	uint16_t udp_timeout = 0;	 // seconds
 	uint16_t keep_alive = 0;	// seconds
@@ -158,8 +153,10 @@ struct user_settings
 	bool ignore_listen_port = false;
 	bool ignore_destination_address = false;
 	bool ignore_destination_port = false;
-	std::string listen_on;
-	std::string destination_address;
+	std::vector<std::string> listen_on;
+	std::vector<uint16_t> listen_ports;
+	std::vector<uint16_t> destination_ports;
+	std::vector<std::string> destination_address_list;
 	std::string encryption_password;
 	std::string stun_server;
 	std::filesystem::path log_directory;
@@ -191,8 +188,19 @@ struct fec_container
 };
 #pragma pack(pop)
 
+struct task_pool_colloector
+{
+	ttp::task_thread_pool *parallel_encryption_pool;
+	ttp::task_thread_pool *parallel_decryption_pool;
+	ttp::task_thread_pool *listener_parallels;
+	ttp::task_thread_pool *forwarder_parallels;
+};
+
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
-std::set<uint16_t> convert_to_port_list(const user_settings &current_settings);
+std::set<uint16_t> port_range_to_vector(const std::string &input_str, std::vector<std::string> &error_msg, const std::string &acting_role);
+std::vector<uint16_t> string_to_port_numbers(const std::string& input_str, std::vector<std::string>& error_msg, const std::string& acting_role);
+std::vector<std::string> string_to_address_list(const std::string &input_str);
+bool is_continuous(const std::vector<uint16_t> &numbers);
 
 std::string time_to_string();
 std::string time_to_string_with_square_brackets();

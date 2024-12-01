@@ -3,7 +3,7 @@
 **[Click Here for English Version](README_EN.md)**
 
 ## 简单介绍
-但凡使用过三大运营商的家用宽带，并且需要家宽互联，那么几乎都会体验到 UDP 被限速的情况。为了躲避三大运营商针对 UDP 的 QoS，我制作了另一个工具，叫做 [UDP Hop](https://github.com/cnbatch/udphop)。原理是定期更换端口号。
+但凡使用过三大运营商的家用宽带，并且需要家宽互联，那么几乎都会体验到 UDP 被限速的情况。为了躲避三大运营商针对 UDP 的 QoS，我制作了另一个工具，叫做 [UDP Hop](https://github.com/cnbatch/udphop)。原理是定期建立新连接（更换端口号及连到新地址）。
 
 只不过，UDP Hop 只支持转发 UDP 流量。为了能够利用 UDP 转发 TCP 流量，因此就有了KCP Tube。利用 KCP 的可靠重传保证转发的 TCP 不会丢包。
 
@@ -169,9 +169,9 @@ encryption_algorithm=AES-GCM
 |  名称   | 可设置值  | 必填 |备注|
 |  ----  | ----  | :----: | ---- |
 | mode  | client<br>server<br>relay |是|客户端<br>服务端<br>中继节点|
-| listen_on | 域名或 IP 地址 |否|只能填写域名或 IP 地址|
+| listen_on | 域名或 IP 地址 |否|只能填写域名或 IP 地址。多个地址请用逗号分隔|
 | listen_port | 1 - 65535 |是|以服务端运行时可以指定端口范围|
-| destination_port | 1 - 65535 |是|以客户端运行时可以指定端口范围|
+| destination_port | 1 - 65535 |是|以客户端运行时可以指定端口范围。多个地址请用逗号分隔|
 | destination_address  | IP地址、域名 |是|填入 IPv6 地址时不需要中括号|
 | dport_refresh  | 0 - 32767 |否|单位“秒”。不填写表示使用预设值 60 秒。<br>1 至 20 按 20 秒算，大于 32767 按 32767 秒算。<br>设为 0 表示禁用。|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>不加密 |
@@ -521,16 +521,9 @@ root      soft    nofile       300000
 
 如果已经使用了加密选项，那么尾附的 2 字节数据就是临时生成的IV。
 
-如果选择不使用加密功能，那么尾附的 2 字节数据就是校验码，分别为两种 8-bit 校验码：
+如果选择不使用加密功能，那么尾附的 2 字节数据就是校验码，是由 CRC32 高低位异或而成。
 
-- 纵向冗余校验 (LRC, Longitudinal Redundancy Check)
-- 8-bit checksum
-
-这是因为 kcptube 使用的 Botan 库并不附带 16-bit 校验算法，因此 kcptube 同时使用了这两种 8-bit 校验码。
-
-这两种校验码的计算速度都足够快，简明又实用，并不是偏门的计算方式。例如 Modbus 就用到了 LRC。
-
-需要提醒的是，使用两种校验码仍然无法 100% 避免内容错误，TCP 本身也是一样。如果确实需要精确无误，请启用加密选项。
+需要提醒的是，使用校验码仍然无法 100% 避免内容错误，TCP 本身也是一样。如果确实需要精确无误，请启用加密选项。
 
 ## 多路复用 (mux_tunnels=N)
 KCP Tube 虽然有“多路复用”的功能，但默认并不主动打开。在不使用该功能的情况下，每接受一个入站连接，就会创建一个对应的出站连接。

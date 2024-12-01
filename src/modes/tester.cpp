@@ -18,17 +18,11 @@ bool test_mode::start()
 {
 	printf("Testing...\n");
 
-	uint16_t destination_port = 0;
-	uint16_t destination_port_start = 0;
-	uint16_t destination_port_end = 0;
-
 	switch (current_settings.mode)
 	{
 	case running_mode::client:
 	{
-		destination_port = current_settings.destination_port;
-		destination_port_start = current_settings.destination_port_start;
-		destination_port_end = current_settings.destination_port_end;
+		destination_ports = current_settings.destination_ports;
 		break;
 	}
 	case running_mode::relay:
@@ -38,9 +32,7 @@ bool test_mode::start()
 			std::cerr << "Incorrect config file.";
 			return false;
 		}
-		destination_port = current_settings.egress->destination_port;
-		destination_port_start = current_settings.egress->destination_port_start;
-		destination_port_end = current_settings.egress->destination_port_end;
+		destination_ports = current_settings.egress->destination_ports;
 		break;
 	}
 	default:
@@ -48,36 +40,34 @@ bool test_mode::start()
 		break;
 	}
 
-	if (destination_port == 0)
+	if (destination_ports.empty())
+		return false;
+
+	target_address.resize(current_settings.destination_address_list.size());
+	success_ports.resize(current_settings.destination_address_list.size());
+	failure_ports.resize(current_settings.destination_address_list.size());
+
+	for (size_t i = 0; i < current_settings.destination_address_list.size(); i++)
 	{
-		for (uint32_t i = destination_port_start; i <= destination_port_end; i++)
+		for (uint16_t destination_port : destination_ports)
 		{
-			destination_ports.push_back(static_cast<uint16_t>(i));
+			std::shared_ptr<kcp_mappings> hs = create_handshake(i, destination_port);
+			if (hs == nullptr)
+			{
+				std::string error_message = time_to_string_with_square_brackets() + "establish handshake failed\n";
+				std::cerr << error_message;
+				print_message_to_file(error_message, current_settings.log_messages);
+				return false;
+			}
+
+			hs->egress_kcp->Update();
+			uint32_t next_update_time = hs->egress_kcp->Refresh();
+			kcp_updater.submit(hs->egress_kcp, next_update_time);
+
+			std::unique_lock lock_handshake{ mutex_handshakes };
+			handshakes[hs.get()] = hs;
+			lock_handshake.unlock();
 		}
-	}
-	else
-	{
-		destination_ports.push_back(destination_port);
-	}
-
-	for (uint16_t destination_port : destination_ports)
-	{
-		std::shared_ptr<kcp_mappings> hs = create_handshake(destination_port);
-		if (hs == nullptr)
-		{
-			std::string error_message = time_to_string_with_square_brackets() + "establish handshake failed\n";
-			std::cerr << error_message;
-			print_message_to_file(error_message, current_settings.log_messages);
-			return false;
-		}
-
-		hs->egress_kcp->Update();
-		uint32_t next_update_time = hs->egress_kcp->Refresh();
-		kcp_updater.submit(hs->egress_kcp, next_update_time);
-
-		std::unique_lock lock_handshake{ mutex_handshakes };
-		handshakes[hs.get()] = hs;
-		lock_handshake.unlock();
 	}
 
 	timer_find_expires.expires_after(gbv_expring_update_interval);
@@ -94,17 +84,15 @@ int test_mode::kcp_sender(const char *buf, int len, void *user)
 	kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)user;
 	if (current_settings.fec_data == 0 || current_settings.fec_redundant == 0)
 	{
-		int buffer_size = 0;
-		std::unique_ptr<uint8_t[]> new_buffer = packet::create_packet((const uint8_t *)buf, len, buffer_size);
+		auto [new_buffer, buffer_size] = packet::create_packet((const uint8_t *)buf, len);
 		data_sender(kcp_mappings_ptr, std::move(new_buffer), buffer_size);
 	}
 	else
 	{
 		fec_control_data &fec_controllor = kcp_mappings_ptr->fec_egress_control;
 		int conv = kcp_mappings_ptr->egress_kcp->GetConv();
-		int fec_data_buffer_size = 0;
-		std::unique_ptr<uint8_t[]> fec_data_buffer = packet::create_fec_data_packet((const uint8_t *)buf, len, fec_data_buffer_size,
-			fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn.load());
+		auto [fec_data_buffer, fec_data_buffer_size] = packet::create_fec_data_packet(
+			(const uint8_t*)buf, len, fec_controllor.fec_snd_sn.load(), fec_controllor.fec_snd_sub_sn.load());
 		data_sender(kcp_mappings_ptr, std::move(fec_data_buffer), fec_data_buffer_size);
 	}
 
@@ -113,21 +101,6 @@ int test_mode::kcp_sender(const char *buf, int len, void *user)
 
 void test_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (!kcp_updater.can_send_at_once(std::this_thread::get_id()))
-	{
-		auto func = [this, kcp_mappings_ptr, buffer_size](std::unique_ptr<uint8_t[]> new_buffer)
-			{
-				auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
-				std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(kcp_mappings_ptr->egress_forwarder));
-				if (egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
-					return;
-				std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(kcp_mappings_ptr->egress_target_endpoint));
-				egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, *egress_target_endpoint);
-			};
-		sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func, std::move(new_buffer));
-		return;
-	}
-
 	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
 	std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(kcp_mappings_ptr->egress_forwarder));
 	if (egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
@@ -136,29 +109,25 @@ void test_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint
 	egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, *egress_target_endpoint);
 }
 
-bool test_mode::get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target)
+std::unique_ptr<udp::endpoint> test_mode::get_udp_target(std::shared_ptr<forwarder> target_connector, size_t index)
 {
-	if (target_address != nullptr)
+	std::shared_ptr<asio::ip::address> target = std::atomic_load(&target_address[index]);
+	if (target != nullptr)
 	{
-		udp_target = udp::endpoint(*target_address, 1);
-		return true;
+		return std::make_unique<udp::endpoint>(*target, 0);
 	}
 
-	return update_udp_target(target_connector, udp_target);
+	return update_udp_target(target_connector, index);
 }
 
-bool test_mode::update_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target)
+std::unique_ptr<udp::endpoint> test_mode::update_udp_target(std::shared_ptr<forwarder> target_connector, size_t index)
 {
-	uint16_t destination_port = current_settings.destination_port;
-	if (destination_port == 0)
-		destination_port = generate_new_port_number(current_settings.destination_port_start, current_settings.destination_port_end);
-
-	bool connect_success = false;
+	std::unique_ptr<udp::endpoint> udp_target;
 	asio::error_code ec;
 	for (int i = 0; i <= gbv_retry_times; ++i)
 	{
-		const std::string &destination_address = current_settings.destination_address;
-		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(destination_address, destination_port, ec);
+		const std::string &destination_address = current_settings.destination_address_list[index];
+		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(destination_address, 0, ec);
 		if (ec)
 		{
 			std::string error_message = time_to_string_with_square_brackets() + ec.message() + "\n";
@@ -175,15 +144,13 @@ bool test_mode::update_udp_target(std::shared_ptr<forwarder> target_connector, u
 		}
 		else
 		{
-			std::scoped_lock locker{ mutex_target_address };
-			udp_target = *udp_endpoints.begin();
-			target_address = std::make_unique<asio::ip::address>(udp_target.address());
-			connect_success = true;
+			udp_target = std::make_unique<udp::endpoint>(*udp_endpoints.begin());
+			std::atomic_store(&target_address[index], std::make_shared<asio::ip::address>(udp_target->address()));
 			break;
 		}
 	}
 
-	return connect_success;
+	return std::move(udp_target);
 }
 
 
@@ -202,7 +169,7 @@ bool test_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 	return true;
 }
 
-std::shared_ptr<kcp_mappings> test_mode::create_handshake(asio::ip::port_type test_port)
+std::shared_ptr<kcp_mappings> test_mode::create_handshake(size_t index, asio::ip::port_type test_port)
 {
 	std::shared_ptr<KCP::KCP> handshake_kcp = std::make_shared<KCP::KCP>();
 	std::shared_ptr<kcp_mappings> handshake_kcp_mappings = std::make_shared<kcp_mappings>();
@@ -220,8 +187,8 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(asio::ip::port_type te
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
-		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_peer, &sequence_task_pool, _1, _2, _3);
-		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_peer_network_task_count(number) > gbv_task_count_limit; };
+		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
+		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_forwarder_network_task_count(number) > gbv_task_count_limit; };
 		auto udp_func = std::bind(&test_mode::handle_handshake, this, _1, _2, _3, _4, _5);
 		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
@@ -235,12 +202,13 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(asio::ip::port_type te
 		return nullptr;
 	}
 
-	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(handshake_kcp_mappings->egress_target_endpoint));
-	bool success = get_udp_target(udp_forwarder, *egress_target_endpoint);
-	if (!success)
+	std::shared_ptr<udp::endpoint> egress_target_endpoint = get_udp_target(udp_forwarder, index);
+	if (egress_target_endpoint == nullptr)
 		return nullptr;
 	egress_target_endpoint->port(test_port);
+	std::atomic_store(&(handshake_kcp_mappings->egress_target_endpoint), egress_target_endpoint);
 	handshake_kcp_mappings->egress_forwarder = udp_forwarder;
+	handshake_kcp_mappings->egress_endpoint_index = index;
 	if (current_settings.fec_data > 0 && current_settings.fec_redundant > 0)
 	{
 		size_t K = current_settings.fec_data;
@@ -280,7 +248,7 @@ void test_mode::on_handshake_test_success(kcp_mappings *handshake_ptr)
 {
 	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(handshake_ptr->egress_target_endpoint));
 	std::scoped_lock locker{ mutex_success_ports };
-	success_ports.insert(egress_target_endpoint->port());
+	success_ports[handshake_ptr->egress_endpoint_index].insert(egress_target_endpoint->port());
 	handshake_test_cleanup(handshake_ptr);
 }
 
@@ -288,7 +256,7 @@ void test_mode::handshake_test_failure(kcp_mappings *handshake_ptr)
 {
 	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(handshake_ptr->egress_target_endpoint));
 	std::scoped_lock locker{ mutex_failure_ports };
-	failure_ports.insert(egress_target_endpoint->port());
+	failure_ports[handshake_ptr->egress_endpoint_index].insert(egress_target_endpoint->port());
 	handshake_test_cleanup(handshake_ptr);
 }
 
@@ -371,55 +339,59 @@ void test_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_
 
 void test_mode::PrintResults()
 {
-	if (target_address == nullptr)
-		return;
-
-	std::cout << "Connection Test Result of \"" + current_settings.destination_address << "\":\n";
-	std::cout << "Selected IP Address: " << *target_address << "\n";
-
-	if (success_ports.empty())
+	for (size_t i = 0; i < target_address.size(); i++)
 	{
-		std::cout << "Success: NONE\n";
-	}
-	else
-	{
-		if (success_ports.size() == destination_ports.size())
+		std::shared_ptr<asio::ip::address> target = std::atomic_load(&target_address[i]);
+		if (target == nullptr)
+			continue;
+
+		std::cout << "Connection Test Result #" + std::to_string(i) + " of \"" + current_settings.destination_address_list[i] << "\":\n";
+		std::cout << "Selected IP Address: " << *target << "\n";
+
+		if (success_ports[i].empty())
 		{
-			std::cout << "Success: ALL (" << success_ports.size() << ")\n";
+			std::cout << "Success: NONE\n";
 		}
 		else
 		{
-			std::cout << "Success (" << success_ports.size() << "): ";
-			for (auto port_number : success_ports)
+			if (success_ports[i].size() == destination_ports.size())
 			{
-				std::cout << port_number << " ";
+				std::cout << "Success: ALL (" << success_ports[i].size() << ")\n";
 			}
-			std::cout << "\n";
+			else
+			{
+				std::cout << "Success (" << success_ports[i].size() << "): ";
+				for (auto port_number : success_ports[i])
+				{
+					std::cout << port_number << " ";
+				}
+				std::cout << "\n";
+			}
 		}
-	}
 
-	if (failure_ports.empty())
-	{
-		std::cout << "Failure: NONE\n";
-	}
-	else
-	{
-		if (failure_ports.size() == destination_ports.size())
+		if (failure_ports[i].empty())
 		{
-			std::cout << "Failure: ALL (" << failure_ports.size() << ")\n";
+			std::cout << "Failure: NONE\n";
 		}
 		else
 		{
-			std::cout << "Failure (" << failure_ports.size() << "): ";
-			for (auto port_number : failure_ports)
+			if (failure_ports[i].size() == destination_ports.size())
 			{
-				std::cout << port_number << " ";
+				std::cout << "Failure: ALL (" << failure_ports[i].size() << ")\n";
 			}
-			std::cout << "\n";
+			else
+			{
+				std::cout << "Failure (" << failure_ports[i].size() << "): ";
+				for (auto port_number : failure_ports[i])
+				{
+					std::cout << port_number << " ";
+				}
+				std::cout << "\n";
+			}
 		}
-	}
 
-	std::cout << std::endl;
+		std::cout << std::endl;
+	}
 }
 
 void test_mode::find_expires(const asio::error_code &e)

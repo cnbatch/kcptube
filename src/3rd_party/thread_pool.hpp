@@ -45,13 +45,6 @@ namespace ttp
 	}
 
 	[[nodiscard]]
-	static size_t assign_thread_odd(size_t input_value, concurrency_t thread_count) noexcept
-	{
-		static calculate_func calc[2] = { calculate_odd, always_zero };
-		return (calc[thread_count == 1])(input_value, thread_count);
-	}
-
-	[[nodiscard]]
 	static size_t calculate_even(size_t input_value, concurrency_t thread_count) noexcept
 	{
 		size_t even_value = (input_value % thread_count) * 2;
@@ -60,25 +53,11 @@ namespace ttp
 	}
 
 	[[nodiscard]]
-	static size_t assign_thread_even(size_t input_value, concurrency_t thread_count) noexcept
-	{
-		static calculate_func calc[2] = { calculate_even, always_zero };
-		return (calc[thread_count == 1])(input_value, thread_count);
-	}
-
-	[[nodiscard]]
 	static size_t calculate_assign(size_t input_value, concurrency_t thread_count) noexcept
 	{
 		size_t assign_value = (input_value % thread_count) * 2 + (input_value & 1);
 		size_t thread_number = (assign_value + thread_count) % thread_count | (input_value & 1);
 		return thread_number;
-	}
-
-	[[nodiscard]]
-	static size_t assign_thread(size_t input_value, concurrency_t thread_count) noexcept
-	{
-		static calculate_func calc[2] = { calculate_assign, always_zero };
-		return (calc[thread_count == 1])(input_value, thread_count);
 	}
 
 	/**
@@ -401,13 +380,25 @@ namespace ttp
 		task_group_pool(const concurrency_t thread_count_ = 0) :
 			thread_count(determine_thread_count(thread_count_)),
 			threads(std::make_unique<std::thread[]>(thread_count)),
-			local_network_tasks_total_of_threads(std::make_unique<std::atomic<size_t>[]>(thread_count)),
-			peer_network_tasks_total_of_threads(std::make_unique<std::atomic<size_t>[]>(thread_count))
+			listener_network_tasks_total_of_threads(std::make_unique<std::atomic<size_t>[]>(thread_count)),
+			forwarder_network_tasks_total_of_threads(std::make_unique<std::atomic<size_t>[]>(thread_count))
 		{
 			task_queue_of_threads = std::make_unique<task_queue[]>(thread_count);
 			tasks_total_of_threads = std::make_unique<std::atomic<size_t>[]>(thread_count);
 			tasks_mutex_of_threads = std::make_unique<std::mutex[]>(thread_count);
 			task_available_cv = std::make_unique<std::condition_variable[]>(thread_count);
+			if (thread_count == 1)
+			{
+				assign_thread_odd = always_zero;
+				assign_thread_even = always_zero;
+				assign_thread = always_zero;
+			}
+			else
+			{
+				assign_thread_odd = calculate_odd;
+				assign_thread_even = calculate_even;
+				assign_thread = calculate_assign;
+			}
 
 			create_threads();
 		}
@@ -452,35 +443,35 @@ namespace ttp
 		}
 
 		[[nodiscard]]
-		size_t get_local_network_task_count_all() const
+		size_t get_listener_network_task_count_all() const
 		{
 			size_t total = 0;
 			for (size_t i = 0; i < thread_count; ++i)
-				total += local_network_tasks_total_of_threads[i].load();
+				total += listener_network_tasks_total_of_threads[i].load();
 			return total;
 		}
 
 		[[nodiscard]]
-		size_t get_peer_network_task_count_all() const
+		size_t get_forwarder_network_task_count_all() const
 		{
 			size_t total = 0;
 			for (size_t i = 0; i < thread_count; ++i)
-				total += peer_network_tasks_total_of_threads[i].load();
+				total += forwarder_network_tasks_total_of_threads[i].load();
 			return total;
 		}
 
 		[[nodiscard]]
-		size_t get_local_network_task_count(size_t number) const
+		size_t get_listener_network_task_count(size_t number) const
 		{
 			size_t thread_number = assign_thread_odd(number, thread_count);
-			return local_network_tasks_total_of_threads[thread_number].load();
+			return listener_network_tasks_total_of_threads[thread_number].load();
 		}
 
 		[[nodiscard]]
-		size_t get_peer_network_task_count(size_t number) const
+		size_t get_forwarder_network_task_count(size_t number) const
 		{
 			size_t thread_number = assign_thread_even(number, thread_count);
-			return peer_network_tasks_total_of_threads[thread_number].load();
+			return forwarder_network_tasks_total_of_threads[thread_number].load();
 		}
 
 		bool thread_id_exists(std::thread::id tid)
@@ -495,12 +486,28 @@ namespace ttp
 		*/
 		void push_task(size_t number, task_void_callback void_task_function)
 		{
-			std::unique_ptr<uint8_t[]> data = nullptr;
 			size_t thread_number = assign_thread(number, thread_count);
 			{
 				std::scoped_lock tasks_lock(tasks_mutex_of_threads[thread_number]);
 				auto task_function = [void_task_function](std::unique_ptr<uint8_t[]> data) { void_task_function(); };
-				task_queue_of_threads[thread_number].push_back({ task_function, std::move(data) });
+				task_queue_of_threads[thread_number].push_back({ task_function, std::unique_ptr<uint8_t[]>{} });
+				++tasks_total_of_threads[thread_number];
+			}
+			task_available_cv[thread_number].notify_one();
+		}
+
+		void push_task(std::thread::id tid, task_void_callback void_task_function)
+		{
+			size_t thread_number = 0;
+			if (auto iter = thread_ids.find(tid); iter == thread_ids.end())
+				thread_number = assign_thread(std::hash<std::thread::id>{}(tid), thread_count);
+			else
+				thread_number = iter->second;
+
+			{
+				std::scoped_lock tasks_lock(tasks_mutex_of_threads[thread_number]);
+				auto task_function = [void_task_function](std::unique_ptr<uint8_t[]> data) { void_task_function(); };
+				task_queue_of_threads[thread_number].push_back({ task_function, std::unique_ptr<uint8_t[]>{} });
 				++tasks_total_of_threads[thread_number];
 			}
 			task_available_cv[thread_number].notify_one();
@@ -523,7 +530,23 @@ namespace ttp
 			task_available_cv[thread_number].notify_one();
 		}
 
-		void push_task_local(size_t number, task_callback task_function, std::unique_ptr<uint8_t[]> data)
+		void push_task(std::thread::id tid, task_callback task_function, std::unique_ptr<uint8_t[]> data)
+		{
+			size_t thread_number = 0;
+			if (auto iter = thread_ids.find(tid); iter == thread_ids.end())
+				thread_number = assign_thread(std::hash<std::thread::id>{}(tid), thread_count);
+			else
+				thread_number = iter->second;
+
+			{
+				std::scoped_lock tasks_lock(tasks_mutex_of_threads[thread_number]);
+				task_queue_of_threads[thread_number].push_back({ task_function, std::move(data) });
+				++tasks_total_of_threads[thread_number];
+			}
+			task_available_cv[thread_number].notify_one();
+		}
+
+		void push_task_listener(size_t number, task_callback task_function, std::unique_ptr<uint8_t[]> data)
 		{
 			size_t thread_number = assign_thread_odd(number, thread_count);
 			{
@@ -531,16 +554,16 @@ namespace ttp
 				auto task_func = [task_function, this, thread_number](std::unique_ptr<uint8_t[]> data)
 					{
 						task_function(std::move(data));
-						local_network_tasks_total_of_threads[thread_number]--;
+						listener_network_tasks_total_of_threads[thread_number]--;
 					};
 				task_queue_of_threads[thread_number].push_back({ task_func, std::move(data) });
 				tasks_total_of_threads[thread_number]++;
-				local_network_tasks_total_of_threads[thread_number]++;
+				listener_network_tasks_total_of_threads[thread_number]++;
 			}
 			task_available_cv[thread_number].notify_one();
 		}
 
-		void push_task_peer(size_t number, task_callback task_function, std::unique_ptr<uint8_t[]> data)
+		void push_task_forwarder(size_t number, task_callback task_function, std::unique_ptr<uint8_t[]> data)
 		{
 			size_t thread_number = assign_thread_even(number, thread_count);
 			{
@@ -548,11 +571,11 @@ namespace ttp
 				auto task_func = [task_function, this, thread_number](std::unique_ptr<uint8_t[]> data)
 					{
 						task_function(std::move(data));
-						peer_network_tasks_total_of_threads[thread_number]--;
+						forwarder_network_tasks_total_of_threads[thread_number]--;
 					};
 				task_queue_of_threads[thread_number].push_back({ task_func, std::move(data) });
 				tasks_total_of_threads[thread_number]++;
-				peer_network_tasks_total_of_threads[thread_number]++;
+				forwarder_network_tasks_total_of_threads[thread_number]++;
 			}
 			task_available_cv[thread_number].notify_one();
 		}
@@ -682,7 +705,7 @@ namespace ttp
 			for (concurrency_t i = 0; i < thread_count; ++i)
 			{
 				threads[i] = std::thread(&task_group_pool::worker, this, i);
-				thread_ids.insert(threads[i].get_id());
+				thread_ids[threads[i].get_id()] = i;
 			}
 		}
 
@@ -797,9 +820,12 @@ namespace ttp
 		*/
 		std::atomic<bool> waiting = false;
 
-		std::unique_ptr<std::atomic<size_t>[]> local_network_tasks_total_of_threads;
-		std::unique_ptr<std::atomic<size_t>[]> peer_network_tasks_total_of_threads;
-		std::set<std::thread::id> thread_ids;
+		std::unique_ptr<std::atomic<size_t>[]> listener_network_tasks_total_of_threads;
+		std::unique_ptr<std::atomic<size_t>[]> forwarder_network_tasks_total_of_threads;
+		std::map<std::thread::id, size_t> thread_ids;
+		calculate_func assign_thread_odd;
+		calculate_func assign_thread_even;
+		calculate_func assign_thread;
 	};
 
 

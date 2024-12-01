@@ -17,14 +17,17 @@ class test_mode
 	std::shared_mutex mutex_handshakes;
 	std::unordered_map<kcp_mappings*, std::shared_ptr<kcp_mappings>> handshakes;
 
-	std::shared_mutex mutex_target_address;
-	std::unique_ptr<asio::ip::address> target_address;
+#ifdef __cpp_lib_atomic_shared_ptr
+	std::deque<std::atomic<std::shared_ptr<asio::ip::address>>> target_address;
+#else
+	std::deque<std::shared_ptr<asio::ip::address>> target_address;
+#endif
 
 	std::mutex mutex_success_ports;
-	std::set<uint16_t> success_ports;
+	std::vector<std::set<uint16_t>> success_ports;
 
 	std::mutex mutex_failure_ports;
-	std::set<uint16_t> failure_ports;
+	std::vector<std::set<uint16_t>> failure_ports;
 
 	asio::steady_timer timer_find_expires;
 	ttp::task_group_pool &sequence_task_pool;
@@ -32,11 +35,11 @@ class test_mode
 	int kcp_sender(const char *buf, int len, void *user);
 	void data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
 
-	bool get_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
-	bool update_udp_target(std::shared_ptr<forwarder> target_connector, udp::endpoint &udp_target);
+	std::unique_ptr<udp::endpoint> get_udp_target(std::shared_ptr<forwarder> target_connector, size_t index);
+	std::unique_ptr<udp::endpoint> update_udp_target(std::shared_ptr<forwarder> target_connector, size_t index);
 	bool handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr);
 
-	std::shared_ptr<kcp_mappings> create_handshake(asio::ip::port_type test_port);
+	std::shared_ptr<kcp_mappings> create_handshake(size_t index, asio::ip::port_type test_port);
 	void on_handshake_test_success(kcp_mappings *handshake_ptr);
 	void handshake_test_failure(kcp_mappings *handshake_ptr);
 	void handshake_test_cleanup(kcp_mappings *handshake_ptr);

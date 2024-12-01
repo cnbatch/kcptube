@@ -3,10 +3,10 @@
 |  Name   | Value  | Require |Note|
 |  ----  | ----  | :----: | ---- |
 | mode  | client<br>server<br>relay |Yes|Client Mode<br>Server Mode<br>Relay Node Mode|
-| listen_on | domain name or IP address |No|domain name / IP address only|
+| listen_on | domain name or IP address |No|domain name / IP address only. Multiple addresses should be comma-separated.|
 | listen_port | 1 - 65535 |Yes|Port ranges can be specified when running as a server mode|
 | destination_port | 1 - 65535 |Yes|Port ranges can be specified when running as a client mode|
-| destination_address  | IP address, domain name |Yes|Brackets are not required when filling in an IPv6 address|
+| destination_address  | IP address, domain name |Yes|Brackets are not required when filling in an IPv6 address. Multiple addresses should be comma-separated.|
 | dport_refresh  | 20 - 65535 |No|The unit is ‘second’. Not writting this option means using the default value of 60 seconds. <br>1 to 20 is treated as 20 seconds; greater than 32767 is treated as 32767 seconds. <br>Set to 0 means disable this option.|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |No    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>No Encryption |
 | encryption_password  | Any character |Depends…|…on the setting of encryption_algorithm, if the value is set and it is not none, it is required|

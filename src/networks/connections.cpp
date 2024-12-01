@@ -14,7 +14,11 @@ void empty_tcp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, std::share
 {
 }
 
-void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3)
+void empty_udp_server_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, udp_server *tmp3)
+{
+}
+
+void empty_udp_client_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3)
 {
 }
 
@@ -143,6 +147,21 @@ uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num
 	return uniform_dist(mt);
 }
 
+uint16_t generate_new_port_number(const std::vector<uint16_t> &port_list)
+{
+	auto pos = generate_new_port_number(0, (uint16_t)(port_list.size() - 1));
+	return port_list[pos];
+}
+
+size_t randomly_pick_index(size_t container_size)
+{
+	thread_local std::mt19937 mt(std::random_device{}());
+	if (container_size < 2)
+		return 0;
+	std::uniform_int_distribution<size_t> uniform_dist(0, container_size - 1);
+	return uniform_dist(mt);
+}
+
 std::string_view feature_to_string(feature ftr)
 {
 	std::string_view str;
@@ -222,6 +241,11 @@ void debug_print_data(const uint8_t *data, size_t len)
 }
 
 bool return_false(size_t)
+{
+	return false;
+}
+
+bool empty_mapping_function()
 {
 	return false;
 }
@@ -359,7 +383,7 @@ namespace packet
 		return duration_cast<seconds>(right_now.time_since_epoch()).count();
 	}
 
-	std::unique_ptr<uint8_t[]> create_packet(const uint8_t *input_data, int data_size, int &new_size)
+	std::pair<std::unique_ptr<uint8_t[]>, int> create_packet(const uint8_t *input_data, int data_size)
 	{
 		int64_t timestamp = right_now();
 		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + gbv_buffer_expand_size);
@@ -369,11 +393,11 @@ namespace packet
 		if (data_size > 0)
 			std::copy_n(input_data, data_size, data_ptr);
 
-		new_size = sizeof(packet_layer) - 1 + data_size;
-		return new_buffer;
+		int new_size = sizeof(packet_layer) - 1 + data_size;
+		return { std::move(new_buffer), new_size };
 	}
 
-	std::unique_ptr<uint8_t[]> create_fec_data_packet(const uint8_t *input_data, int data_size, int &new_size, uint32_t fec_sn, uint8_t fec_sub_sn)
+	std::pair<std::unique_ptr<uint8_t[]>, int> create_fec_data_packet(const uint8_t *input_data, int data_size, uint32_t fec_sn, uint8_t fec_sub_sn)
 	{
 		int64_t timestamp = right_now();
 		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + sizeof(packet_layer_fec) + gbv_buffer_expand_size);
@@ -387,11 +411,11 @@ namespace packet
 		if (data_size > 0)
 			std::copy_n(input_data, data_size, data_ptr);
 
-		new_size = sizeof(packet_layer_data) - 1 + data_size;
-		return new_buffer;
+		int new_size = sizeof(packet_layer_data) - 1 + data_size;
+		return { std::move(new_buffer), new_size };
 	}
 
-	std::unique_ptr<uint8_t[]> create_fec_redundant_packet(const uint8_t * input_data, int data_size, int & new_size, uint32_t fec_sn, uint8_t fec_sub_sn, uint32_t kcp_conv)
+	std::pair<std::unique_ptr<uint8_t[]>, int> create_fec_redundant_packet(const uint8_t *input_data, int data_size, uint32_t fec_sn, uint8_t fec_sub_sn, uint32_t kcp_conv)
 	{
 		int64_t timestamp = right_now();
 		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + sizeof(packet_layer_fec) + gbv_buffer_expand_size);
@@ -406,8 +430,8 @@ namespace packet
 		if (data_size > 0)
 			std::copy_n(input_data, data_size, data_ptr);
 
-		new_size = sizeof(packet_layer_fec) - 1 + data_size;
-		return new_buffer;
+		int new_size = sizeof(packet_layer_fec) - 1 + data_size;
+		return { std::move(new_buffer), new_size };
 	}
 
 	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data)
@@ -1243,27 +1267,21 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	{
 	case task_type::sequence:
 		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-		              { callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
+		              { callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); },
 		              std::move(buffer_cache));
 		break;
 	case task_type::direct:
 		push_task([this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-		          { callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, port_number); },
+		          { callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); },
 		          std::move(buffer_cache));
 		break;
 	case task_type::in_place:
-		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, port_number);
+		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, this);
 		break;
 	default:
 		break;
 	}
 }
-
-asio::ip::port_type udp_server::get_port_number()
-{
-	return port_number;
-}
-
 
 
 
@@ -1283,7 +1301,7 @@ void udp_client::stop()
 	if (stopped.compare_exchange_strong(expect, true))
 		return;
 	stopped.store(true);
-	callback = empty_udp_callback;
+	callback = empty_udp_client_callback;
 	this->disconnect();
 }
 

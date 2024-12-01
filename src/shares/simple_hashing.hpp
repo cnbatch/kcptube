@@ -1,36 +1,26 @@
 #pragma once
 #include <cstdint>
+#include <array>
+#include <memory>
+#include <botan/hash.h>
 
 #ifndef __SIMPLE_HASHING_HPP__
 #define __SIMPLE_HASHING_HPP__
 
-struct simple_hashing
+class simple_hashing
 {
-	// Longitudinal redundancy check
-	static uint8_t xor_u8(const void *data_ptr, size_t length)
+private:
+	std::unique_ptr<Botan::HashFunction> crc32 = Botan::HashFunction::create("CRC32");
+
+public:
+	std::array<uint8_t, 2> checksum16(const void *data_ptr, size_t length)
 	{
-		uint8_t tmp = 0;
-		const uint8_t *ptr = (const uint8_t *)data_ptr;
-
-		for (const uint8_t *next_ptr = ptr; next_ptr < ptr + length; ++next_ptr)
-		{
-			tmp ^= *next_ptr;
-		}
-
-		return tmp;
-	}
-
-	static uint8_t checksum8(const void *data_ptr, size_t length)
-	{
-		uint32_t tmp = 0;
-		const uint8_t *ptr = (const uint8_t *)data_ptr;
-
-		for (const uint8_t *next_ptr = ptr; next_ptr < ptr + length; ++next_ptr)
-		{
-			tmp += *next_ptr;
-		}
-
-		return (uint8_t)tmp;
+		std::array<uint8_t, 2> output = {};
+		std::array<uint8_t, 4> crc32_output = {};
+		crc32->update((const uint8_t*)data_ptr, length);
+		crc32->final(crc32_output.data());
+		*((uint16_t *)output.data()) = *((uint16_t*)crc32_output.data()) ^ *((uint16_t*)(crc32_output.data() + 2));
+		return output;
 	}
 };
 

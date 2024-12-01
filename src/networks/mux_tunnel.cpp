@@ -113,7 +113,7 @@ void mux_tunnel::read_tcp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t 
 	tcp_recv_traffic += data_size;
 }
 
-void mux_tunnel::client_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
+void mux_tunnel::client_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, udp_server *listener_ptr, const std::string &remote_output_address, asio::ip::port_type remote_output_port)
 {
 	move_cached_data_to_tunnel();
 
@@ -149,7 +149,8 @@ void mux_tunnel::client_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_
 				mux_records_ptr->kcp_conv = conv;
 				mux_records_ptr->connection_id = new_id;
 				mux_records_ptr->source_endpoint = peer;
-				mux_records_ptr->custom_output_port = port_number;
+				mux_records_ptr->listener_ptr = listener_ptr;
+				//mux_records_ptr->custom_output_port = port_number;
 
 				if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
 				{
@@ -263,9 +264,9 @@ void mux_tunnel::transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_p
 				}
 
 				if (prtcl == protocol_type::tcp)
-					mux_records_ptr = server_ptr->create_mux_data_tcp_connection(mux_connection_id, kcp_ptr, "", 0);
+					mux_records_ptr = listener_ptr->create_mux_data_tcp_connection(mux_connection_id, kcp_ptr, "", 0);
 				if (prtcl == protocol_type::udp)
-					mux_records_ptr = server_ptr->create_mux_data_udp_connection(mux_connection_id, kcp_ptr);
+					mux_records_ptr = listener_ptr->create_mux_data_udp_connection(mux_connection_id, kcp_ptr);
 
 				if (mux_records_ptr == nullptr)
 				{
@@ -304,14 +305,13 @@ void mux_tunnel::transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_p
 			if (current_settings.ignore_destination_address || current_settings.ignore_destination_port)
 				udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, *egress_target_endpoint);
 			else
-				udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, *server_ptr->udp_target);
+				udp_channel->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, *listener_ptr->udp_target);
 		}
 		
 		if (current_settings.mode == running_mode::client)
 		{
 			udp::endpoint udp_client_ep = mux_records_ptr->source_endpoint;
-			asio::ip::port_type output_port = mux_records_ptr->custom_output_port;
-			client_ptr->udp_access_points[output_port]->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, udp_client_ep);
+			mux_records_ptr->listener_ptr->async_send_out(std::move(buffer_cache), mux_data, mux_data_size, udp_client_ep);
 		}
 
 		mux_records_ptr->last_data_transfer_time.store(packet::right_now());
@@ -399,12 +399,12 @@ void mux_tunnel::pre_connect_custom_address(protocol_type prtcl, kcp_mappings *k
 			if (iter_mux_records == id_map_to_mux_records.end())
 			{
 				if (prtcl == protocol_type::tcp)
-					mux_records_ptr = server_ptr->create_mux_data_tcp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp, user_input_ip, user_input_port);
+					mux_records_ptr = listener_ptr->create_mux_data_tcp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp, user_input_ip, user_input_port);
 
 				if (prtcl == protocol_type::udp)
 				{
 					asio::error_code ec;
-					mux_records_ptr = server_ptr->create_mux_data_udp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp);
+					mux_records_ptr = listener_ptr->create_mux_data_udp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp);
 					udp::resolver::results_type udp_endpoints = mux_records_ptr->local_udp->get_remote_hostname(user_input_ip, user_input_port, ec);
 					asio::ip::address user_input_address = asio::ip::address::from_string(user_input_ip);
 
@@ -435,7 +435,7 @@ void mux_tunnel::setup_mux_kcp(std::shared_ptr<KCP::KCP> kcp_ptr)
 {
 	if (current_settings.mode == running_mode::server)
 	{
-		kcp_ptr->SetOutput([this](const char *buf, int len, void *user) -> int { return server_ptr->kcp_sender(buf, len, user); });
+		kcp_ptr->SetOutput([this](const char *buf, int len, void *user) -> int { return listener_ptr->kcp_sender(buf, len, user); });
 		kcp_ptr->SetPostUpdate([this](void *user)
 			{
 				if (user == nullptr) return;
@@ -696,8 +696,8 @@ void mux_tunnel::cleanup_expiring_mux_records()
 	for (auto &[kcp_conv, data_list] : waiting_for_inform)
 	{
 		std::shared_ptr<kcp_mappings> kcp_mappings_ptr = nullptr;
-		std::shared_mutex &mutex_kcp_channels = current_settings.mode == running_mode::server ? server_ptr->mutex_kcp_channels : client_ptr->mutex_kcp_channels;
-		std::unordered_map<uint32_t, std::shared_ptr<kcp_mappings>> &kcp_channels = current_settings.mode == running_mode::server ? server_ptr->kcp_channels : client_ptr->kcp_channels;
+		std::shared_mutex &mutex_kcp_channels = current_settings.mode == running_mode::server ? listener_ptr->mutex_kcp_channels : client_ptr->mutex_kcp_channels;
+		std::unordered_map<uint32_t, std::shared_ptr<kcp_mappings>> &kcp_channels = current_settings.mode == running_mode::server ? listener_ptr->kcp_channels : client_ptr->kcp_channels;
 		std::shared_lock locker{ mutex_kcp_channels };
 		auto iter = kcp_channels.find(kcp_conv);
 		if (iter == kcp_channels.end())

@@ -7,6 +7,8 @@
 #include "string_utils.hpp"
 #include "configurations.hpp"
 
+using namespace str_utils;
+
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg)
 {
 	user_settings current_user_settings;
@@ -37,18 +39,140 @@ user_settings parse_from_args(const std::vector<std::string> &args, std::vector<
 	return current_user_settings;
 }
 
-std::set<uint16_t> convert_to_port_list(const user_settings &current_settings)
+std::set<uint16_t> port_range_to_vector(const std::string &input_str, std::vector<std::string> &error_msg, const std::string &acting_role)
 {
-	std::set<uint16_t> listen_ports;
-	if (current_settings.listen_port != 0)
-		listen_ports.insert(current_settings.listen_port);
-
-	for (uint16_t port_number = current_settings.listen_port_start; port_number <= current_settings.listen_port_end; ++port_number)
+	std::set<uint16_t> numbers;
+	auto pos = input_str.find("-");
+	if (pos == std::string::npos)
 	{
-		if (port_number != 0)
-			listen_ports.insert(port_number);
+		bool failed = false;
+		std::string port_str = trim_copy(input_str);
+		try
+		{
+			if (auto port_number = std::stoi(port_str); port_number > 0 && port_number <= USHRT_MAX)
+				numbers.insert(static_cast<uint16_t>(port_number));
+			else
+				failed = true;
+		}
+		catch (...)
+		{
+			failed = true;
+		}
+
+		if (failed)
+			error_msg.emplace_back("invalid " + acting_role + "_port number: " + port_str);
+		return numbers;
 	}
-	return listen_ports;
+	std::string start_port = input_str.substr(0, pos);
+	std::string end_port = input_str.substr(pos + 1);
+	trim(start_port);
+	trim(end_port);
+
+	if (start_port.empty() || end_port.empty())
+	{
+		error_msg.emplace_back("invalid " + acting_role + "_port range: " + input_str);
+		return numbers;
+	}
+
+	uint16_t temp_port_start = 0;
+	uint16_t temp_port_end = 0;
+
+	try
+	{
+		if (auto port_number = std::stoi(start_port); port_number > 0 && port_number <= USHRT_MAX)
+			temp_port_start = static_cast<uint16_t>(port_number);
+		else
+			error_msg.emplace_back("invalid " + acting_role + "_port_start number: " + start_port);
+	}
+	catch (...)
+	{
+		error_msg.emplace_back("invalid " + acting_role + "_port_start number: " + start_port);
+	}
+
+	try
+	{
+		if (auto port_number = std::stoi(end_port); port_number > 0 && port_number <= USHRT_MAX)
+			temp_port_end = static_cast<uint16_t>(port_number);
+		else
+			error_msg.emplace_back("invalid " + acting_role + "_port_end number: " + end_port);
+	}
+	catch (...)
+	{
+		error_msg.emplace_back("invalid " + acting_role + "_port_end number: " + end_port);
+	}
+
+	if (temp_port_start >= temp_port_end)
+	{
+		error_msg.emplace_back("invalid port range: " + start_port + "-" + end_port);
+		return numbers;
+	}
+
+	for (uint16_t i = temp_port_start; i <= temp_port_end; i++)
+	{
+		numbers.insert(i);
+	}
+
+	return numbers;
+}
+
+std::vector<uint16_t> string_to_port_numbers(const std::string &input_str, std::vector<std::string> &error_msg, const std::string &acting_role)
+{
+	std::set<uint16_t> port_numbers;
+	if (input_str.find(',') == input_str.npos)
+	{
+		port_numbers = port_range_to_vector(input_str, error_msg, acting_role);
+	}
+	else
+	{
+		std::string temp;
+		std::istringstream isstream(input_str);
+		while (std::getline(isstream, temp, ','))
+		{
+			trim(temp);
+			std::set<uint16_t> numbers = port_range_to_vector(temp, error_msg, acting_role);
+			port_numbers.merge(numbers);
+		}
+	}
+	return std::vector<uint16_t>(port_numbers.begin(), port_numbers.end());
+}
+
+std::vector<std::string> string_to_address_list(const std::string &input_str)
+{
+	std::string temp;
+	std::istringstream isstream(input_str);
+	std::vector<std::string> address_list;
+	if (input_str.find(',') == input_str.npos)
+	{
+		address_list.emplace_back(trim_copy(input_str));
+	}
+	else
+	{
+		std::set<std::string> temp_address_list;
+		while (std::getline(isstream, temp, ','))
+		{
+			trim(temp);
+			temp_address_list.insert(temp);
+		}
+		address_list = std::vector<std::string>(temp_address_list.begin(), temp_address_list.end());
+	}
+	return address_list;
+}
+
+bool is_continuous(const std::vector<uint16_t> &numbers)
+{
+	if (numbers.empty())
+		return false;
+
+	if (numbers.size() == 1)
+		return true;
+
+	for (auto prev = numbers.begin(), iter = prev + 1; iter != numbers.end(); ++iter, ++prev)
+	{
+		if ((int)(*iter) - (int)(*prev) != 1)
+			return false;
+	}
+
+	return true;
 }
 
 std::vector<uint8_t> create_raw_random_data(size_t mtu_size)

@@ -22,7 +22,7 @@ class server_mode
 	std::array<uint8_t, 16> external_ipv6_address;
 	const std::array<uint8_t, 16> zero_value_array;
 
-	std::unordered_map<asio::ip::port_type, std::unique_ptr<udp_server>> udp_servers;
+	std::vector<std::unique_ptr<udp_server>> udp_servers;
 
 	std::shared_mutex mutex_handshake_channels;
 	std::map<udp::endpoint, std::shared_ptr<kcp_mappings>> handshake_channels;
@@ -37,6 +37,10 @@ class server_mode
 	std::shared_mutex mutex_kcp_keepalive;
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive;
 
+	std::mutex mutex_decryptions_from_listener;
+	std::list<std::future<kcp_mappings::decryption_result_listener>> decryptions_from_listener;
+	std::atomic<int> listener_decryption_task_count;
+
 	std::unique_ptr<mux_tunnel> mux_tunnels;
 
 	status_records status_counters;
@@ -47,15 +51,18 @@ class server_mode
 	asio::steady_timer timer_keep_alive;
 	asio::steady_timer timer_status_log;
 	ttp::task_group_pool &sequence_task_pool;
+	ttp::task_thread_pool *parallel_encryption_pool;
+	ttp::task_thread_pool *parallel_decryption_pool;
 
 	std::unique_ptr<udp::endpoint> udp_target;
 
-	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type server_port_number);
-	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type server_port_number);
+	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, udp_server *listener_ptr);
+	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, udp_server *listener_ptr);
+	void sequential_extract();
 	void tcp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::weak_ptr<KCP::KCP> kcp_session_weak);
 	void udp_connector_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, std::weak_ptr<KCP::KCP> kcp_session_weak);
 
-	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number);
+	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, udp_server *listener_ptr);
 
 	bool create_new_tcp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const std::string &user_input_address, asio::ip::port_type user_input_port);
 	bool create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_kcp, std::shared_ptr<KCP::KCP> data_kcp, const udp::endpoint &peer, const std::string &user_input_address, asio::ip::port_type user_input_port);
@@ -65,7 +72,10 @@ class server_mode
 	std::shared_ptr<mux_records> create_mux_data_udp_connection(uint32_t connection_id, std::weak_ptr<KCP::KCP> kcp_session_weak);
 
 	int kcp_sender(const char *buf, int len, void *user);
+	void data_sender(std::shared_ptr<kcp_mappings> kcp_mappings_ptr);
 	void data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
+	void parallel_encrypt(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	void parallel_decrypt(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener_ptr);
 	void fec_maker(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size);
 	bool fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 
@@ -91,12 +101,14 @@ public:
 	server_mode(const server_mode &) = delete;
 	server_mode& operator=(const server_mode &) = delete;
 
-	server_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, ttp::task_group_pool &seq_task_pool, const user_settings &settings)
+	server_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools, const user_settings &settings)
 		: io_context(io_context_ref), kcp_updater(kcp_updater_ref),
 		timer_find_expires(io_context), timer_expiring_kcp(io_context),
 		timer_stun(io_context), timer_keep_alive(io_context),
 		timer_status_log(io_context),
 		sequence_task_pool(seq_task_pool),
+		parallel_encryption_pool(task_pools.parallel_encryption_pool),
+		parallel_decryption_pool(task_pools.parallel_decryption_pool),
 		external_ipv4_port(0),
 		external_ipv4_address(0),
 		external_ipv6_port(0),
@@ -117,6 +129,8 @@ public:
 		timer_keep_alive(std::move(existing_server.timer_keep_alive)),
 		timer_status_log(std::move(existing_server.timer_status_log)),
 		sequence_task_pool(existing_server.sequence_task_pool),
+		parallel_encryption_pool(existing_server.parallel_encryption_pool),
+		parallel_decryption_pool(existing_server.parallel_decryption_pool),
 		external_ipv4_port(existing_server.external_ipv4_port.load()),
 		external_ipv4_address(existing_server.external_ipv4_address.load()),
 		external_ipv6_port(existing_server.external_ipv6_port.load()),

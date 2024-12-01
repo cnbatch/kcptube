@@ -28,7 +28,7 @@ struct mux_tunnel
 	std::map<std::weak_ptr<KCP::KCP>, uint32_t, std::owner_less<>> mux_udp_cache_max_size;
 
 	client_mode *client_ptr = nullptr;
-	server_mode *server_ptr = nullptr;
+	server_mode *listener_ptr = nullptr;
 	std::atomic<size_t> tcp_recv_traffic;
 	std::atomic<size_t> udp_recv_traffic;
 	std::atomic<size_t> tcp_send_traffic;
@@ -39,7 +39,7 @@ struct mux_tunnel
 		: kcp_updater(kcp_updater), current_settings(input_settings)
 	{
 		if (input_settings.mode == running_mode::server)
-			server_ptr = reinterpret_cast<server_mode*>(running_mode_ptr);
+			listener_ptr = reinterpret_cast<server_mode*>(running_mode_ptr);
 		if (input_settings.mode == running_mode::client)
 			client_ptr = reinterpret_cast<client_mode*>(running_mode_ptr);
 	}
@@ -48,7 +48,7 @@ struct mux_tunnel
 	void tcp_accept_new_income(std::shared_ptr<tcp_session> incoming_session, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
 	// client and server
 	void read_tcp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<tcp_session> incoming_session, std::weak_ptr<KCP::KCP> kcp_session_weak, std::weak_ptr<mux_records> kcp_ptr_weak);
-	void client_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
+	void client_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, udp_server *listener_ptr, const std::string &remote_output_address, asio::ip::port_type remote_output_port);
 	void server_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type port_number, std::weak_ptr<KCP::KCP> kcp_session_weak, std::weak_ptr<mux_records> mux_records_weak);
 
 	void transfer_data(protocol_type prtcl, kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> buffer_cache, uint8_t *unbacked_data_ptr, size_t unbacked_data_size);

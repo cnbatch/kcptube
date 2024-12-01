@@ -3,10 +3,10 @@
 |  名称   | 可设置值  | 必填 |备注|
 |  ----  | ----  | :----: | ---- |
 | mode  | client<br>server<br>relay |是|客户端<br>服务端<br>中继节点|
-| listen_on | 域名或 IP 地址 |否|只能填写域名或 IP 地址|
+| listen_on | 域名或 IP 地址 |否|只能填写域名或 IP 地址。多个地址请用逗号分隔|
 | listen_port | 1 - 65535 |是|以服务端运行时可以指定端口范围|
 | destination_port | 1 - 65535 |是|以客户端运行时可以指定端口范围|
-| destination_address  | IP地址、域名 |是|填入 IPv6 地址时不需要中括号|
+| destination_address  | IP地址、域名 |是|填入 IPv6 地址时不需要中括号。多个地址请用逗号分隔|
 | dport_refresh  | 0 - 32767 |否|单位“秒”。不填写表示使用预设值 60 秒。<br>1 至 20 按 20 秒算，大于 32767 按 32767 秒算。<br>设为 0 表示禁用。|
 | encryption_algorithm | AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |否    |AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>不加密 |
 | encryption_password  | 任意字符 |视情况|设置了 encryption_algorithm 且不为 none 时必填|

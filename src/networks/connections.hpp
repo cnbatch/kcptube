@@ -24,7 +24,7 @@
 #include "stun.hpp"
 #include "kcp.hpp"
 
-constexpr size_t gbv_task_count_limit = 4096u;
+constexpr size_t gbv_task_count_limit = 8192u;
 constexpr int32_t gbv_time_gap_seconds = std::numeric_limits<uint8_t>::max();	//seconds
 constexpr int32_t gbv_mux_channels_cleanup = gbv_time_gap_seconds >> 3;	//seconds
 constexpr int32_t gbv_keepalive_timeout = gbv_time_gap_seconds >> 3;	//seconds
@@ -75,12 +75,15 @@ enum class protocol_type : uint8_t { not_care, mux, tcp, udp };
 enum class task_type { sequence, direct, in_place };
 
 uint16_t generate_new_port_number(uint16_t start_port_num, uint16_t end_port_num);
+uint16_t generate_new_port_number(const std::vector<uint16_t> &port_list);
+size_t randomly_pick_index(size_t container_size);
 
 std::string_view feature_to_string(feature ftr);
 std::string protocol_type_to_string(protocol_type prtcl);
 std::string debug_data_to_string(const uint8_t *data, size_t len);
 void debug_print_data(const uint8_t *data, size_t len);
 bool return_false(size_t);
+bool empty_mapping_function();
 
 namespace packet
 {
@@ -118,7 +121,7 @@ namespace packet
 	struct settings_wrapper
 	{
 		uint32_t uid;
-		uint16_t port_start;
+		uint16_t port_start;	// set 0 for both, if is_continuous() returns false
 		uint16_t port_end;
 		uint64_t outbound_bandwidth;
 		uint64_t inbound_bandwidth;
@@ -161,9 +164,9 @@ namespace packet
 
 	int64_t right_now();
 
-	std::unique_ptr<uint8_t[]> create_packet(const uint8_t *input_data, int data_size, int &new_size);
-	std::unique_ptr<uint8_t[]> create_fec_data_packet(const uint8_t *input_data, int data_size, int &new_size, uint32_t fec_sn, uint8_t fec_sub_sn);
-	std::unique_ptr<uint8_t[]> create_fec_redundant_packet(const uint8_t *input_data, int data_size, int &new_size, uint32_t fec_sn, uint8_t fec_sub_sn, uint32_t kcp_conv);
+	std::pair<std::unique_ptr<uint8_t[]>, int> create_packet(const uint8_t *input_data, int data_size);
+	std::pair<std::unique_ptr<uint8_t[]>, int> create_fec_data_packet(const uint8_t *input_data, int data_size, uint32_t fec_sn, uint8_t fec_sub_sn);
+	std::pair<std::unique_ptr<uint8_t[]>, int> create_fec_redundant_packet(const uint8_t *input_data, int data_size, uint32_t fec_sn, uint8_t fec_sub_sn, uint32_t kcp_conv);
 	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const std::vector<uint8_t> &data);
 	std::vector<uint8_t> create_inner_packet(feature ftr, protocol_type prtcl, const uint8_t *input_data, size_t data_size);
 	size_t create_inner_packet(feature ftr, protocol_type prtcl, uint8_t *input_data, size_t data_size);
@@ -219,14 +222,17 @@ using asio::ip::tcp;
 using asio::ip::udp;
 
 class tcp_session;
+class udp_server;
 
 using tcp_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, std::shared_ptr<tcp_session>)>;
-using udp_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
+using udp_server_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, udp_server*)>;
+using udp_client_callback_t = std::function<void(std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type)>;
 using sequence_callback_t = std::function<void(size_t, ttp::task_callback, std::unique_ptr<uint8_t[]>)>;
 using diret_callback_t = std::function<void(ttp::task_callback, std::unique_ptr<uint8_t[]>)>;
 
 void empty_tcp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, std::shared_ptr<tcp_session> tmp2);
-void empty_udp_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
+void empty_udp_server_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, udp_server *tmp3);
+void empty_udp_client_callback(std::unique_ptr<uint8_t[]> tmp1, size_t tmps, udp::endpoint tmp2, asio::ip::port_type tmp3);
 void empty_tcp_disconnect(std::shared_ptr<tcp_session> tmp);
 int empty_kcp_output(const char *, int, void *);
 void empty_kcp_postupdate(void *);
@@ -407,8 +413,8 @@ class udp_server
 public:
 	udp_server() = delete;
 
-	udp_server(asio::io_context &io_context, const udp::endpoint &ep, udp_callback_t callback_func, connection_options conn_options)
-		: task_type_running(task_type::in_place), port_number(ep.port()), resolver(io_context), connection_socket(io_context), callback(callback_func),
+	udp_server(asio::io_context &io_context, const udp::endpoint &ep, udp_server_callback_t callback_func, connection_options conn_options)
+		: task_type_running(task_type::in_place), binded_endpoint(ep), resolver(io_context), connection_socket(io_context), callback(callback_func),
 		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise(ep);
@@ -416,9 +422,9 @@ public:
 	}
 
 	udp_server(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit,
-		const udp::endpoint &ep, udp_callback_t callback_func, connection_options conn_options)
+		const udp::endpoint &ep, udp_server_callback_t callback_func, connection_options conn_options)
 		: task_type_running(task_type::sequence), push_task_seq(task_function), task_limit_reached(gbv_task_count_limit),
-		port_number(ep.port()), resolver(io_context), connection_socket(io_context),
+		binded_endpoint(ep), resolver(io_context), connection_socket(io_context),
 		callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise(ep);
@@ -426,9 +432,9 @@ public:
 	}
 
 	udp_server(asio::io_context &io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit,
-		const udp::endpoint &ep, udp_callback_t callback_func, connection_options conn_options)
+		const udp::endpoint &ep, udp_server_callback_t callback_func, connection_options conn_options)
 		: task_type_running(task_type::direct), push_task(task_function), task_limit_reached(gbv_task_count_limit),
-		port_number(ep.port()), resolver(io_context), connection_socket(io_context),
+		binded_endpoint(ep), resolver(io_context), connection_socket(io_context),
 		callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise(ep);
@@ -448,20 +454,15 @@ private:
 	void start_receive();
 	void handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const asio::error_code &error, std::size_t bytes_transferred);
 
-	asio::ip::port_type get_port_number();
-
-	//ttp::task_thread_pool *task_assigner;
-	//ttp::task_group_pool *sequence_task_pool;
-	const asio::ip::port_type port_number;
 	udp::resolver resolver;
 	udp::socket connection_socket;
+	const udp::endpoint binded_endpoint;
 	udp::endpoint incoming_endpoint;
-	udp_callback_t callback;
+	udp_server_callback_t callback;
 	task_type task_type_running;
 	std::function<bool(size_t)> task_limit_reached = return_false;
 	sequence_callback_t push_task_seq;
 	diret_callback_t push_task;
-	//const size_t task_limit;
 	const ip_only_options ip_version_only;
 	int fib_ingress;
 	int fib_egress;
@@ -472,7 +473,7 @@ class udp_client : public std::enable_shared_from_this<udp_client>
 public:
 	udp_client() = delete;
 
-	udp_client(asio::io_context& io_context, udp_callback_t callback_func, connection_options conn_options)
+	udp_client(asio::io_context& io_context, udp_client_callback_t callback_func, connection_options conn_options)
 		: task_type_running(task_type::in_place), connection_socket(io_context), resolver(io_context),
 		callback(callback_func), last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false), ip_version_only(conn_options.ip_version_only),
@@ -481,7 +482,7 @@ public:
 		initialise();
 	}
 
-	udp_client(asio::io_context& io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, udp_callback_t callback_func, connection_options conn_options)
+	udp_client(asio::io_context& io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, udp_client_callback_t callback_func, connection_options conn_options)
 		: task_type_running(task_type::sequence), push_task_seq(task_function), task_limit_reached(gbv_task_count_limit),
 		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
@@ -491,7 +492,7 @@ public:
 		initialise();
 	}
 
-	udp_client(asio::io_context& io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, udp_callback_t callback_func, connection_options conn_options)
+	udp_client(asio::io_context& io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, udp_client_callback_t callback_func, connection_options conn_options)
 		: task_type_running(task_type::direct), push_task(task_function), task_limit_reached(gbv_task_count_limit),
 		connection_socket(io_context), resolver(io_context), callback(callback_func),
 		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
@@ -536,7 +537,7 @@ protected:
 	udp::socket connection_socket;
 	udp::resolver resolver;
 	udp::endpoint incoming_endpoint;
-	udp_callback_t callback;
+	udp_client_callback_t callback;
 	alignas(64) std::atomic<int64_t> last_receive_time;
 	alignas(64) std::atomic<int64_t> last_send_time;
 	alignas(64) std::atomic<bool> paused;
@@ -561,25 +562,31 @@ public:
 	forwarder(asio::io_context &io_context, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
 		udp_client(io_context,
 			std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
-		kcp(input_kcp), callback(callback_func) {}
+		kcp(input_kcp), callback(std::make_shared<process_data_t>(callback_func)) {}
 
 	forwarder(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
 		udp_client(io_context, task_function, gbv_task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
-		kcp(input_kcp), callback(callback_func) {}
+		kcp(input_kcp), callback(std::make_shared<process_data_t>(callback_func)) {}
 
 	forwarder(asio::io_context &io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
 		udp_client(io_context, task_function, gbv_task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
-		kcp(input_kcp), callback(callback_func) {}
+		kcp(input_kcp), callback(std::make_shared<process_data_t>(callback_func)) {}
+
+	void replace_kcp(std::weak_ptr<KCP::KCP> input_kcp)
+	{
+		kcp = input_kcp;
+	}
 
 	void replace_callback(process_data_t callback_func)
 	{
-		callback = callback_func;
+		std::atomic_store(&callback, std::make_shared<process_data_t>(callback_func));
 	}
 
 	void remove_callback()
 	{
 		kcp.reset();
-		callback = [](std::shared_ptr<KCP::KCP> kcp, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint ep, asio::ip::port_type num) {};
+		auto empty_callback_func = [](std::shared_ptr<KCP::KCP> kcp, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint ep, asio::ip::port_type num) {};
+		std::atomic_store(&callback, std::make_shared<process_data_t>(empty_callback_func));
 	}
 
 private:
@@ -594,12 +601,13 @@ private:
 			stopped.store(true);
 			return;
 		}
-
-		callback(kcp_ptr, std::move(data), data_size, peer, local_port_number);
+		
+		std::shared_ptr<process_data_t> cb_ptr = std::atomic_load(&callback);
+		(*cb_ptr)(kcp_ptr, std::move(data), data_size, peer, local_port_number);
 	}
 
 	std::weak_ptr<KCP::KCP> kcp;
-	process_data_t callback;
+	std::shared_ptr<process_data_t> callback;
 };
 
 struct fec_control_data
@@ -614,6 +622,9 @@ struct fec_control_data
 
 struct kcp_mappings : public std::enable_shared_from_this<kcp_mappings>
 {
+	using encryption_result = std::tuple<std::string, std::unique_ptr<uint8_t[]>, size_t>;
+	using decryption_result_listener = std::tuple<std::string, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, udp_server*>;
+	using decryption_result_forwarder = std::tuple<std::string, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type>;
 	protocol_type connection_protocol;
 #ifdef __cpp_lib_atomic_shared_ptr
 	std::atomic<std::shared_ptr<udp::endpoint>> ingress_source_endpoint;
@@ -624,6 +635,7 @@ struct kcp_mappings : public std::enable_shared_from_this<kcp_mappings>
 	std::shared_ptr<udp::endpoint> egress_target_endpoint;
 	std::shared_ptr<udp::endpoint> egress_previous_target_endpoint;
 #endif
+	std::atomic<size_t> egress_endpoint_index;
 	std::shared_ptr<KCP::KCP> ingress_kcp;
 	std::shared_ptr<KCP::KCP> egress_kcp;
 	alignas(64) std::atomic<udp_server *> ingress_listener;
@@ -639,14 +651,23 @@ struct kcp_mappings : public std::enable_shared_from_this<kcp_mappings>
 	alignas(64) std::atomic<int64_t> hopping_timestamp;
 	alignas(64) std::atomic<bool> hopping_available;
 	std::weak_ptr<kcp_mappings> hopping_testing_ptr;
-	asio::ip::port_type ingress_listen_port;	// client mode only
+	std::shared_ptr<forwarder> hopping_testing_forwarder;
+	std::shared_ptr<udp::endpoint> hopping_target_endpoint;
+	std::atomic<size_t> hopping_endpoint_index;
 	asio::ip::port_type remote_output_port;	// client mode only
 	std::string remote_output_address;	// client mode only
-	std::function<void()> mapping_function = []() {};
+	std::function<bool()> mapping_function = empty_mapping_function;	// true: keeps forwarder; false: remove it
 	fec_control_data fec_ingress_control;
 	fec_control_data fec_egress_control;
-
-	std::shared_ptr<kcp_mappings> self_share() { return shared_from_this(); }
+	std::mutex mutex_encryptions_via_listener;
+	std::list<std::future<encryption_result>> encryptions_via_listener;
+	std::mutex mutex_encryptions_via_forwarder;
+	std::list<std::future<encryption_result>> encryptions_via_forwarder;
+	std::mutex mutex_decryptions_from_forwarder;
+	std::list<std::future<decryption_result_forwarder>> decryptions_from_forwarder;
+	std::atomic<int> listener_encryption_task_count;
+	std::atomic<int> forwarder_encryption_task_count;
+	std::atomic<int> forwarder_decryption_task_count;
 };
 
 struct mux_records
@@ -656,7 +677,7 @@ struct mux_records
 	std::shared_ptr<tcp_session> local_tcp;
 	std::shared_ptr<udp_client> local_udp;
 	udp::endpoint source_endpoint;
-	asio::ip::port_type custom_output_port;
+	udp_server *listener_ptr;
 	std::string custom_output_address;
 	alignas(64) std::atomic<int64_t> last_data_transfer_time;
 };
