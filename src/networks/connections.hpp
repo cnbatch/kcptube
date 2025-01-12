@@ -639,25 +639,25 @@ struct kcp_mappings : public std::enable_shared_from_this<kcp_mappings>
 {
 	protocol_type connection_protocol;
 #ifdef __cpp_lib_atomic_shared_ptr
-	std::atomic<std::shared_ptr<udp::endpoint>> ingress_source_endpoint;
-	std::atomic<std::shared_ptr<udp::endpoint>> egress_target_endpoint;
-	std::atomic<std::shared_ptr<udp::endpoint>> egress_previous_target_endpoint;
+	alignas(64) std::atomic<std::shared_ptr<udp::endpoint>> ingress_source_endpoint;
+	alignas(64) std::atomic<std::shared_ptr<udp::endpoint>> egress_target_endpoint;
+	alignas(64) std::atomic<std::shared_ptr<udp::endpoint>> egress_previous_target_endpoint;
 #else
-	std::shared_ptr<udp::endpoint> ingress_source_endpoint;
-	std::shared_ptr<udp::endpoint> egress_target_endpoint;
-	std::shared_ptr<udp::endpoint> egress_previous_target_endpoint;
+	alignas(64) std::shared_ptr<udp::endpoint> ingress_source_endpoint;
+	alignas(64) std::shared_ptr<udp::endpoint> egress_target_endpoint;
+	alignas(64) std::shared_ptr<udp::endpoint> egress_previous_target_endpoint;
 #endif
-	std::atomic<size_t> egress_endpoint_index;
-	std::shared_ptr<KCP::KCP> ingress_kcp;
-	std::shared_ptr<KCP::KCP> egress_kcp;
+	alignas(64) std::atomic<size_t> egress_endpoint_index;
+	alignas(64) std::shared_ptr<KCP::KCP> ingress_kcp;
+	alignas(64) std::shared_ptr<KCP::KCP> egress_kcp;
 	alignas(64) std::atomic<udp_server *> ingress_listener;
 #ifdef __cpp_lib_atomic_shared_ptr
-	std::atomic<std::shared_ptr<forwarder>> egress_forwarder;
+	alignas(64) std::atomic<std::shared_ptr<forwarder>> egress_forwarder;
 #else
-	std::shared_ptr<forwarder> egress_forwarder;
+	alignas(64) std::shared_ptr<forwarder> egress_forwarder;
 #endif
-	std::shared_ptr<tcp_session> local_tcp;
-	std::shared_ptr<udp_client> local_udp;
+	alignas(64) std::shared_ptr<tcp_session> local_tcp;
+	alignas(64) std::shared_ptr<udp_client> local_udp;
 	alignas(64) std::atomic<int64_t> handshake_setup_time;
 	alignas(64) std::atomic<int64_t> last_data_transfer_time;
 	alignas(64) std::atomic<int64_t> hopping_timestamp;
