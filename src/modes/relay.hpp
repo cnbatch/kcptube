@@ -46,7 +46,7 @@ class relay_mode
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive_egress;
 
 	std::mutex mutex_decryptions_from_listener;
-	std::list<std::future<kcp_mappings::decryption_result_listener>> decryptions_from_listener;
+	std::list<std::future<decryption_result_listener>> decryptions_from_listener;
 	std::atomic<int> listener_decryption_task_count;
 
 	status_records listener_status_counters;
@@ -84,7 +84,7 @@ class relay_mode
 	bool handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr);
 	int kcp_sender_via_listener(const char *buf, int len, void *user);
 	int kcp_sender_via_forwarder(const char *buf, int len, void *user);
-	std::shared_ptr<KCP::KCP> verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv, const udp::endpoint &peer);
+	std::shared_ptr<KCP::KCP> verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv);
 	void data_sender_via_listener(std::shared_ptr<kcp_mappings> kcp_mappings_ptr);
 	void data_sender_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
 	void parallel_encrypt_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);

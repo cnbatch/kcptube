@@ -38,7 +38,7 @@ class server_mode
 	std::map<std::weak_ptr<KCP::KCP>, std::atomic<int64_t>, std::owner_less<>> kcp_keepalive;
 
 	std::mutex mutex_decryptions_from_listener;
-	std::list<std::future<kcp_mappings::decryption_result_listener>> decryptions_from_listener;
+	std::list<std::future<decryption_result_listener>> decryptions_from_listener;
 	std::atomic<int> listener_decryption_task_count;
 
 	std::unique_ptr<mux_tunnel> mux_tunnels;

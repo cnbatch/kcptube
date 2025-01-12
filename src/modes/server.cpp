@@ -76,8 +76,7 @@ bool server_mode::start()
 		try
 		{
 			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
-			auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_listener_network_task_count(number) > gbv_task_count_limit; };
-			udp_servers.emplace_back(std::make_unique<udp_server>(io_context, bind_push_func, bind_check_limit_func, ep, func, conn_options));
+			udp_servers.emplace_back(std::make_unique<udp_server>(io_context, bind_push_func, ep, func, conn_options));
 		}
 		catch (std::exception &ex)
 		{
@@ -364,13 +363,13 @@ void server_mode::sequential_extract()
 		iter = next)
 	{
 		next++;
-		auto& task_results = *iter;
+		auto &task_results = *iter;
 		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
 			break;
-		auto [error_message, data, plain_size, peer, port_number] = task_results.get();
+		auto [error_message, data, plain_size, peer, listener] = task_results.get();
 		if (error_message.empty() && plain_size > 0)
 		{
-			udp_listener_incoming_unpack(std::move(data), plain_size, peer, port_number);
+			udp_listener_incoming_unpack(std::move(data), plain_size, peer, listener);
 		}
 		decryptions_from_listener.erase(iter);
 	}
@@ -738,8 +737,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 		try
 		{
 			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
-			auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_forwarder_network_task_count(number) > gbv_task_count_limit; };
-			target_connector = std::make_shared<udp_client>(io_context, bind_push_func, bind_check_limit_func, udp_func_ap, conn_options);
+			target_connector = std::make_shared<udp_client>(io_context, bind_push_func, udp_func_ap, conn_options);
 		}
 		catch (...)
 		{
@@ -900,8 +898,7 @@ std::shared_ptr<mux_records> server_mode::create_mux_data_udp_connection(uint32_
 		try
 		{
 			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
-			auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_listener_network_task_count(number) > gbv_task_count_limit; };
-			target_connector = std::make_shared<udp_client>(io_context, bind_push_func, bind_check_limit_func, udp_func_ap, conn_options);
+			target_connector = std::make_shared<udp_client>(io_context, bind_push_func, udp_func_ap, conn_options);
 		}
 		catch (...)
 		{
@@ -959,10 +956,10 @@ int server_mode::kcp_sender(const char *buf, int len, void *user)
 
 void server_mode::data_sender(std::shared_ptr<kcp_mappings> kcp_mappings_ptr)
 {
+	kcp_mappings_ptr->listener_encryption_task_count--;
 	if (kcp_mappings_ptr == nullptr)
 		return;
 
-	kcp_mappings_ptr->listener_encryption_task_count--;
 	std::unique_lock locker{ kcp_mappings_ptr->mutex_encryptions_via_listener };
 	if (kcp_mappings_ptr->encryptions_via_listener.empty())
 		return;
@@ -1015,12 +1012,11 @@ void server_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<ui
 
 void server_mode::parallel_encrypt(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size)
 {
-	std::function<kcp_mappings::encryption_result(std::unique_ptr<uint8_t[]>)> func =
-		[this, data_size](std::unique_ptr<uint8_t[]> data) mutable
-		-> kcp_mappings::encryption_result
+	std::function<encryption_result(std::unique_ptr<uint8_t[]>)> func =
+		[this, data_size](std::unique_ptr<uint8_t[]> data) mutable -> encryption_result
 		{
 			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
-			return { error_message, std::move(data), cipher_size };
+			return { std::move(error_message), std::move(data), cipher_size };
 		};
 
 	auto task_future = parallel_encryption_pool->submit(func, std::move(data));
@@ -1033,13 +1029,12 @@ void server_mode::parallel_encrypt(kcp_mappings *kcp_mappings_ptr, std::unique_p
 
 void server_mode::parallel_decrypt(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener_ptr)
 {
-	std::function<kcp_mappings::decryption_result_listener(std::unique_ptr<uint8_t[]>)> func =
-		[this, data_size, peer, listener_ptr](std::unique_ptr<uint8_t[]> data) mutable
-		-> kcp_mappings::decryption_result_listener
+	std::function<decryption_result_listener(std::unique_ptr<uint8_t[]>)> func =
+		[this, data_size, peer, listener_ptr](std::unique_ptr<uint8_t[]> data) mutable -> decryption_result_listener
 		{
 			uint8_t *data_ptr = data.get();
 			auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
-			return { error_message, std::move(data), plain_size, peer, listener_ptr };
+			return { std::move(error_message), std::move(data), plain_size, peer, listener_ptr };
 		};
 
 	auto task_future = parallel_decryption_pool->submit(func, std::move(data));

@@ -240,11 +240,6 @@ void debug_print_data(const uint8_t *data, size_t len)
 	std::cout << ss.str();
 }
 
-bool return_false(size_t)
-{
-	return false;
-}
-
 bool empty_mapping_function()
 {
 	return false;
@@ -1250,7 +1245,7 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 	udp::endpoint copy_of_incoming_endpoint = incoming_endpoint;
 	start_receive();
 
-	if (buffer_cache == nullptr || bytes_transferred == 0)
+	if (buffer_cache == nullptr || bytes_transferred == 0 || task_count.load() > gbv_task_count_limit)
 		return;
 
 	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)
@@ -1260,19 +1255,18 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 
-	if (task_limit_reached((size_t)this))
-		return;
-
 	switch (task_type_running)
 	{
 	case task_type::sequence:
+		task_count++;
 		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-		              { callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); },
+			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); task_count--; },
 		              std::move(buffer_cache));
 		break;
 	case task_type::direct:
+		task_count++;
 		push_task([this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-		          { callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); },
+			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); task_count--; },
 		          std::move(buffer_cache));
 		break;
 	case task_type::in_place:
@@ -1472,6 +1466,9 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 
 	start_receive();
 
+	if (task_count.load() > gbv_task_count_limit)
+		return;
+
 	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)
 	{
 		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
@@ -1479,19 +1476,18 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 
-	if (task_limit_reached((size_t)this))
-		return;
-
 	switch (task_type_running)
 	{
 	case task_type::sequence:
+		task_count++;
 		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
+			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); task_count--; },
 			std::move(buffer_cache));
 		break;
 	case task_type::direct:
+		task_count++;
 		push_task([this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); },
+			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); task_count--; },
 			std::move(buffer_cache));
 		break;
 	case task_type::in_place:

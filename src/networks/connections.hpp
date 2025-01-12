@@ -82,7 +82,6 @@ std::string_view feature_to_string(feature ftr);
 std::string protocol_type_to_string(protocol_type prtcl);
 std::string debug_data_to_string(const uint8_t *data, size_t len);
 void debug_print_data(const uint8_t *data, size_t len);
-bool return_false(size_t);
 bool empty_mapping_function();
 
 namespace packet
@@ -378,12 +377,12 @@ public:
 		: internal_io_context(io_context), resolver(internal_io_context), task_type_running(task_type::in_place), session_callback(callback_func),
 		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress) {}
 
-	tcp_client(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, tcp_callback_t callback_func, connection_options conn_options)
-		: internal_io_context(io_context), resolver(internal_io_context), task_type_running(task_type::sequence), push_task_seq(task_function), task_limit_reached(gbv_task_count_limit),
+	tcp_client(asio::io_context &io_context, sequence_callback_t task_function, tcp_callback_t callback_func, connection_options conn_options)
+		: internal_io_context(io_context), resolver(internal_io_context), task_type_running(task_type::sequence), push_task_seq(task_function),
 		session_callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress) {}
 
-	tcp_client(asio::io_context &io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, tcp_callback_t callback_func, connection_options conn_options)
-		: internal_io_context(io_context), resolver(internal_io_context), task_type_running(task_type::direct), push_task(task_function), task_limit_reached(gbv_task_count_limit),
+	tcp_client(asio::io_context &io_context, diret_callback_t task_function, tcp_callback_t callback_func, connection_options conn_options)
+		: internal_io_context(io_context), resolver(internal_io_context), task_type_running(task_type::direct), push_task(task_function),
 		session_callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress) {}
 
 	std::shared_ptr<tcp_session> connect(asio::error_code &ec);
@@ -398,7 +397,6 @@ private:
 	tcp::resolver resolver;
 	asio::ip::basic_resolver_results<asio::ip::tcp> remote_endpoints;
 	task_type task_type_running;
-	std::function<bool(size_t)> task_limit_reached = return_false;
 	sequence_callback_t push_task_seq;
 	diret_callback_t push_task;
 	const ip_only_options ip_version_only;
@@ -421,21 +419,21 @@ public:
 		start_receive();
 	}
 
-	udp_server(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit,
+	udp_server(asio::io_context &io_context, sequence_callback_t task_function,
 		const udp::endpoint &ep, udp_server_callback_t callback_func, connection_options conn_options)
-		: task_type_running(task_type::sequence), push_task_seq(task_function), task_limit_reached(gbv_task_count_limit),
-		binded_endpoint(ep), resolver(io_context), connection_socket(io_context),
-		callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
+		: task_type_running(task_type::sequence), push_task_seq(task_function),
+		binded_endpoint(ep), resolver(io_context), connection_socket(io_context), callback(callback_func),
+		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise(ep);
 		start_receive();
 	}
 
-	udp_server(asio::io_context &io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit,
+	udp_server(asio::io_context &io_context, diret_callback_t task_function,
 		const udp::endpoint &ep, udp_server_callback_t callback_func, connection_options conn_options)
-		: task_type_running(task_type::direct), push_task(task_function), task_limit_reached(gbv_task_count_limit),
-		binded_endpoint(ep), resolver(io_context), connection_socket(io_context),
-		callback(callback_func), ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
+		: task_type_running(task_type::direct), push_task(task_function),
+		binded_endpoint(ep), resolver(io_context), connection_socket(io_context), callback(callback_func),
+		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise(ep);
 		start_receive();
@@ -460,12 +458,12 @@ private:
 	udp::endpoint incoming_endpoint;
 	udp_server_callback_t callback;
 	task_type task_type_running;
-	std::function<bool(size_t)> task_limit_reached = return_false;
 	sequence_callback_t push_task_seq;
 	diret_callback_t push_task;
 	const ip_only_options ip_version_only;
 	int fib_ingress;
 	int fib_egress;
+	static inline std::atomic<size_t> task_count{};
 };
 
 class udp_client : public std::enable_shared_from_this<udp_client>
@@ -473,7 +471,7 @@ class udp_client : public std::enable_shared_from_this<udp_client>
 public:
 	udp_client() = delete;
 
-	udp_client(asio::io_context& io_context, udp_client_callback_t callback_func, connection_options conn_options)
+	udp_client(asio::io_context &io_context, udp_client_callback_t callback_func, connection_options conn_options)
 		: task_type_running(task_type::in_place), connection_socket(io_context), resolver(io_context),
 		callback(callback_func), last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
 		paused(false), stopped(false), ip_version_only(conn_options.ip_version_only),
@@ -482,22 +480,18 @@ public:
 		initialise();
 	}
 
-	udp_client(asio::io_context& io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, udp_client_callback_t callback_func, connection_options conn_options)
-		: task_type_running(task_type::sequence), push_task_seq(task_function), task_limit_reached(gbv_task_count_limit),
-		connection_socket(io_context), resolver(io_context), callback(callback_func),
-		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false), ip_version_only(conn_options.ip_version_only),
-		fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
+	udp_client(asio::io_context &io_context, sequence_callback_t task_function, udp_client_callback_t callback_func, connection_options conn_options)
+		: task_type_running(task_type::sequence), push_task_seq(task_function), connection_socket(io_context), resolver(io_context),
+		callback(callback_func), last_receive_time(packet::right_now()), last_send_time(packet::right_now()), paused(false), stopped(false),
+		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise();
 	}
 
-	udp_client(asio::io_context& io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, udp_client_callback_t callback_func, connection_options conn_options)
-		: task_type_running(task_type::direct), push_task(task_function), task_limit_reached(gbv_task_count_limit),
-		connection_socket(io_context), resolver(io_context), callback(callback_func),
-		last_receive_time(packet::right_now()), last_send_time(packet::right_now()),
-		paused(false), stopped(false), ip_version_only(conn_options.ip_version_only),
-		fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
+	udp_client(asio::io_context &io_context, diret_callback_t task_function, udp_client_callback_t callback_func, connection_options conn_options)
+		: task_type_running(task_type::direct), push_task(task_function), connection_socket(io_context), resolver(io_context),
+		callback(callback_func), last_receive_time(packet::right_now()), last_send_time(packet::right_now()), paused(false), stopped(false),
+		ip_version_only(conn_options.ip_version_only), fib_ingress(conn_options.fib_ingress), fib_egress(conn_options.fib_egress)
 	{
 		initialise();
 	}
@@ -543,13 +537,12 @@ protected:
 	alignas(64) std::atomic<bool> paused;
 	alignas(64) std::atomic<bool> stopped;
 	task_type task_type_running;
-	std::function<bool(size_t)> task_limit_reached = return_false;
 	sequence_callback_t push_task_seq;
 	diret_callback_t push_task;
-	//const size_t task_limit;
 	const ip_only_options ip_version_only;
 	int fib_ingress;
 	int fib_egress;
+	static inline std::atomic<size_t> task_count{};
 };
 
 class forwarder : public udp_client
@@ -564,12 +557,12 @@ public:
 			std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
 		kcp(input_kcp), callback(std::make_shared<process_data_t>(callback_func)) {}
 
-	forwarder(asio::io_context &io_context, sequence_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
-		udp_client(io_context, task_function, gbv_task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
+	forwarder(asio::io_context &io_context, sequence_callback_t task_function, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
+		udp_client(io_context, task_function, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
 		kcp(input_kcp), callback(std::make_shared<process_data_t>(callback_func)) {}
 
-	forwarder(asio::io_context &io_context, diret_callback_t task_function, std::function<bool(size_t)> gbv_task_count_limit, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
-		udp_client(io_context, task_function, gbv_task_count_limit, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
+	forwarder(asio::io_context &io_context, diret_callback_t task_function, std::shared_ptr<KCP::KCP> input_kcp, process_data_t callback_func, connection_options conn_options) :
+		udp_client(io_context, task_function, std::bind(&forwarder::handle_receive, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), conn_options),
 		kcp(input_kcp), callback(std::make_shared<process_data_t>(callback_func)) {}
 
 	void replace_kcp(std::weak_ptr<KCP::KCP> input_kcp)
@@ -597,10 +590,7 @@ private:
 
 		std::shared_ptr<KCP::KCP> kcp_ptr = kcp.lock();
 		if (kcp_ptr == nullptr)
-		{
-			stopped.store(true);
 			return;
-		}
 		
 		std::shared_ptr<process_data_t> cb_ptr = std::atomic_load(&callback);
 		(*cb_ptr)(kcp_ptr, std::move(data), data_size, peer, local_port_number);
@@ -620,11 +610,33 @@ struct fec_control_data
 	fecpp::fec_code fecc;
 };
 
+struct encryption_result
+{
+	std::string error_message;
+	std::unique_ptr<uint8_t[]> data;
+	size_t data_size;
+};
+
+struct decryption_result_listener
+{
+	std::string error_message;
+	std::unique_ptr<uint8_t[]> data;
+	size_t data_size;
+	udp::endpoint udp_endpoint;
+	udp_server *listener;
+};
+
+struct decryption_result_forwarder
+{
+	std::string error_message;
+	std::unique_ptr<uint8_t[]> data;
+	size_t data_size;
+	udp::endpoint udp_endpoint;
+	asio::ip::port_type port_number;
+};
+
 struct kcp_mappings : public std::enable_shared_from_this<kcp_mappings>
 {
-	using encryption_result = std::tuple<std::string, std::unique_ptr<uint8_t[]>, size_t>;
-	using decryption_result_listener = std::tuple<std::string, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, udp_server*>;
-	using decryption_result_forwarder = std::tuple<std::string, std::unique_ptr<uint8_t[]>, size_t, udp::endpoint, asio::ip::port_type>;
 	protocol_type connection_protocol;
 #ifdef __cpp_lib_atomic_shared_ptr
 	std::atomic<std::shared_ptr<udp::endpoint>> ingress_source_endpoint;

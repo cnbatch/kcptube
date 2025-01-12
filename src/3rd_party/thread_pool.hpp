@@ -13,7 +13,7 @@
 #include <future>             // std::future, std::promise
 #include <memory>             // std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
 #include <mutex>              // std::mutex, std::scoped_lock, std::unique_lock
-#include <list>
+#include <deque>
 #include <set>
 #include <thread>             // std::thread
 #include <type_traits>        // std::common_type_t, std::decay_t, std::invoke_result_t, std::is_void_v
@@ -29,7 +29,8 @@ namespace ttp
 	using task_callback = std::function<void(std::unique_ptr<uint8_t[]>)>;
 	using task_void_callback = std::function<void()>;
 	using calculate_func = size_t(*)(size_t, concurrency_t);
-	using task_queue = std::list<std::tuple<task_callback, std::unique_ptr<uint8_t[]>>>;
+	using task_queue = std::deque<task_callback>;
+	using parameter_queue = std::deque<std::unique_ptr<uint8_t[]>>;
 
 	static size_t always_zero(size_t input_value, concurrency_t thread_count) noexcept
 	{
@@ -139,7 +140,8 @@ namespace ttp
 		{
 			{
 				std::scoped_lock tasks_lock(tasks_mutex);
-				tasks.push_back({ task_function, std::move(data) });
+				tasks.emplace_back(std::move(task_function));
+				parameters.emplace_back(std::move(data));
 				++tasks_total;
 			}
 			task_available_cv.notify_one();
@@ -301,10 +303,10 @@ namespace ttp
 				task_available_cv.wait(tasks_lock, [this] { return !tasks.empty() || !running; });
 				if (running)
 				{
-					std::tuple tuple_values = std::move(tasks.front());
-					task_callback task = std::get<0>(tuple_values);
-					std::unique_ptr<uint8_t[]> data = std::move(std::get<1>(tuple_values));
+					task_callback task = std::move(tasks.front());
+					std::unique_ptr<uint8_t[]> data = std::move(parameters.front());
 					tasks.pop_front();
+					parameters.pop_front();
 					tasks_lock.unlock();
 					task(std::move(data));
 					tasks_lock.lock();
@@ -333,6 +335,8 @@ namespace ttp
 		* @brief A queue of tasks to be executed by the threads.
 		*/
 		task_queue tasks = {};
+
+		parameter_queue parameters = {};
 
 		/**
 		* @brief An atomic variable to keep track of the total number of unfinished tasks - either still in the queue, or running in a thread.
@@ -384,6 +388,7 @@ namespace ttp
 			forwarder_network_tasks_total_of_threads(std::make_unique<std::atomic<size_t>[]>(thread_count))
 		{
 			task_queue_of_threads = std::make_unique<task_queue[]>(thread_count);
+			parameter_queue_of_threads = std::make_unique<parameter_queue[]>(thread_count);
 			tasks_total_of_threads = std::make_unique<std::atomic<size_t>[]>(thread_count);
 			tasks_mutex_of_threads = std::make_unique<std::mutex[]>(thread_count);
 			task_available_cv = std::make_unique<std::condition_variable[]>(thread_count);
@@ -490,7 +495,8 @@ namespace ttp
 			{
 				std::scoped_lock tasks_lock(tasks_mutex_of_threads[thread_number]);
 				auto task_function = [void_task_function](std::unique_ptr<uint8_t[]> data) { void_task_function(); };
-				task_queue_of_threads[thread_number].push_back({ task_function, std::unique_ptr<uint8_t[]>{} });
+				task_queue_of_threads[thread_number].emplace_back(std::move(task_function));
+				parameter_queue_of_threads[thread_number].emplace_back(std::unique_ptr<uint8_t[]>{});
 				++tasks_total_of_threads[thread_number];
 			}
 			task_available_cv[thread_number].notify_one();
@@ -507,7 +513,8 @@ namespace ttp
 			{
 				std::scoped_lock tasks_lock(tasks_mutex_of_threads[thread_number]);
 				auto task_function = [void_task_function](std::unique_ptr<uint8_t[]> data) { void_task_function(); };
-				task_queue_of_threads[thread_number].push_back({ task_function, std::unique_ptr<uint8_t[]>{} });
+				task_queue_of_threads[thread_number].emplace_back(std::move(task_function));
+				parameter_queue_of_threads[thread_number].emplace_back(std::unique_ptr<uint8_t[]>{});
 				++tasks_total_of_threads[thread_number];
 			}
 			task_available_cv[thread_number].notify_one();
@@ -524,7 +531,8 @@ namespace ttp
 			size_t thread_number = assign_thread(number, thread_count);
 			{
 				std::scoped_lock tasks_lock(tasks_mutex_of_threads[thread_number]);
-				task_queue_of_threads[thread_number].push_back({ task_function, std::move(data) });
+				task_queue_of_threads[thread_number].emplace_back(std::move(task_function));
+				parameter_queue_of_threads[thread_number].emplace_back(std::move(data));
 				++tasks_total_of_threads[thread_number];
 			}
 			task_available_cv[thread_number].notify_one();
@@ -540,7 +548,8 @@ namespace ttp
 
 			{
 				std::scoped_lock tasks_lock(tasks_mutex_of_threads[thread_number]);
-				task_queue_of_threads[thread_number].push_back({ task_function, std::move(data) });
+				task_queue_of_threads[thread_number].emplace_back(std::move(task_function));
+				parameter_queue_of_threads[thread_number].emplace_back(std::move(data));
 				++tasks_total_of_threads[thread_number];
 			}
 			task_available_cv[thread_number].notify_one();
@@ -556,7 +565,8 @@ namespace ttp
 						task_function(std::move(data));
 						listener_network_tasks_total_of_threads[thread_number]--;
 					};
-				task_queue_of_threads[thread_number].push_back({ task_func, std::move(data) });
+				task_queue_of_threads[thread_number].emplace_back(std::move(task_func));
+				parameter_queue_of_threads[thread_number].emplace_back(std::move(data));
 				tasks_total_of_threads[thread_number]++;
 				listener_network_tasks_total_of_threads[thread_number]++;
 			}
@@ -573,7 +583,8 @@ namespace ttp
 						task_function(std::move(data));
 						forwarder_network_tasks_total_of_threads[thread_number]--;
 					};
-				task_queue_of_threads[thread_number].push_back({ task_func, std::move(data) });
+				task_queue_of_threads[thread_number].emplace_back(std::move(task_func));
+				parameter_queue_of_threads[thread_number].emplace_back(std::move(data));
 				tasks_total_of_threads[thread_number]++;
 				forwarder_network_tasks_total_of_threads[thread_number]++;
 			}
@@ -590,7 +601,8 @@ namespace ttp
 					task_callback task_function = task_function_run_later.get();
 					task_function(std::move(data));
 				};
-				task_queue_of_threads[thread_number].push_back({ task_func, std::move(data) });
+				task_queue_of_threads[thread_number].emplace_back(std::move(task_func));
+				parameter_queue_of_threads[thread_number].emplace_back(std::move(data));
 				++tasks_total_of_threads[thread_number];
 			}
 			task_available_cv[thread_number].notify_one();
@@ -757,10 +769,10 @@ namespace ttp
 				task_available_cv[thread_number].wait(tasks_lock, [this, thread_number] { return !task_queue_of_threads[thread_number].empty() || !running; });
 				if (running)
 				{
-					std::tuple tuple_values = std::move(task_queue_of_threads[thread_number].front());
-					task_callback task = std::get<0>(tuple_values);
-					std::unique_ptr<uint8_t[]> data = std::move(std::get<1>(tuple_values));
+					task_callback task = std::move(task_queue_of_threads[thread_number].front());
+					std::unique_ptr<uint8_t[]> data = std::move(parameter_queue_of_threads[thread_number].front());
 					task_queue_of_threads[thread_number].pop_front();
+					parameter_queue_of_threads[thread_number].pop_front();
 					tasks_lock.unlock();
 					task(std::move(data));
 					tasks_lock.lock();
@@ -789,6 +801,8 @@ namespace ttp
 		* @brief Some queues of tasks to be executed by the threads.
 		*/
 		std::unique_ptr<task_queue[]> task_queue_of_threads;
+
+		std::unique_ptr<parameter_queue[]> parameter_queue_of_threads;
 
 		/**
 		* @brief Some atomic variables to keep track of the total number of unfinished tasks - either still in the queue, or running in a thread.

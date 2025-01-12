@@ -188,9 +188,8 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(size_t index, asio::ip
 	try
 	{
 		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
-		auto bind_check_limit_func = [this](size_t number) -> bool {return sequence_task_pool.get_forwarder_network_task_count(number) > gbv_task_count_limit; };
 		auto udp_func = std::bind(&test_mode::handle_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, bind_check_limit_func, handshake_kcp, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}

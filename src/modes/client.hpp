@@ -77,7 +77,7 @@ class client_mode
 	void udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 
 	std::shared_ptr<KCP::KCP> pick_one_from_kcp_channels(protocol_type prtcl);
-	std::shared_ptr<KCP::KCP> verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv, const udp::endpoint &peer);
+	std::shared_ptr<KCP::KCP> verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv);
 	int kcp_sender(const char *buf, int len, void *user);
 	void data_sender(std::shared_ptr<kcp_mappings> kcp_mappings_ptr);
 	void data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
