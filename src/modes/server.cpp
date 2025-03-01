@@ -956,9 +956,9 @@ int server_mode::kcp_sender(const char *buf, int len, void *user)
 
 void server_mode::data_sender(std::shared_ptr<kcp_mappings> kcp_mappings_ptr)
 {
-	kcp_mappings_ptr->listener_encryption_task_count--;
 	if (kcp_mappings_ptr == nullptr)
 		return;
+	kcp_mappings_ptr->listener_encryption_task_count--;
 
 	std::unique_lock locker{ kcp_mappings_ptr->mutex_encryptions_via_listener };
 	if (kcp_mappings_ptr->encryptions_via_listener.empty())

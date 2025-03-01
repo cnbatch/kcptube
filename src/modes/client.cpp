@@ -795,9 +795,9 @@ int client_mode::kcp_sender(const char *buf, int len, void *user)
 
 void client_mode::data_sender(std::shared_ptr<kcp_mappings> kcp_mappings_ptr)
 {
-	kcp_mappings_ptr->forwarder_encryption_task_count--;
 	if (kcp_mappings_ptr == nullptr)
 		return;
+	kcp_mappings_ptr->forwarder_encryption_task_count--;
 	std::unique_lock locker{ kcp_mappings_ptr->mutex_encryptions_via_forwarder };
 	if (kcp_mappings_ptr->encryptions_via_forwarder.empty())
 		return;

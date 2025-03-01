@@ -173,7 +173,7 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 	if (length <= 0)
 		return { "empty data", 0 };
 
-	bool no_encryption = false;
+	bool plain_xor = false;
 	size_t cipher_length = 0;
 	std::array<uint8_t, 2> iv_raw{};
 	std::string error_message;
@@ -207,12 +207,16 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 		error_message = xcc20.encrypt(password, data_ptr, length, data_ptr, cipher_length);
 		break;
 	}
+	case encryption_mode::plain_xor:
+	{
+		plain_xor = true;
+		[[fallthrough]];
+	}
 	default:
 	{
 		thread_local simple_hashing checksum_hash;
 		iv_raw = checksum_hash.checksum16(data_ptr, length);
 		cipher_length = length;
-		no_encryption = true;
 		break;
 	}
 	};
@@ -223,7 +227,7 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 		cipher_length += constant_values::iv_checksum_block_size;
 	}
 
-	if (no_encryption)
+	if (plain_xor)
 		xor_forward(data_ptr, cipher_length);
 
 	return { std::move(error_message), cipher_length };
@@ -231,7 +235,7 @@ std::pair<std::string, size_t> encrypt_data(const std::string &password, encrypt
 
 std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode mode, const void *data_ptr, int length, std::string &error_message)
 {
-	bool no_encryption = false;
+	bool plain_xor = false;
 	size_t cipher_length = length;
 	std::array<uint8_t, 2> iv_raw{};
 	std::vector<uint8_t> cipher_cache(length + constant_values::encryption_block_reserve + constant_values::iv_checksum_block_size);
@@ -274,12 +278,16 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 			cipher_cache.resize(cipher_length + constant_values::iv_checksum_block_size);
 		break;
 	}
+	case encryption_mode::plain_xor:
+	{
+		plain_xor = true;
+		[[fallthrough]];
+	}
 	default:
 	{
 		thread_local simple_hashing checksum_hash;
 		iv_raw = checksum_hash.checksum16(data_ptr, length);
 		cipher_length = length;
-		no_encryption = true;
 		cipher_cache.resize(cipher_length + constant_values::iv_checksum_block_size);
 		std::copy_n((const uint8_t *)data_ptr, length, cipher_cache.begin());
 		break;
@@ -291,7 +299,7 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 		*(uint16_t*)(cipher_cache.data() + cipher_length) = *(uint16_t*)iv_raw.data();
 	}
 
-	if (no_encryption)
+	if (plain_xor)
 		xor_forward(cipher_cache);
 
 	return cipher_cache;
@@ -299,7 +307,7 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 
 std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode mode, std::vector<uint8_t> &&input_data, std::string &error_message)
 {
-	bool no_encryption = false;
+	bool plain_xor = false;
 	std::array<uint8_t, 2> iv_raw{};
 	switch (mode)
 	{
@@ -339,6 +347,11 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 			return input_data;
 		break;
 	}
+	case encryption_mode::plain_xor:
+	{
+		plain_xor = true;
+		[[fallthrough]];
+	}
 	default:
 	{
 		thread_local simple_hashing checksum_hash;
@@ -351,7 +364,7 @@ std::vector<uint8_t> encrypt_data(const std::string &password, encryption_mode m
 	input_data.resize(cipher_length + constant_values::iv_checksum_block_size);
 	*(uint16_t*)(input_data.data() + cipher_length) = *(uint16_t*)iv_raw.data();
 
-	if (no_encryption)
+	if (plain_xor)
 		xor_forward(input_data);
 
 	return input_data;
@@ -398,10 +411,14 @@ std::pair<std::string, size_t> decrypt_data(const std::string &password, encrypt
 		error_message = xcc20.decrypt(password, data_ptr, input_length, data_ptr, data_length);
 		break;
 	}
-	default:
+	case encryption_mode::plain_xor:
 	{
 		xor_backward(data_ptr, length);
-		*(uint16_t*)iv_raw.data() = *(uint16_t*)(data_ptr + input_length);
+		*(uint16_t *)iv_raw.data() = *(uint16_t *)(data_ptr + input_length);
+		[[fallthrough]];
+	}
+	default:
+	{
 		data_length = input_length;
 		thread_local simple_hashing checksum_hash;
 		std::array<uint8_t, 2> checksum16_value = checksum_hash.checksum16(data_ptr, data_length);
@@ -458,13 +475,17 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 		data_cache = xcc20.decrypt(password, std::move(data_cache), error_message);
 		break;
 	}
-	default:
+	case encryption_mode::plain_xor:
 	{
 		data_cache.resize(length);
 		std::copy_n((const uint8_t *)data_ptr, length, data_cache.begin());
 		xor_backward(data_cache);
-		*(uint16_t*)iv_raw.data() = *(uint16_t*)(data_cache.data() + data_length);
+		*(uint16_t *)iv_raw.data() = *(uint16_t *)(data_cache.data() + data_length);
 		data_cache.resize(data_length);
+		[[fallthrough]];
+	}
+	default:
+	{
 		thread_local simple_hashing checksum_hash;
 		std::array<uint8_t, 2> checksum16_value = checksum_hash.checksum16(data_cache.data(), data_length);
 		if (checksum16_value != iv_raw)
@@ -527,10 +548,14 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 			return input_data;
 		break;
 	}
-	default:
+	case encryption_mode::plain_xor:
 	{
 		xor_backward(input_data);
-		*(uint16_t*)iv_raw.data() = *(uint16_t*)(input_data.data() + data_length);
+		*(uint16_t *)iv_raw.data() = *(uint16_t *)(input_data.data() + data_length);
+		[[fallthrough]];
+	}
+	default:
+	{
 		thread_local simple_hashing checksum_hash;
 		std::array<uint8_t, 2> checksum16_value = checksum_hash.checksum16(input_data.data(), input_data.size());
 		if (checksum16_value != iv_raw)

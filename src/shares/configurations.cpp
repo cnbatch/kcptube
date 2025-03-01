@@ -169,6 +169,9 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				case strhash("none"):
 					current_settings->encryption = encryption_mode::none;
 					break;
+				case strhash("xor"):
+					current_settings->encryption = encryption_mode::plain_xor;
+					break;
 				case strhash("aes-gcm"):
 					current_settings->encryption = encryption_mode::aes_gcm;
 					break;
@@ -656,6 +659,7 @@ void check_settings(user_settings &current_user_settings, std::vector<std::strin
 	if (current_user_settings.encryption != encryption_mode::empty &&
 		current_user_settings.encryption != encryption_mode::unknow &&
 		current_user_settings.encryption != encryption_mode::none &&
+		current_user_settings.encryption != encryption_mode::plain_xor &&
 		current_user_settings.encryption_password.empty())
 	{
 		error_msg.emplace_back("encryption_password is not set");

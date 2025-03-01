@@ -1366,9 +1366,9 @@ std::shared_ptr<KCP::KCP> relay_mode::verify_kcp_conv(std::shared_ptr<KCP::KCP> 
 
 void relay_mode::data_sender_via_listener(std::shared_ptr<kcp_mappings> kcp_mappings_ptr)
 {
-	kcp_mappings_ptr->listener_encryption_task_count--;
 	if (kcp_mappings_ptr == nullptr)
 		return;
+	kcp_mappings_ptr->listener_encryption_task_count--;
 	std::unique_lock locker{ kcp_mappings_ptr->mutex_encryptions_via_listener };
 	if (kcp_mappings_ptr->encryptions_via_listener.empty())
 		return;

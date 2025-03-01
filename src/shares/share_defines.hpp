@@ -26,7 +26,7 @@ constexpr std::string_view app_name = "kcptube";
 
 enum class running_mode { unknow, server, client, relay, relay_ingress, relay_egress };
 enum class kcp_mode { unknow, regular1, regular2, regular3, regular4, regular5, fast1, fast2, fast3, fast4, fast5, fast6, manual };
-enum class encryption_mode { unknow, empty, none, aes_gcm, aes_ocb, chacha20, xchacha20 };
+enum class encryption_mode { unknow, empty, none, plain_xor, aes_gcm, aes_ocb, chacha20, xchacha20 };
 enum class ip_only_options : uint8_t { not_set = 0, ipv4 = 1, ipv6 = 2 };
 
 namespace constant_values
