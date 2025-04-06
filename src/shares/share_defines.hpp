@@ -188,13 +188,13 @@ struct fec_container
 };
 #pragma pack(pop)
 
-struct task_pool_colloector
-{
-	ttp::task_thread_pool *parallel_encryption_pool;
-	ttp::task_thread_pool *parallel_decryption_pool;
-	ttp::task_thread_pool *listener_parallels;
-	ttp::task_thread_pool *forwarder_parallels;
-};
+//struct task_pool_colloector
+//{
+//	ttp::task_thread_pool *parallel_encryption_pool;
+//	ttp::task_thread_pool *parallel_decryption_pool;
+//	ttp::task_thread_pool *listener_parallels;
+//	ttp::task_thread_pool *forwarder_parallels;
+//};
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
 std::set<uint16_t> port_range_to_vector(const std::string &input_str, std::vector<std::string> &error_msg, const std::string &acting_role);

@@ -23,7 +23,7 @@ bool relay_mode::start()
 	udp_server_callback_t func = std::bind(&relay_mode::udp_listener_incoming, this, _1, _2, _3, _4);
 
 	const std::vector<uint16_t> &listen_ports = current_settings.ingress->listen_ports;
-	target_address.resize(current_settings.destination_address_list.size());
+	target_address.resize(current_settings.egress->destination_address_list.size());
 	remote_destination_ports = std::make_shared<std::vector<uint16_t>>(current_settings.egress->destination_ports);
 
 	ip_only_options ip_only = current_settings.ingress->ip_version_only;
@@ -77,8 +77,9 @@ bool relay_mode::start()
 				.fib_ingress = current_settings.fib_ingress,
 				.fib_egress = current_settings.fib_egress
 			};
-			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
-			udp_servers.emplace_back(std::make_unique<udp_server>(io_context, bind_push_func, ep, func, conn_options));
+			//auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
+			//udp_servers.emplace_back(std::make_unique<udp_server>(io_context, bind_push_func, ep, func, conn_options));
+			udp_servers.emplace_back(std::make_unique<udp_server>(io_context, ep, func, conn_options));
 		}
 		catch (std::exception &ex)
 		{
@@ -158,11 +159,11 @@ void relay_mode::udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t d
 
 	listener_status_counters.ingress_raw_traffic += data_size;
 
-	if (listener_parallels != nullptr)
-	{
-		parallel_decrypt_via_listener(std::move(data), data_size, peer, listener_ptr);
-		return;
-	}
+	//if (listener_parallels != nullptr)
+	//{
+	//	parallel_decrypt_via_listener(std::move(data), data_size, peer, listener_ptr);
+	//	return;
+	//}
 
 	auto [error_message, plain_size] = decrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, data_ptr, (int)data_size);
 	if (!error_message.empty())
@@ -207,7 +208,7 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 			if (kcp_mappings_ptr == nullptr)
 				return;
 
-			original_data.first = std::make_unique<uint8_t[]>(redundant_data_size);
+			original_data.first = std::make_unique_for_overwrite<uint8_t[]>(redundant_data_size);
 			original_data.second = redundant_data_size;
 			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
 			kcp_mappings_ptr->fec_ingress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
@@ -222,7 +223,7 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 		{
 			data_ptr = kcp_data_ptr;
 			packet_data_size = kcp_data_size;
-			original_data.first = std::make_unique<uint8_t[]>(kcp_data_size);
+			original_data.first = std::make_unique_for_overwrite<uint8_t[]>(kcp_data_size);
 			original_data.second = kcp_data_size;
 			std::copy_n(kcp_data_ptr, kcp_data_size, original_data.first.get());
 		}
@@ -273,7 +274,7 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 		if (buffer_size <= 0)
 			break;
 
-		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(buffer_size);
+		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique_for_overwrite<uint8_t[]>(buffer_size);
 		uint8_t *buffer_ptr = buffer_cache.get();
 
 		int kcp_data_size = 0;
@@ -331,42 +332,42 @@ void relay_mode::udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, s
 	}
 }
 
-void relay_mode::sequential_extract()
-{
-	listener_decryption_task_count--;
-	std::unique_lock locker{ mutex_decryptions_from_listener };
-	if (decryptions_from_listener.empty())
-		return;
-
-	for (auto iter = decryptions_from_listener.begin(), next = iter;
-		iter != decryptions_from_listener.end();
-		iter = next)
-	{
-		next++;
-		auto &task_results = *iter;
-		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-			break;
-		auto [error_message, data, plain_size, peer, listener] = task_results.get();
-		if (error_message.empty() && plain_size > 0)
-		{
-			udp_listener_incoming_unpack(std::move(data), plain_size, peer, listener);
-		}
-		decryptions_from_listener.erase(iter);
-	}
-
-	if (decryptions_from_listener.empty())
-		return;
-
-	locker.unlock();
-
-	if (listener_decryption_task_count.load() > 0)
-		return;
-
-	listener_decryption_task_count--;
-	sequence_task_pool.push_task(std::this_thread::get_id(),
-		[this](std::unique_ptr<uint8_t[]>) { sequential_extract(); },
-		std::unique_ptr<uint8_t[]>{});
-}
+//void relay_mode::sequential_extract()
+//{
+//	listener_decryption_task_count--;
+//	std::unique_lock locker{ mutex_decryptions_from_listener };
+//	if (decryptions_from_listener.empty())
+//		return;
+//
+//	for (auto iter = decryptions_from_listener.begin(), next = iter;
+//		iter != decryptions_from_listener.end();
+//		iter = next)
+//	{
+//		next++;
+//		auto &task_results = *iter;
+//		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+//			break;
+//		auto [error_message, data, plain_size, peer, listener] = task_results.get();
+//		if (error_message.empty() && plain_size > 0)
+//		{
+//			udp_listener_incoming_unpack(std::move(data), plain_size, peer, listener);
+//		}
+//		decryptions_from_listener.erase(iter);
+//	}
+//
+//	if (decryptions_from_listener.empty())
+//		return;
+//
+//	locker.unlock();
+//
+//	if (listener_decryption_task_count.load() > 0)
+//		return;
+//
+//	listener_decryption_task_count--;
+//	sequence_task_pool.push_task(std::this_thread::get_id(),
+//		[this](std::unique_ptr<uint8_t[]>) { sequential_extract(); },
+//		std::unique_ptr<uint8_t[]>{});
+//}
 
 void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, udp_server *listener_ptr)
 {
@@ -439,7 +440,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 			{
 			case feature::initialise:
 			{
-				std::unique_ptr<uint8_t[]> settings_data_ptr = std::make_unique<uint8_t[]>(unpacked_data_size);
+				std::unique_ptr<uint8_t[]> settings_data_ptr = std::make_unique_for_overwrite<uint8_t[]>(unpacked_data_size);
 				packet::convert_wrapper_byte_order(unpacked_data_ptr, settings_data_ptr.get(), unpacked_data_size);
 				const packet::settings_wrapper *basic_settings_ptr = packet::get_initialise_details_from_unpacked_data(settings_data_ptr.get());
 				packet::settings_wrapper basic_settings = *basic_settings_ptr;
@@ -466,9 +467,10 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 						.fib_ingress = current_settings.fib_ingress,
 						.fib_egress = current_settings.fib_egress
 					};
-					auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
+					//auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
 					auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-					udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, handshake_kcp_egress, udp_func, conn_options);
+					//udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, handshake_kcp_egress, udp_func, conn_options);
+					udp_forwarder = std::make_shared<forwarder>(io_context, handshake_kcp_egress, udp_func, conn_options);
 					if (udp_forwarder == nullptr)
 					{
 						expiring_handshakes[handshake_kcp_mappings_ptr] = packet::right_now();
@@ -506,7 +508,7 @@ void relay_mode::udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]>
 						return kcp_sender_via_forwarder(buf, len, user);
 					});
 
-				size_t selected_index = randomly_pick_index(current_settings.destination_address_list.size());
+				size_t selected_index = randomly_pick_index(current_settings.egress->destination_address_list.size());
 				std::shared_ptr<udp::endpoint> egress_target_endpoint = get_udp_target(udp_forwarder, selected_index);
 				handshake_kcp_mappings->egress_target_endpoint = egress_target_endpoint;
 				handshake_kcp_mappings->egress_previous_target_endpoint = std::make_shared<udp::endpoint>(*egress_target_endpoint);
@@ -593,11 +595,11 @@ void relay_mode::udp_forwarder_incoming(std::shared_ptr<KCP::KCP> kcp_ptr, std::
 
 	forwarder_status_counters.ingress_raw_traffic += data_size;
 
-	if (forwarder_parallels != nullptr)
-	{
-		parallel_decrypt_via_forwarder(kcp_ptr, std::move(data), data_size, peer, local_port_number);
-		return;
-	}
+	//if (forwarder_parallels != nullptr)
+	//{
+	//	parallel_decrypt_via_forwarder(kcp_ptr, std::move(data), data_size, peer, local_port_number);
+	//	return;
+	//}
 
 	uint8_t *data_ptr = data.get();
 	auto [error_message, plain_size] = decrypt_data(current_settings.egress->encryption_password, current_settings.egress->encryption, data_ptr, (int)data_size);
@@ -636,7 +638,7 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 			kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
 			if (kcp_mappings_ptr == nullptr)
 				return;
-			original_data.first = std::make_unique<uint8_t[]>(redundant_data_size);
+			original_data.first = std::make_unique_for_overwrite<uint8_t[]>(redundant_data_size);
 			original_data.second = redundant_data_size;
 			std::copy_n(redundant_data_ptr, redundant_data_size, original_data.first.get());
 			kcp_mappings_ptr->fec_egress_control.fec_rcv_cache[fec_sn][fec_sub_sn] = std::move(original_data);
@@ -649,7 +651,7 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 		{
 			data_ptr = kcp_data_ptr;
 			packet_data_size = kcp_data_size;
-			original_data.first = std::make_unique<uint8_t[]>(kcp_data_size);
+			original_data.first = std::make_unique_for_overwrite<uint8_t[]>(kcp_data_size);
 			original_data.second = kcp_data_size;
 			std::copy_n(kcp_data_ptr, kcp_data_size, original_data.first.get());
 	
@@ -687,7 +689,7 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 		if (buffer_size <= 0)
 			break;
 
-		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(buffer_size);
+		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique_for_overwrite<uint8_t[]>(buffer_size);
 		uint8_t *buffer_ptr = buffer_cache.get();
 
 		int kcp_data_size = 0;
@@ -701,7 +703,7 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 		{
 			if (conv == 0)
 			{
-				std::unique_ptr<uint8_t[]> settings_data_ptr = std::make_unique<uint8_t[]>(unbacked_data_size);
+				std::unique_ptr<uint8_t[]> settings_data_ptr = std::make_unique_for_overwrite<uint8_t[]>(unbacked_data_size);
 				packet::convert_wrapper_byte_order(unbacked_data_ptr, settings_data_ptr.get(), unbacked_data_size);
 				const packet::settings_wrapper *basic_settings_ptr = packet::get_initialise_details_from_unpacked_data(settings_data_ptr.get());
 				packet::settings_wrapper basic_settings = *basic_settings_ptr;
@@ -795,49 +797,49 @@ void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr
 	}
 }
 
-void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr)
-{
-	kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)kcp_ptr->GetUserData();
-	kcp_mappings_ptr->forwarder_decryption_task_count--;
-	std::unique_lock locker{ kcp_mappings_ptr->mutex_decryptions_from_forwarder };
-	if (kcp_mappings_ptr->decryptions_from_forwarder.empty())
-		return;
-
-	for (auto iter = kcp_mappings_ptr->decryptions_from_forwarder.begin(), next = iter;
-		iter != kcp_mappings_ptr->decryptions_from_forwarder.end();
-		iter = next)
-	{
-		next++;
-		auto &task_results = *iter;
-		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-			break;
-		auto [error_message, data, plain_size, peer, local_port_number] = task_results.get();
-		if (error_message.empty() && plain_size > 0)
-		{
-			udp_forwarder_incoming_unpack(kcp_ptr, std::move(data), plain_size, peer, local_port_number);
-		}
-		kcp_mappings_ptr->decryptions_from_forwarder.erase(iter);
-	}
-
-	if (kcp_mappings_ptr->decryptions_from_forwarder.empty())
-		return;
-	locker.unlock();
-
-	if (kcp_mappings_ptr->forwarder_decryption_task_count.load() > 0)
-		return;
-
-	std::weak_ptr<KCP::KCP> kcp_session_ptr_weak = kcp_ptr;
-	kcp_mappings_ptr->forwarder_decryption_task_count++;
-	sequence_task_pool.push_task_forwarder((size_t)kcp_mappings_ptr,
-		[this, kcp_session_ptr_weak](std::unique_ptr<uint8_t[]>)
-		{
-			auto kcp_ptr = kcp_session_ptr_weak.lock();
-			if (kcp_ptr == nullptr) return;
-			kcp_mappings* kcp_mappings_ptr = (kcp_mappings*)kcp_ptr->GetUserData();
-			std::lock_guard locker{ kcp_mappings_ptr->mutex_decryptions_from_forwarder };
-			udp_forwarder_incoming_unpack(kcp_ptr);
-		}, std::unique_ptr<uint8_t[]>{});
-}
+//void relay_mode::udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr)
+//{
+//	kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)kcp_ptr->GetUserData();
+//	kcp_mappings_ptr->forwarder_decryption_task_count--;
+//	std::unique_lock locker{ kcp_mappings_ptr->mutex_decryptions_from_forwarder };
+//	if (kcp_mappings_ptr->decryptions_from_forwarder.empty())
+//		return;
+//
+//	for (auto iter = kcp_mappings_ptr->decryptions_from_forwarder.begin(), next = iter;
+//		iter != kcp_mappings_ptr->decryptions_from_forwarder.end();
+//		iter = next)
+//	{
+//		next++;
+//		auto &task_results = *iter;
+//		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+//			break;
+//		auto [error_message, data, plain_size, peer, local_port_number] = task_results.get();
+//		if (error_message.empty() && plain_size > 0)
+//		{
+//			udp_forwarder_incoming_unpack(kcp_ptr, std::move(data), plain_size, peer, local_port_number);
+//		}
+//		kcp_mappings_ptr->decryptions_from_forwarder.erase(iter);
+//	}
+//
+//	if (kcp_mappings_ptr->decryptions_from_forwarder.empty())
+//		return;
+//	locker.unlock();
+//
+//	if (kcp_mappings_ptr->forwarder_decryption_task_count.load() > 0)
+//		return;
+//
+//	std::weak_ptr<KCP::KCP> kcp_session_ptr_weak = kcp_ptr;
+//	kcp_mappings_ptr->forwarder_decryption_task_count++;
+//	sequence_task_pool.push_task_forwarder((size_t)kcp_mappings_ptr,
+//		[this, kcp_session_ptr_weak](std::unique_ptr<uint8_t[]>)
+//		{
+//			auto kcp_ptr = kcp_session_ptr_weak.lock();
+//			if (kcp_ptr == nullptr) return;
+//			kcp_mappings* kcp_mappings_ptr = (kcp_mappings*)kcp_ptr->GetUserData();
+//			std::lock_guard locker{ kcp_mappings_ptr->mutex_decryptions_from_forwarder };
+//			udp_forwarder_incoming_unpack(kcp_ptr);
+//		}, std::unique_ptr<uint8_t[]>{});
+//}
 
 void relay_mode::change_new_port(kcp_mappings *kcp_mappings_ptr)
 {
@@ -898,8 +900,9 @@ void relay_mode::switch_new_port(kcp_mappings *kcp_mappings_ptr)
 				.fib_ingress = current_settings.fib_ingress,
 				.fib_egress = current_settings.fib_egress
 			};
-			auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
-			udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, kcp_ptr_egress, udp_func, conn_options);
+			//auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_listener, &sequence_task_pool, _1, _2, _3);
+			//udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, kcp_ptr_egress, udp_func, conn_options);
+			udp_forwarder = std::make_shared<forwarder>(io_context, kcp_ptr_egress, udp_func, conn_options);
 			if (udp_forwarder == nullptr)
 				return;
 		}
@@ -1000,9 +1003,10 @@ void relay_mode::create_kcp_bidirections(uint32_t new_id, kcp_mappings *handshak
 			.fib_ingress = current_settings.fib_ingress,
 			.fib_egress = current_settings.fib_egress
 		};
-		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
+		//auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
 		auto udp_func = std::bind(&relay_mode::udp_forwarder_incoming, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, kcp_ptr_egress, udp_func, conn_options);
+		//udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, kcp_ptr_egress, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, kcp_ptr_egress, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return;
 	}
@@ -1113,9 +1117,10 @@ std::shared_ptr<kcp_mappings> relay_mode::create_test_handshake()
 			.fib_ingress = current_settings.fib_ingress,
 			.fib_egress = current_settings.fib_egress
 		};
-		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
+		//auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
 		auto udp_func = std::bind(&relay_mode::handle_test_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, handshake_kcp, udp_func, conn_options);
+		//udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, handshake_kcp, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}
@@ -1127,7 +1132,7 @@ std::shared_ptr<kcp_mappings> relay_mode::create_test_handshake()
 		return nullptr;
 	}
 
-	size_t selected_index = randomly_pick_index(current_settings.destination_address_list.size());
+	size_t selected_index = randomly_pick_index(current_settings.egress->destination_address_list.size());
 	std::shared_ptr<udp::endpoint> egress_target_endpoint =  get_udp_target(udp_forwarder, selected_index);
 	if (egress_target_endpoint == nullptr)
 		return nullptr;
@@ -1211,7 +1216,7 @@ void relay_mode::handle_test_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::u
 		if (buffer_size <= 0)
 			break;
 
-		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(buffer_size);
+		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique_for_overwrite<uint8_t[]>(buffer_size);
 		uint8_t *buffer_ptr = buffer_cache.get();
 
 		int kcp_data_size = 0;
@@ -1299,7 +1304,8 @@ bool relay_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 			kcp_mappings_share->egress_kcp->SetUserData(nullptr);
 			kcp_updater.remove(kcp_mappings_share->egress_kcp);
 		};
-	sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func);
+	//sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func);
+	asio::post(io_context, func);
 
 	return true;
 }
@@ -1364,51 +1370,51 @@ std::shared_ptr<KCP::KCP> relay_mode::verify_kcp_conv(std::shared_ptr<KCP::KCP> 
 	return kcp_ptr;
 }
 
-void relay_mode::data_sender_via_listener(std::shared_ptr<kcp_mappings> kcp_mappings_ptr)
-{
-	if (kcp_mappings_ptr == nullptr)
-		return;
-	kcp_mappings_ptr->listener_encryption_task_count--;
-	std::unique_lock locker{ kcp_mappings_ptr->mutex_encryptions_via_listener };
-	if (kcp_mappings_ptr->encryptions_via_listener.empty())
-		return;
-
-	for (auto iter = kcp_mappings_ptr->encryptions_via_listener.begin(), next = iter;
-		iter != kcp_mappings_ptr->encryptions_via_listener.end();
-		iter = next)
-	{
-		next++;
-		auto &task_results = *iter;
-		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-			break;
-		auto [error_message, data, cipher_size] = task_results.get();
-		if (!error_message.empty() || cipher_size == 0)
-			return;
-		std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(kcp_mappings_ptr->ingress_source_endpoint));
-		kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(data), cipher_size, *ingress_source_endpoint);
-		kcp_mappings_ptr->encryptions_via_listener.erase(iter);
-	}
-
-	if (kcp_mappings_ptr->encryptions_via_listener.empty())
-		return;
-
-	locker.unlock();
-	if (kcp_mappings_ptr->listener_encryption_task_count.load() > 0)
-		return;
-
-	std::weak_ptr<kcp_mappings> kcp_mappings_ptr_weak = kcp_mappings_ptr;
-	sequence_task_pool.push_task_listener((size_t)kcp_mappings_ptr.get(),
-		[this, kcp_mappings_ptr_weak](std::unique_ptr<uint8_t[]>) { data_sender_via_listener(kcp_mappings_ptr_weak.lock()); },
-		std::unique_ptr<uint8_t[]>{});
-}
+//void relay_mode::data_sender_via_listener(std::shared_ptr<kcp_mappings> kcp_mappings_ptr)
+//{
+//	if (kcp_mappings_ptr == nullptr)
+//		return;
+//	kcp_mappings_ptr->listener_encryption_task_count--;
+//	std::unique_lock locker{ kcp_mappings_ptr->mutex_encryptions_via_listener };
+//	if (kcp_mappings_ptr->encryptions_via_listener.empty())
+//		return;
+//
+//	for (auto iter = kcp_mappings_ptr->encryptions_via_listener.begin(), next = iter;
+//		iter != kcp_mappings_ptr->encryptions_via_listener.end();
+//		iter = next)
+//	{
+//		next++;
+//		auto &task_results = *iter;
+//		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+//			break;
+//		auto [error_message, data, cipher_size] = task_results.get();
+//		if (!error_message.empty() || cipher_size == 0)
+//			return;
+//		std::shared_ptr<udp::endpoint> ingress_source_endpoint = std::atomic_load(&(kcp_mappings_ptr->ingress_source_endpoint));
+//		kcp_mappings_ptr->ingress_listener.load()->async_send_out(std::move(data), cipher_size, *ingress_source_endpoint);
+//		kcp_mappings_ptr->encryptions_via_listener.erase(iter);
+//	}
+//
+//	if (kcp_mappings_ptr->encryptions_via_listener.empty())
+//		return;
+//
+//	locker.unlock();
+//	if (kcp_mappings_ptr->listener_encryption_task_count.load() > 0)
+//		return;
+//
+//	std::weak_ptr<kcp_mappings> kcp_mappings_ptr_weak = kcp_mappings_ptr;
+//	sequence_task_pool.push_task_listener((size_t)kcp_mappings_ptr.get(),
+//		[this, kcp_mappings_ptr_weak](std::unique_ptr<uint8_t[]>) { data_sender_via_listener(kcp_mappings_ptr_weak.lock()); },
+//		std::unique_ptr<uint8_t[]>{});
+//}
 
 void relay_mode::data_sender_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (listener_parallels != nullptr)
-	{
-		parallel_encrypt_via_listener(kcp_mappings_ptr, std::move(new_buffer), buffer_size);
-		return;
-	}
+	//if (listener_parallels != nullptr)
+	//{
+	//	parallel_encrypt_via_listener(kcp_mappings_ptr, std::move(new_buffer), buffer_size);
+	//	return;
+	//}
 	
 	auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), (int)buffer_size);
 	if (!error_message.empty() || cipher_size == 0)
@@ -1420,89 +1426,89 @@ void relay_mode::data_sender_via_listener(kcp_mappings *kcp_mappings_ptr, std::u
 
 }
 
-void relay_mode::parallel_encrypt_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size)
-{
-	std::function<encryption_result(std::unique_ptr<uint8_t[]>)> func =
-		[this, data_size](std::unique_ptr<uint8_t[]> data) mutable -> encryption_result
-		{
-			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
-			return { std::move(error_message), std::move(data), cipher_size };
-		};
+//void relay_mode::parallel_encrypt_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size)
+//{
+//	std::function<encryption_result(std::unique_ptr<uint8_t[]>)> func =
+//		[this, data_size](std::unique_ptr<uint8_t[]> data) mutable -> encryption_result
+//		{
+//			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
+//			return { std::move(error_message), std::move(data), cipher_size };
+//		};
+//
+//	auto task_future = listener_parallels->submit(func, std::move(data));
+//	std::unique_lock locker{ kcp_mappings_ptr->mutex_encryptions_via_listener };
+//	kcp_mappings_ptr->encryptions_via_listener.emplace_back(std::move(task_future));
+//	locker.unlock();
+//	kcp_mappings_ptr->listener_encryption_task_count++;
+//	listener_status_counters.egress_raw_traffic += data_size;
+//	data_sender_via_listener(kcp_mappings_ptr->shared_from_this());
+//}
 
-	auto task_future = listener_parallels->submit(func, std::move(data));
-	std::unique_lock locker{ kcp_mappings_ptr->mutex_encryptions_via_listener };
-	kcp_mappings_ptr->encryptions_via_listener.emplace_back(std::move(task_future));
-	locker.unlock();
-	kcp_mappings_ptr->listener_encryption_task_count++;
-	listener_status_counters.egress_raw_traffic += data_size;
-	data_sender_via_listener(kcp_mappings_ptr->shared_from_this());
-}
-
-void relay_mode::parallel_decrypt_via_listener(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener)
-{
-	std::function<decryption_result_listener(std::unique_ptr<uint8_t[]>)> func =
-		[this, data_size, peer, listener](std::unique_ptr<uint8_t[]> data) mutable -> decryption_result_listener
-		{
-			uint8_t* data_ptr = data.get();
-			auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
-			return { std::move(error_message), std::move(data), plain_size, peer, listener };
-		};
-
-	auto task_future = listener_parallels->submit(func, std::move(data));
-	std::unique_lock locker{ mutex_decryptions_from_listener };
-	decryptions_from_listener.emplace_back(std::move(task_future));
-	locker.unlock();
-	listener_decryption_task_count++;
-	sequential_extract();
-}
-
-void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr)
-{
-	kcp_mappings_ptr->forwarder_encryption_task_count--;
-	if (kcp_mappings_ptr->encryptions_via_forwarder.empty())
-		return;
-
-	for (auto iter = kcp_mappings_ptr->encryptions_via_forwarder.begin(), next = iter;
-		iter != kcp_mappings_ptr->encryptions_via_forwarder.end();
-		iter = next)
-	{
-		next++;
-		auto& task_results = *iter;
-		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-			break;
-		auto [error_message, data, cipher_size] = task_results.get();
-		std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&kcp_mappings_ptr->egress_forwarder);
-		if (egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
-			return;
-
-		std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&kcp_mappings_ptr->egress_target_endpoint);
-		egress_forwarder->async_send_out(std::move(data), cipher_size, *egress_target_endpoint);
-		kcp_mappings_ptr->encryptions_via_forwarder.erase(iter);
-	}
-
-	change_new_port(kcp_mappings_ptr);
-	if (kcp_mappings_ptr->encryptions_via_forwarder.empty())
-		return;
-
-	kcp_mappings_ptr->forwarder_encryption_task_count++;
-	std::weak_ptr<kcp_mappings> kcp_mappings_ptr_weak = kcp_mappings_ptr->weak_from_this();
-	sequence_task_pool.push_task_forwarder((size_t)kcp_mappings_ptr,
-		[this, kcp_mappings_ptr_weak](std::unique_ptr<uint8_t[]>)
-		{
-			auto kcp_mappings_ptr = kcp_mappings_ptr_weak.lock();
-			if (kcp_mappings_ptr == nullptr) return;
-			std::lock_guard locker{ kcp_mappings_ptr->mutex_encryptions_via_forwarder };
-			data_sender_via_forwarder(kcp_mappings_ptr.get());
-		}, std::unique_ptr<uint8_t[]>{});
-}
+//void relay_mode::parallel_decrypt_via_listener(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint &peer, udp_server *listener)
+//{
+//	std::function<decryption_result_listener(std::unique_ptr<uint8_t[]>)> func =
+//		[this, data_size, peer, listener](std::unique_ptr<uint8_t[]> data) mutable -> decryption_result_listener
+//		{
+//			uint8_t* data_ptr = data.get();
+//			auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
+//			return { std::move(error_message), std::move(data), plain_size, peer, listener };
+//		};
+//
+//	auto task_future = listener_parallels->submit(func, std::move(data));
+//	std::unique_lock locker{ mutex_decryptions_from_listener };
+//	decryptions_from_listener.emplace_back(std::move(task_future));
+//	locker.unlock();
+//	listener_decryption_task_count++;
+//	sequential_extract();
+//}
+//
+//void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr)
+//{
+//	kcp_mappings_ptr->forwarder_encryption_task_count--;
+//	if (kcp_mappings_ptr->encryptions_via_forwarder.empty())
+//		return;
+//
+//	for (auto iter = kcp_mappings_ptr->encryptions_via_forwarder.begin(), next = iter;
+//		iter != kcp_mappings_ptr->encryptions_via_forwarder.end();
+//		iter = next)
+//	{
+//		next++;
+//		auto& task_results = *iter;
+//		if (task_results.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+//			break;
+//		auto [error_message, data, cipher_size] = task_results.get();
+//		std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&kcp_mappings_ptr->egress_forwarder);
+//		if (egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
+//			return;
+//
+//		std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&kcp_mappings_ptr->egress_target_endpoint);
+//		egress_forwarder->async_send_out(std::move(data), cipher_size, *egress_target_endpoint);
+//		kcp_mappings_ptr->encryptions_via_forwarder.erase(iter);
+//	}
+//
+//	change_new_port(kcp_mappings_ptr);
+//	if (kcp_mappings_ptr->encryptions_via_forwarder.empty())
+//		return;
+//
+//	kcp_mappings_ptr->forwarder_encryption_task_count++;
+//	std::weak_ptr<kcp_mappings> kcp_mappings_ptr_weak = kcp_mappings_ptr->weak_from_this();
+//	sequence_task_pool.push_task_forwarder((size_t)kcp_mappings_ptr,
+//		[this, kcp_mappings_ptr_weak](std::unique_ptr<uint8_t[]>)
+//		{
+//			auto kcp_mappings_ptr = kcp_mappings_ptr_weak.lock();
+//			if (kcp_mappings_ptr == nullptr) return;
+//			std::lock_guard locker{ kcp_mappings_ptr->mutex_encryptions_via_forwarder };
+//			data_sender_via_forwarder(kcp_mappings_ptr.get());
+//		}, std::unique_ptr<uint8_t[]>{});
+//}
 
 void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	if (forwarder_parallels != nullptr)
-	{
-		parallel_encrypt_via_forwarder(kcp_mappings_ptr, std::move(new_buffer), buffer_size);
-		return;
-	}
+	//if (forwarder_parallels != nullptr)
+	//{
+	//	parallel_encrypt_via_forwarder(kcp_mappings_ptr, std::move(new_buffer), buffer_size);
+	//	return;
+	//}
 
 	auto [error_message, cipher_size] = encrypt_data(current_settings.ingress->encryption_password, current_settings.ingress->encryption, new_buffer.get(), (int)buffer_size);
 	std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(kcp_mappings_ptr->egress_forwarder));
@@ -1514,38 +1520,38 @@ void relay_mode::data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::
 	forwarder_status_counters.egress_raw_traffic += buffer_size;
 }
 
-void relay_mode::parallel_encrypt_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size)
-{
-	std::function<encryption_result(std::unique_ptr<uint8_t[]>)> func =
-		[this, data_size](std::unique_ptr<uint8_t[]> data) mutable -> encryption_result
-		{
-			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
-			return { std::move(error_message), std::move(data), cipher_size };
-		};
-	forwarder_status_counters.egress_raw_traffic += data_size;
-	std::lock_guard locker{ kcp_mappings_ptr->mutex_encryptions_via_forwarder };
-	kcp_mappings_ptr->encryptions_via_forwarder.emplace_back(forwarder_parallels->submit(func, std::move(data)));
-	kcp_mappings_ptr->forwarder_encryption_task_count++;
-	data_sender_via_forwarder(kcp_mappings_ptr);
-}
-
-void relay_mode::parallel_decrypt_via_forwarder(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
-{
-	std::function<decryption_result_forwarder(std::unique_ptr<uint8_t[]>)> func =
-		[this, data_size, peer, local_port_number](std::unique_ptr<uint8_t[]> data) mutable -> decryption_result_forwarder
-		{
-			uint8_t *data_ptr = data.get();
-			auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
-			return { std::move(error_message), std::move(data), plain_size, peer, local_port_number };
-		};
-
-	kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)kcp_ptr->GetUserData();
-	std::unique_lock locker{ kcp_mappings_ptr->mutex_decryptions_from_forwarder };
-	kcp_mappings_ptr->decryptions_from_forwarder.emplace_back(forwarder_parallels->submit(func, std::move(data)));
-	locker.unlock();
-	kcp_mappings_ptr->forwarder_decryption_task_count++;
-	udp_forwarder_incoming_unpack(kcp_ptr);
-}
+//void relay_mode::parallel_encrypt_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size)
+//{
+//	std::function<encryption_result(std::unique_ptr<uint8_t[]>)> func =
+//		[this, data_size](std::unique_ptr<uint8_t[]> data) mutable -> encryption_result
+//		{
+//			auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
+//			return { std::move(error_message), std::move(data), cipher_size };
+//		};
+//	forwarder_status_counters.egress_raw_traffic += data_size;
+//	std::lock_guard locker{ kcp_mappings_ptr->mutex_encryptions_via_forwarder };
+//	kcp_mappings_ptr->encryptions_via_forwarder.emplace_back(forwarder_parallels->submit(func, std::move(data)));
+//	kcp_mappings_ptr->forwarder_encryption_task_count++;
+//	data_sender_via_forwarder(kcp_mappings_ptr);
+//}
+//
+//void relay_mode::parallel_decrypt_via_forwarder(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number)
+//{
+//	std::function<decryption_result_forwarder(std::unique_ptr<uint8_t[]>)> func =
+//		[this, data_size, peer, local_port_number](std::unique_ptr<uint8_t[]> data) mutable -> decryption_result_forwarder
+//		{
+//			uint8_t *data_ptr = data.get();
+//			auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data_ptr, (int)data_size);
+//			return { std::move(error_message), std::move(data), plain_size, peer, local_port_number };
+//		};
+//
+//	kcp_mappings *kcp_mappings_ptr = (kcp_mappings*)kcp_ptr->GetUserData();
+//	std::unique_lock locker{ kcp_mappings_ptr->mutex_decryptions_from_forwarder };
+//	kcp_mappings_ptr->decryptions_from_forwarder.emplace_back(forwarder_parallels->submit(func, std::move(data)));
+//	locker.unlock();
+//	kcp_mappings_ptr->forwarder_decryption_task_count++;
+//	udp_forwarder_incoming_unpack(kcp_ptr);
+//}
 
 std::pair<bool, size_t> relay_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count)
 {
@@ -1703,7 +1709,7 @@ std::unique_ptr<udp::endpoint> relay_mode::update_udp_target(std::shared_ptr<for
 	asio::error_code ec;
 	for (int i = 0; i <= gbv_retry_times; ++i)
 	{
-		const std::string &destination_address = current_settings.destination_address_list[index];
+		const std::string &destination_address = current_settings.egress->destination_address_list[index];
 		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(destination_address, 0, ec);
 		if (ec)
 		{
@@ -1951,6 +1957,8 @@ void relay_mode::loop_keep_alive_ingress()
 		timestamp += current_settings.ingress->keep_alive;
 
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+		if (kcp_mappings_ptr == nullptr)
+			continue;
 		protocol_type ptype = kcp_mappings_ptr->connection_protocol;
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(ptype);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());
@@ -1977,6 +1985,8 @@ void relay_mode::loop_keep_alive_egress()
 		timestamp += current_settings.egress->keep_alive;
 
 		kcp_mappings *kcp_mappings_ptr = (kcp_mappings *)kcp_ptr->GetUserData();
+		if (kcp_mappings_ptr == nullptr)
+			continue;
 		protocol_type ptype = kcp_mappings_ptr->connection_protocol;
 		std::vector<uint8_t> keep_alive_packet = packet::create_keep_alive_packet(ptype);
 		kcp_ptr->Send((const char*)keep_alive_packet.data(), keep_alive_packet.size());

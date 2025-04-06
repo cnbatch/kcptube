@@ -30,7 +30,7 @@ class test_mode
 	std::vector<std::set<uint16_t>> failure_ports;
 
 	asio::steady_timer timer_find_expires;
-	ttp::task_group_pool &sequence_task_pool;
+	//ttp::task_group_pool &sequence_task_pool;
 
 	int kcp_sender(const char *buf, int len, void *user);
 	void data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
@@ -52,11 +52,11 @@ public:
 	test_mode(const test_mode &) = delete;
 	test_mode& operator=(const test_mode &) = delete;
 
-	test_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, ttp::task_group_pool &seq_task_pool, /*size_t task_count_limit,*/ const user_settings &settings) :
+	test_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, /*ttp::task_group_pool &seq_task_pool,*/ /*size_t task_count_limit,*/ const user_settings &settings) :
 		io_context(io_context_ref),
 		kcp_updater(kcp_updater_ref),
 		timer_find_expires(io_context_ref),
-		sequence_task_pool(seq_task_pool),
+		//sequence_task_pool(seq_task_pool),
 		current_settings(settings),
 		conn_options{ .ip_version_only = current_settings.ip_version_only,
 					  .fib_ingress = current_settings.fib_ingress,
@@ -67,7 +67,7 @@ public:
 		io_context(existing_client.io_context),
 		kcp_updater(existing_client.kcp_updater),
 		timer_find_expires(std::move(existing_client.timer_find_expires)),
-		sequence_task_pool(existing_client.sequence_task_pool),
+		//sequence_task_pool(existing_client.sequence_task_pool),
 		current_settings(std::move(existing_client.current_settings)),
 		conn_options{ .ip_version_only = current_settings.ip_version_only,
 					  .fib_ingress = current_settings.fib_ingress,

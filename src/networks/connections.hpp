@@ -671,15 +671,15 @@ struct kcp_mappings : public std::enable_shared_from_this<kcp_mappings>
 	std::function<bool()> mapping_function = empty_mapping_function;	// true: keeps forwarder; false: remove it
 	fec_control_data fec_ingress_control;
 	fec_control_data fec_egress_control;
-	std::mutex mutex_encryptions_via_listener;
-	std::list<std::future<encryption_result>> encryptions_via_listener;
-	std::mutex mutex_encryptions_via_forwarder;
-	std::list<std::future<encryption_result>> encryptions_via_forwarder;
-	std::mutex mutex_decryptions_from_forwarder;
-	std::list<std::future<decryption_result_forwarder>> decryptions_from_forwarder;
-	std::atomic<int> listener_encryption_task_count;
-	std::atomic<int> forwarder_encryption_task_count;
-	std::atomic<int> forwarder_decryption_task_count;
+	//std::mutex mutex_encryptions_via_listener;
+	//std::list<std::future<encryption_result>> encryptions_via_listener;
+	//std::mutex mutex_encryptions_via_forwarder;
+	//std::list<std::future<encryption_result>> encryptions_via_forwarder;
+	//std::mutex mutex_decryptions_from_forwarder;
+	//std::list<std::future<decryption_result_forwarder>> decryptions_from_forwarder;
+	//std::atomic<int> listener_encryption_task_count;
+	//std::atomic<int> forwarder_encryption_task_count;
+	//std::atomic<int> forwarder_decryption_task_count;
 };
 
 struct mux_records

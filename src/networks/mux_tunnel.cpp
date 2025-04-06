@@ -48,7 +48,7 @@ void mux_tunnel::tcp_accept_new_income(std::shared_ptr<tcp_session> incoming_ses
 	if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
 	{
 		auto data = packet::mux_tell_server_connect_address(protocol_type::tcp, new_id, remote_output_address, remote_output_port);
-		std::unique_ptr<uint8_t[]> data_sptr = std::make_unique<uint8_t[]>(data.size());
+		std::unique_ptr<uint8_t[]> data_sptr = std::make_unique_for_overwrite<uint8_t[]>(data.size());
 		uint8_t *data_ptr = data_sptr.get();
 		std::copy(data.begin(), data.end(), data_ptr);
 		mux_data_cache data_cache = { std::move(data_sptr), data_ptr, data.size() };
@@ -155,7 +155,7 @@ void mux_tunnel::client_udp_data_to_cache(std::unique_ptr<uint8_t[]> data, size_
 				if (current_settings.ignore_listen_address || current_settings.ignore_listen_port)
 				{
 					auto data = packet::mux_tell_server_connect_address(protocol_type::udp, new_id, remote_output_address, remote_output_port);
-					std::unique_ptr<uint8_t[]> data_sptr = std::make_unique<uint8_t[]>(data.size());
+					std::unique_ptr<uint8_t[]> data_sptr = std::make_unique_for_overwrite<uint8_t[]>(data.size());
 					uint8_t *data_ptr = data_sptr.get();
 					std::copy(data.begin(), data.end(), data_ptr);
 					mux_data_cache data_cache = { std::move(data_sptr), data_ptr, data.size() };

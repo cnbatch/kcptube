@@ -58,9 +58,9 @@ class relay_mode
 	asio::steady_timer timer_keep_alive_ingress;
 	asio::steady_timer timer_keep_alive_egress;
 	asio::steady_timer timer_status_log;
-	ttp::task_group_pool &sequence_task_pool;
-	ttp::task_thread_pool *listener_parallels;
-	ttp::task_thread_pool *forwarder_parallels;
+	//ttp::task_group_pool &sequence_task_pool;
+	//ttp::task_thread_pool *listener_parallels;
+	//ttp::task_thread_pool *forwarder_parallels;
 
 #ifdef __cpp_lib_atomic_shared_ptr
 	std::deque<std::atomic<std::shared_ptr<asio::ip::address>>> target_address;
@@ -70,11 +70,11 @@ class relay_mode
 
 	void udp_listener_incoming(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, udp_server *listener_ptr);
 	void udp_listener_incoming_unpack(std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, udp_server *listener_ptr);
-	void sequential_extract();
+	//void sequential_extract();
 	void udp_listener_incoming_new_connection(std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, udp_server *listener_ptr);
 	void udp_forwarder_incoming(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number);
-	void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr);
+	//void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr);
 	void change_new_port(kcp_mappings *kcp_mappings_ptr);
 	void test_before_change(kcp_mappings *kcp_mappings_ptr);
 	void switch_new_port(kcp_mappings *kcp_mappings_ptr);
@@ -85,14 +85,14 @@ class relay_mode
 	int kcp_sender_via_listener(const char *buf, int len, void *user);
 	int kcp_sender_via_forwarder(const char *buf, int len, void *user);
 	std::shared_ptr<KCP::KCP> verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv);
-	void data_sender_via_listener(std::shared_ptr<kcp_mappings> kcp_mappings_ptr);
+	//void data_sender_via_listener(std::shared_ptr<kcp_mappings> kcp_mappings_ptr);
 	void data_sender_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
-	void parallel_encrypt_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
-	void parallel_decrypt_via_listener(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint& peer, udp_server *listener);
-	void data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr);
+	//void parallel_encrypt_via_listener(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	//void parallel_decrypt_via_listener(std::unique_ptr<uint8_t[]> data, size_t data_size, const udp::endpoint& peer, udp_server *listener);
+	//void data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr);
 	void data_sender_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
-	void parallel_encrypt_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
-	void parallel_decrypt_via_forwarder(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
+	//void parallel_encrypt_via_forwarder(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	//void parallel_decrypt_via_forwarder(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	std::pair<bool, size_t> fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
 	void fec_maker_via_listener(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size);
 	void fec_maker_via_forwarder(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size);
@@ -121,15 +121,15 @@ public:
 	relay_mode(const relay_mode &) = delete;
 	relay_mode& operator=(const relay_mode &) = delete;
 
-	relay_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools, const user_settings &settings)
+	relay_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, /*ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools,*/ const user_settings &settings)
 		: io_context(io_context_ref), kcp_updater(kcp_updater_ref),
 		timer_find_expires(io_context), timer_expiring_kcp(io_context),
 		timer_stun(io_context),
 		timer_keep_alive_ingress(io_context), timer_keep_alive_egress(io_context),
 		timer_status_log(io_context),
-		sequence_task_pool(seq_task_pool),
-		listener_parallels(task_pools.listener_parallels),
-		forwarder_parallels(task_pools.forwarder_parallels),
+		//sequence_task_pool(seq_task_pool),
+		//listener_parallels(task_pools.listener_parallels),
+		//forwarder_parallels(task_pools.forwarder_parallels),
 		external_ipv4_port(0),
 		external_ipv4_address(0),
 		external_ipv6_port(0),
@@ -146,9 +146,9 @@ public:
 		timer_keep_alive_ingress(std::move(existing_relay.timer_keep_alive_ingress)),
 		timer_keep_alive_egress(std::move(existing_relay.timer_keep_alive_egress)),
 		timer_status_log(std::move(existing_relay.timer_status_log)),
-		sequence_task_pool(existing_relay.sequence_task_pool),
-		listener_parallels(existing_relay.listener_parallels),
-		forwarder_parallels(existing_relay.forwarder_parallels),
+		//sequence_task_pool(existing_relay.sequence_task_pool),
+		//listener_parallels(existing_relay.listener_parallels),
+		//forwarder_parallels(existing_relay.forwarder_parallels),
 		external_ipv4_port(existing_relay.external_ipv4_port.load()),
 		external_ipv4_address(existing_relay.external_ipv4_address.load()),
 		external_ipv6_port(existing_relay.external_ipv6_port.load()),

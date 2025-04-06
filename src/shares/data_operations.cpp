@@ -591,7 +591,7 @@ std::vector<uint8_t> decrypt_data(const std::string &password, encryption_mode m
 std::pair<std::unique_ptr<uint8_t[]>, size_t> clone_into_pair(const uint8_t *original, size_t data_size)
 {
 	std::pair<std::unique_ptr<uint8_t[]>, size_t> cloned;
-	cloned.first = std::make_unique<uint8_t[]>(data_size);
+	cloned.first = std::make_unique_for_overwrite<uint8_t[]>(data_size);
 	cloned.second = data_size;
 	std::copy_n(original, data_size, cloned.first.get());
 	return cloned;
@@ -615,7 +615,7 @@ std::tuple<std::unique_ptr<uint8_t[]>, size_t, size_t> compact_into_container(co
 	align_length += constant_values::fec_container_header;
 
 	size_t total_size = fec_snd_data_cache.size() * align_length;
-	std::unique_ptr<uint8_t[]> final_array = std::make_unique<uint8_t[]>(total_size);
+	std::unique_ptr<uint8_t[]> final_array = std::make_unique_for_overwrite<uint8_t[]>(total_size);
 
 	for (uint16_t i = 0; i < fec_snd_data_cache.size(); ++i)
 	{
@@ -648,7 +648,7 @@ compact_into_container(const std::map<uint16_t, std::pair<std::unique_ptr<uint8_
 	{
 		uint8_t *original_data_ptr = data.first.get();
 		uint16_t data_size = (uint16_t)data.second;
-		std::unique_ptr<uint8_t[]> cache_piece = std::make_unique<uint8_t[]>(align_length);
+		std::unique_ptr<uint8_t[]> cache_piece = std::make_unique_for_overwrite<uint8_t[]>(align_length);
 		if (i < data_max_count)
 		{
 			fec_container *fec_packet = (fec_container *)(cache_piece.get());

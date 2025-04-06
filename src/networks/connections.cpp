@@ -381,7 +381,7 @@ namespace packet
 	std::pair<std::unique_ptr<uint8_t[]>, int> create_packet(const uint8_t *input_data, int data_size)
 	{
 		int64_t timestamp = right_now();
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + gbv_buffer_expand_size);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique_for_overwrite<uint8_t[]>(data_size + gbv_buffer_expand_size);
 		packet_layer *ptr = (packet_layer *)new_buffer.get();
 		ptr->timestamp = host_to_little_endian((uint32_t)timestamp);
 		uint8_t *data_ptr = ptr->data;
@@ -395,7 +395,7 @@ namespace packet
 	std::pair<std::unique_ptr<uint8_t[]>, int> create_fec_data_packet(const uint8_t *input_data, int data_size, uint32_t fec_sn, uint8_t fec_sub_sn)
 	{
 		int64_t timestamp = right_now();
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + sizeof(packet_layer_fec) + gbv_buffer_expand_size);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique_for_overwrite<uint8_t[]>(data_size + sizeof(packet_layer_fec) + gbv_buffer_expand_size);
 		packet_layer_data *pkt_data_ptr = (packet_layer_data *)new_buffer.get();
 		uint8_t *data_ptr = pkt_data_ptr->data;
 
@@ -413,7 +413,7 @@ namespace packet
 	std::pair<std::unique_ptr<uint8_t[]>, int> create_fec_redundant_packet(const uint8_t *input_data, int data_size, uint32_t fec_sn, uint8_t fec_sub_sn, uint32_t kcp_conv)
 	{
 		int64_t timestamp = right_now();
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(data_size + sizeof(packet_layer_fec) + gbv_buffer_expand_size);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique_for_overwrite<uint8_t[]>(data_size + sizeof(packet_layer_fec) + gbv_buffer_expand_size);
 		packet_layer_fec *pkt_fec_ptr = (packet_layer_fec *)new_buffer.get();
 		uint8_t *data_ptr = pkt_fec_ptr->data;
 
@@ -827,7 +827,7 @@ void tcp_session::async_read_data()
 	if (paused.load() || stopped.load())
 		return;
 
-	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(gbv_buffer_size);
+	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique_for_overwrite<uint8_t[]>(gbv_buffer_size);
 	auto asio_buffer = asio::buffer(buffer_cache.get(), gbv_buffer_size);
 	asio::async_read(connection_socket, asio_buffer, asio::transfer_at_least(1),
 		[data = std::move(buffer_cache), this, sptr = shared_from_this()](const asio::error_code &error, std::size_t bytes_transferred) mutable
@@ -1004,7 +1004,7 @@ void tcp_session::transfer_data_to_next_function(std::unique_ptr<uint8_t[]> buff
 
 	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)
 	{
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique_for_overwrite<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
 		std::copy_n(buffer_cache.get(), bytes_transferred, new_buffer.get());
 		buffer_cache.swap(new_buffer);
 	}
@@ -1225,7 +1225,7 @@ void udp_server::initialise(const udp::endpoint &ep)
 
 void udp_server::start_receive()
 {
-	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(gbv_buffer_size);
+	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique_for_overwrite<uint8_t[]>(gbv_buffer_size);
 	auto asio_buffer = asio::buffer(buffer_cache.get(), gbv_buffer_size);
 	connection_socket.async_receive_from(asio_buffer, incoming_endpoint,
 		[buffer_ptr = std::move(buffer_cache), this](const asio::error_code &error, std::size_t bytes_transferred) mutable
@@ -1250,7 +1250,7 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 
 	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)
 	{
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique_for_overwrite<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
 		std::copy_n(buffer_cache.get(), bytes_transferred, new_buffer.get());
 		buffer_cache.swap(new_buffer);
 	}
@@ -1436,7 +1436,7 @@ void udp_client::start_receive()
 	if (paused.load() || stopped.load())
 		return;
 
-	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(gbv_buffer_size);
+	std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique_for_overwrite<uint8_t[]>(gbv_buffer_size);
 	uint8_t *buffer_cache_ptr = buffer_cache.get();
 	auto asio_buffer = asio::buffer(buffer_cache_ptr, gbv_buffer_size);
 	if (!connection_socket.is_open())
@@ -1471,7 +1471,7 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 
 	if (gbv_buffer_size - bytes_transferred < gbv_buffer_expand_size)
 	{
-		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
+		std::unique_ptr<uint8_t[]> new_buffer = std::make_unique_for_overwrite<uint8_t[]>(gbv_buffer_size + gbv_buffer_expand_size);
 		std::copy_n(buffer_cache.get(), bytes_transferred, new_buffer.get());
 		buffer_cache.swap(new_buffer);
 	}

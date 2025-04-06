@@ -60,9 +60,9 @@ class client_mode
 	asio::steady_timer timer_expiring_kcp;
 	asio::steady_timer timer_keep_alive;
 	asio::steady_timer timer_status_log;
-	ttp::task_group_pool &sequence_task_pool;
-	ttp::task_thread_pool *parallel_encryption_pool;
-	ttp::task_thread_pool *parallel_decryption_pool;
+	//ttp::task_group_pool &sequence_task_pool;
+	//ttp::task_thread_pool *parallel_encryption_pool;
+	//ttp::task_thread_pool *parallel_decryption_pool;
 
 	void multiple_listening_tcp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled);
 	void multiple_listening_udp(user_settings::user_input_address_mapping &user_input_mappings, bool mux_enabled);
@@ -73,16 +73,16 @@ class client_mode
 
 	void udp_forwarder_incoming(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t plain_size, udp::endpoint peer, asio::ip::port_type local_port_number);
-	void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr);
+	//void udp_forwarder_incoming_unpack(std::shared_ptr<KCP::KCP> kcp_ptr);
 	void udp_forwarder_to_disconnecting_tcp(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 
 	std::shared_ptr<KCP::KCP> pick_one_from_kcp_channels(protocol_type prtcl);
 	std::shared_ptr<KCP::KCP> verify_kcp_conv(std::shared_ptr<KCP::KCP> kcp_ptr, uint32_t conv);
 	int kcp_sender(const char *buf, int len, void *user);
-	void data_sender(std::shared_ptr<kcp_mappings> kcp_mappings_ptr);
+	//void data_sender(std::shared_ptr<kcp_mappings> kcp_mappings_ptr);
 	void data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size);
-	void parallel_encrypt(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
-	void parallel_decrypt(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
+	//void parallel_encrypt(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size);
+	//void parallel_decrypt(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_ptr<uint8_t[]> data, size_t data_size, udp::endpoint peer, asio::ip::port_type local_port_number);
 	void fec_maker(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size);
 	std::tuple<uint8_t*, size_t> fec_unpack(std::shared_ptr<KCP::KCP> &kcp_ptr, uint8_t *original_data_ptr, size_t plain_size, const udp::endpoint &peer);
 	bool fec_find_missings(KCP::KCP *kcp_ptr, fec_control_data &fec_controllor, uint32_t fec_sn, uint8_t max_fec_data_count);
@@ -125,16 +125,16 @@ public:
 	client_mode(const client_mode &) = delete;
 	client_mode& operator=(const client_mode &) = delete;
 
-	client_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools, const user_settings &settings) :
+	client_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, /*ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools,*/ const user_settings &settings) :
 		io_context(io_context_ref),
 		kcp_updater(kcp_updater_ref),
 		timer_find_expires(io_context),
 		timer_expiring_kcp(io_context),
 		timer_keep_alive(io_context),
 		timer_status_log(io_context),
-		sequence_task_pool(seq_task_pool),
-		parallel_encryption_pool(task_pools.parallel_encryption_pool),
-		parallel_decryption_pool(task_pools.parallel_decryption_pool),
+		//sequence_task_pool(seq_task_pool),
+		//parallel_encryption_pool(task_pools.parallel_encryption_pool),
+		//parallel_decryption_pool(task_pools.parallel_decryption_pool),
 		current_settings(settings),
 		conn_options{ .ip_version_only = current_settings.ip_version_only,
 		              .fib_ingress = current_settings.fib_ingress,
@@ -148,9 +148,9 @@ public:
 		timer_expiring_kcp(std::move(existing_client.timer_expiring_kcp)),
 		timer_keep_alive(std::move(existing_client.timer_keep_alive)),
 		timer_status_log(std::move(existing_client.timer_status_log)),
-		sequence_task_pool(existing_client.sequence_task_pool),
-		parallel_encryption_pool(existing_client.parallel_encryption_pool),
-		parallel_decryption_pool(existing_client.parallel_decryption_pool),
+		//sequence_task_pool(existing_client.sequence_task_pool),
+		//parallel_encryption_pool(existing_client.parallel_encryption_pool),
+		//parallel_decryption_pool(existing_client.parallel_decryption_pool),
 		current_settings(std::move(existing_client.current_settings)),
 		conn_options{ .ip_version_only = current_settings.ip_version_only,
 					  .fib_ingress = current_settings.fib_ingress,

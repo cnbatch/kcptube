@@ -166,7 +166,8 @@ bool test_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 		return false;
 
 	auto func = [this, kcp_mappings_ptr]() { handshake_test_failure(kcp_mappings_ptr); };
-	sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func);
+	//sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func);
+	asio::post(io_context, func);
 	return true;
 }
 
@@ -188,9 +189,10 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(size_t index, asio::ip
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
-		auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
+		//auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
 		auto udp_func = std::bind(&test_mode::handle_handshake, this, _1, _2, _3, _4, _5);
-		udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, handshake_kcp, udp_func, conn_options);
+		//udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, handshake_kcp, udp_func, conn_options);
+		udp_forwarder = std::make_shared<forwarder>(io_context, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return nullptr;
 	}
@@ -321,7 +323,7 @@ void test_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_
 		if (buffer_size <= 0)
 			break;
 
-		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique<uint8_t[]>(buffer_size);
+		std::unique_ptr<uint8_t[]> buffer_cache = std::make_unique_for_overwrite<uint8_t[]>(buffer_size);
 		uint8_t *buffer_ptr = buffer_cache.get();
 
 		int kcp_data_size = 0;

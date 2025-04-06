@@ -502,7 +502,7 @@ namespace fecpp
 		std::vector<std::unique_ptr<uint8_t[]>> redundan;
 		for (size_t i = K; i != N; ++i)
 		{
-			redundan.emplace_back(std::make_unique<uint8_t[]>(block_size));
+			redundan.emplace_back(std::make_unique_for_overwrite<uint8_t[]>(block_size));
 			size_t index = i - K;
 			for (size_t j = 0; j != K; ++j)
 				addmul(redundan[index].get(), input + j * block_size,
@@ -521,8 +521,8 @@ namespace fecpp
 			return {};
 		
 		std::map<size_t, std::vector<uint8_t>> missing_blocks;
-		std::unique_ptr<uint8_t[]> m_dec = std::make_unique<uint8_t[]>(K * K);
-		std::unique_ptr<size_t[]> indexes = std::make_unique<size_t[]>(K);
+		std::unique_ptr<uint8_t[]> m_dec = std::make_unique_for_overwrite<uint8_t[]>(K * K);
+		std::unique_ptr<size_t[]> indexes = std::make_unique_for_overwrite<size_t[]>(K);
 		std::unique_ptr<const uint8_t *[]> sharesv = std::make_unique<const uint8_t * []>(K);
 
 		std::map<size_t, const uint8_t*>::const_iterator shares_b_iter = shares.begin();
