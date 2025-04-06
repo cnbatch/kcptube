@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <algorithm>
 #include <stdint.h>
 #include <functional>
 #include <list>
