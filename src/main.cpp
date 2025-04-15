@@ -20,7 +20,7 @@
 int main(int argc, char *argv[])
 {
 #ifdef __cpp_lib_format
-	std::cout << std::format("{} version 20250406\n", app_name);
+	std::cout << std::format("{} version {}\n", app_name, app_version);
 	if (argc <= 1)
 	{
 		std::cout << std::format("Usage: {} config1.conf\n", app_name);
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 #else
-	std::cout << app_name << " version 20250406\n";
+	std::cout << app_name << " version " << app_version << "\n";
 	if (argc <= 1)
 	{
 		std::cout << "Usage: " << app_name << " config1.conf\n";

@@ -521,9 +521,9 @@ namespace fecpp
 			return {};
 		
 		std::map<size_t, std::vector<uint8_t>> missing_blocks;
-		std::unique_ptr<uint8_t[]> m_dec = std::make_unique_for_overwrite<uint8_t[]>(K * K);
+		std::unique_ptr<uint8_t[]> m_dec = std::make_unique<uint8_t[]>(K * K);
 		std::unique_ptr<size_t[]> indexes = std::make_unique_for_overwrite<size_t[]>(K);
-		std::unique_ptr<const uint8_t *[]> sharesv = std::make_unique<const uint8_t * []>(K);
+		std::unique_ptr<const uint8_t *[]> sharesv = std::make_unique_for_overwrite<const uint8_t * []>(K);
 
 		std::map<size_t, const uint8_t*>::const_iterator shares_b_iter = shares.begin();
 		std::map<size_t, const uint8_t*>::const_reverse_iterator shares_e_iter = shares.rbegin();

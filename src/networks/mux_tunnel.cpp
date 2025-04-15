@@ -460,8 +460,8 @@ void mux_tunnel::setup_mux_kcp(std::shared_ptr<KCP::KCP> kcp_ptr)
 	std::scoped_lock lockers{ mutex_mux_tcp_cache, mutex_mux_udp_cache };
 	mux_tcp_cache[kcp_ptr].clear();
 	mux_udp_cache[kcp_ptr].clear();
-	mux_tcp_cache_max_size[kcp_ptr] = kcp_ptr->GetSendWindowSize();
-	mux_udp_cache_max_size[kcp_ptr] = kcp_ptr->GetSendWindowSize();
+	mux_tcp_cache_max_size[kcp_ptr] = kcp_ptr->GetSendWindowSize() * 8;
+	mux_udp_cache_max_size[kcp_ptr] = kcp_ptr->GetSendWindowSize() * 8;
 }
 
 void mux_tunnel::move_cached_data_to_tunnel(bool skip_kcp_update)
@@ -547,6 +547,9 @@ void mux_tunnel::refresh_mux_queue(const std::shared_ptr<KCP::KCP> &kcp_ptr)
 	std::shared_lock locker{ mutex_id_map_to_mux_records };
 	for (auto &[connection_id, record_ptr] : id_map_to_mux_records)
 	{
+		if (uint32_t kcp_conv = connection_id >> 32;
+			kcp_conv != kcp_ptr->GetConv())
+			continue;
 		tcp_session *session = record_ptr->local_tcp.get();
 		if (session != nullptr && session->is_pause())
 			session->pause(false);
