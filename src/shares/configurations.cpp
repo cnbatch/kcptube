@@ -159,6 +159,10 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 					current_settings->destination_address_list = string_to_address_list(value);
 				break;
 
+			case strhash("destination_dnstxt"):
+				current_settings->destination_dnstxt = value;
+				break;
+			
 			case strhash("encryption_password"):
 				current_settings->encryption_password = original_value;
 				break;
@@ -307,6 +311,14 @@ std::vector<std::string> parse_the_rest(const std::vector<std::string> &args, us
 				current_settings->stun_server = original_value;
 				break;
 
+			case strhash("update_ipv4"):
+				current_settings->update_ipv4_path = original_value;
+				break;
+
+			case strhash("update_ipv6"):
+				current_settings->update_ipv6_path = original_value;
+				break;
+			
 			case strhash("outbound_bandwidth"):
 				current_settings->outbound_bandwidth = bandwidth_from_string(original_value, error_msg);
 				break;
@@ -834,6 +846,12 @@ void copy_settings(user_settings &inner, user_settings &outter)
 	if (outter.ip_version_only != ip_only_options::not_set)
 		inner.ip_version_only = outter.ip_version_only;
 
+	if (!outter.update_ipv4_path.empty())
+		inner.update_ipv4_path = outter.update_ipv4_path;
+
+	if (!outter.update_ipv6_path.empty())
+		inner.update_ipv6_path = outter.update_ipv6_path;
+
 	if (outter.blast)
 		inner.blast = outter.blast;
 
@@ -1052,11 +1070,21 @@ void verify_server_listen_port(user_settings &current_user_settings, std::vector
 
 void verify_client_destination(user_settings &current_user_settings, std::vector<std::string>& error_msg)
 {
-	if (current_user_settings.destination_ports.empty())
-		error_msg.emplace_back("destination port setting incorrect");
+	if (current_user_settings.destination_dnstxt.empty())
+	{
+		if (current_user_settings.destination_ports.empty())
+			error_msg.emplace_back("destination port setting incorrect");
 
-	if (current_user_settings.destination_address_list.empty())
-		error_msg.emplace_back("invalid destination_address setting");
+		if (current_user_settings.destination_address_list.empty())
+			error_msg.emplace_back("invalid destination_address setting");
+	}
+	else
+	{
+		if (!current_user_settings.destination_address_list.empty())
+			error_msg.emplace_back("destination_address: DNS TXT setting exists");
+		if (!current_user_settings.destination_ports.empty())
+			error_msg.emplace_back("destination_port: DNS TXT setting exists");
+	}
 }
 
 uint64_t bandwidth_from_string(const std::string &bandwidth, std::vector<std::string> &error_msg)

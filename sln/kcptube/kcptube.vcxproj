@@ -33,6 +33,7 @@
     <ClCompile Include="..\..\src\main.cpp" />
     <ClCompile Include="..\..\src\modes\client.cpp" />
     <ClCompile Include="..\..\src\networks\connections.cpp" />
+    <ClCompile Include="..\..\src\networks\dns_helper.cpp" />
     <ClCompile Include="..\..\src\networks\kcp.cpp" />
     <ClCompile Include="..\..\src\networks\kcp_updater.cpp" />
     <ClCompile Include="..\..\src\networks\mux_tunnel.cpp" />
@@ -47,9 +48,10 @@
   <ItemGroup>
     <ClInclude Include="..\..\src\3rd_party\fecpp.hpp" />
     <ClInclude Include="..\..\src\3rd_party\ikcp.hpp" />
-    <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp" />
+    <ClInclude Include="..\..\src\3rd_party\task_thread_pool.hpp" />
     <ClInclude Include="..\..\src\modes\client.hpp" />
     <ClInclude Include="..\..\src\networks\connections.hpp" />
+    <ClInclude Include="..\..\src\networks\dns_helper.hpp" />
     <ClInclude Include="..\..\src\networks\kcp.hpp" />
     <ClInclude Include="..\..\src\networks\kcp_updater.hpp" />
     <ClInclude Include="..\..\src\networks\mux_tunnel.hpp" />

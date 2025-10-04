@@ -28,9 +28,10 @@ else()
 	target_link_libraries(${PROJECT_NAME} PRIVATE botan-3)
 endif()
 
-#if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+	target_link_libraries(${PROJECT_NAME} PUBLIC resolv)
 #	target_link_libraries(${PROJECT_NAME} PUBLIC uring)
-#endif()
+endif()
 
 add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
 add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")

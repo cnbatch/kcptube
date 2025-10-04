@@ -1009,29 +1009,29 @@ void tcp_session::transfer_data_to_next_function(std::unique_ptr<uint8_t[]> buff
 		buffer_cache.swap(new_buffer);
 	}
 
-	switch (task_type_running)
-	{
-	case task_type::sequence:
-	{
-		size_t pointer_to_number = (size_t)this;
-		push_task_seq(pointer_to_number, [this, bytes_transferred, self_shared = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, self_shared); },
-			std::move(buffer_cache));
-		break;
-	}
-	case task_type::direct:
-	{
-		push_task([this, bytes_transferred, self_shared = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, self_shared); },
-			std::move(buffer_cache));
-		break;
-	}
-	case task_type::in_place:
+	//switch (task_type_running)
+	//{
+	//case task_type::sequence:
+	//{
+	//	size_t pointer_to_number = (size_t)this;
+	//	push_task_seq(pointer_to_number, [this, bytes_transferred, self_shared = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
+	//		{ callback(std::move(data), bytes_transferred, self_shared); },
+	//		std::move(buffer_cache));
+	//	break;
+	//}
+	//case task_type::direct:
+	//{
+	//	push_task([this, bytes_transferred, self_shared = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
+	//		{ callback(std::move(data), bytes_transferred, self_shared); },
+	//		std::move(buffer_cache));
+	//	break;
+	//}
+	//case task_type::in_place:
 		callback(std::move(buffer_cache), bytes_transferred, shared_from_this());
-		break;
-	default:
-		break;
-	}
+	//	break;
+	//default:
+	//	break;
+	//}
 }
 
 
@@ -1061,25 +1061,25 @@ void tcp_server::acceptor_initialise(const tcp::endpoint &ep)
 void tcp_server::start_accept()
 {
 	std::shared_ptr<tcp_session> new_connection;
-	switch (task_type_running)
-	{
-	case task_type::sequence:
-	{
-		new_connection = std::make_shared<tcp_session>(internal_io_context, push_task_seq, session_callback);
-		break;
-	}
-	case task_type::direct:
-	{
-		new_connection = std::make_shared<tcp_session>(internal_io_context, push_task, session_callback);
-		break;
-	}
-	case task_type::in_place:
+	//switch (task_type_running)
+	//{
+	//case task_type::sequence:
+	//{
+	//	new_connection = std::make_shared<tcp_session>(internal_io_context, push_task_seq, session_callback);
+	//	break;
+	//}
+	//case task_type::direct:
+	//{
+	//	new_connection = std::make_shared<tcp_session>(internal_io_context, push_task, session_callback);
+	//	break;
+	//}
+	//case task_type::in_place:
 		new_connection = std::make_shared<tcp_session>(internal_io_context, session_callback);
-		break;
-	default:
-		return;
-		break;
-	}
+	//	break;
+	//default:
+	//	return;
+	//	break;
+	//}
 
 	tcp_acceptor.async_accept(new_connection->socket(),
 		[this, new_connection](const asio::error_code &error_code)
@@ -1105,21 +1105,21 @@ void tcp_server::handle_accept(std::shared_ptr<tcp_session> new_connection, cons
 std::shared_ptr<tcp_session> tcp_client::connect(asio::error_code &ec)
 {
 	std::shared_ptr<tcp_session> new_connection;
-	switch (task_type_running)
-	{
-	case task_type::sequence:
-		new_connection = std::make_shared<tcp_session>(internal_io_context, push_task_seq, session_callback);
-		break;
-	case task_type::direct:
-		new_connection = std::make_shared<tcp_session>(internal_io_context, push_task, session_callback);
-		break;
-	case task_type::in_place:
+	//switch (task_type_running)
+	//{
+	//case task_type::sequence:
+	//	new_connection = std::make_shared<tcp_session>(internal_io_context, push_task_seq, session_callback);
+	//	break;
+	//case task_type::direct:
+	//	new_connection = std::make_shared<tcp_session>(internal_io_context, push_task, session_callback);
+	//	break;
+	//case task_type::in_place:
 		new_connection = std::make_shared<tcp_session>(internal_io_context, session_callback);
-		break;
-	default:
-		return new_connection;
-		break;
-	}
+	//	break;
+	//default:
+	//	return new_connection;
+	//	break;
+	//}
 
 	tcp::socket &current_socket = new_connection->socket();
 	for (auto &endpoint_entry : remote_endpoints)
@@ -1197,6 +1197,15 @@ void udp_server::async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_siz
 		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
 }
 
+void udp_server::async_send_out(std::shared_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<udp::endpoint> client_endpoint)
+{
+	if (data == nullptr)
+		return;
+	auto asio_buffer = asio::buffer(data.get(), data_size);
+	connection_socket.async_send_to(asio_buffer, *client_endpoint,
+		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
+}
+
 void udp_server::async_send_out(std::vector<uint8_t> &&data, const udp::endpoint &client_endpoint)
 {
 	auto asio_buffer = asio::buffer(data);
@@ -1255,26 +1264,26 @@ void udp_server::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 
-	switch (task_type_running)
-	{
-	case task_type::sequence:
-		task_count++;
-		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); task_count--; },
-		              std::move(buffer_cache));
-		break;
-	case task_type::direct:
-		task_count++;
-		push_task([this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); task_count--; },
-		          std::move(buffer_cache));
-		break;
-	case task_type::in_place:
+	//task_count++;
+	//switch (task_type_running)
+	//{
+	//case task_type::sequence:
+	//	push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+	//		{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); task_count--; },
+	//	              std::move(buffer_cache));
+	//	break;
+	//case task_type::direct:
+	//	push_task([this, bytes_transferred, copy_of_incoming_endpoint](std::unique_ptr<uint8_t[]> data) mutable
+	//		{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, this); task_count--; },
+	//	          std::move(buffer_cache));
+	//	break;
+	//case task_type::in_place:
 		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, this);
-		break;
-	default:
-		break;
-	}
+		//task_count--;
+	//	break;
+	//default:
+	//	break;
+	//}
 }
 
 
@@ -1379,6 +1388,17 @@ void udp_client::async_send_out(std::unique_ptr<uint8_t[]> data, size_t data_siz
 	last_send_time.store(packet::right_now());
 }
 
+void udp_client::async_send_out(std::shared_ptr<uint8_t[]> data, size_t data_size, std::shared_ptr<udp::endpoint> peer_endpoint)
+{
+	if (stopped.load() || data == nullptr || data_size == 0)
+		return;
+
+	auto asio_buffer = asio::buffer(data.get(), data_size);
+	connection_socket.async_send_to(asio_buffer, *peer_endpoint,
+		[data_ = std::move(data)](const asio::error_code &error, size_t bytes_transferred) {});
+	last_send_time.store(packet::right_now());
+}
+
 void udp_client::async_send_out(std::unique_ptr<uint8_t[]> data, uint8_t *start_pos, size_t data_size, const udp::endpoint &peer_endpoint)
 {
 	if (stopped.load() || data == nullptr || data_size == 0)
@@ -1476,24 +1496,24 @@ void udp_client::handle_receive(std::unique_ptr<uint8_t[]> buffer_cache, const a
 		buffer_cache.swap(new_buffer);
 	}
 
-	switch (task_type_running)
-	{
-	case task_type::sequence:
-		task_count++;
-		push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); task_count--; },
-			std::move(buffer_cache));
-		break;
-	case task_type::direct:
-		task_count++;
-		push_task([this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
-			{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); task_count--; },
-			std::move(buffer_cache));
-		break;
-	case task_type::in_place:
+	//task_count++;
+	//switch (task_type_running)
+	//{
+	//case task_type::sequence:
+	//	push_task_seq((size_t)this, [this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
+	//		{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); task_count--; },
+	//		std::move(buffer_cache));
+	//	break;
+	//case task_type::direct:
+	//	push_task([this, bytes_transferred, copy_of_incoming_endpoint, sptr = shared_from_this()](std::unique_ptr<uint8_t[]> data) mutable
+	//		{ callback(std::move(data), bytes_transferred, copy_of_incoming_endpoint, 0); task_count--; },
+	//		std::move(buffer_cache));
+	//	break;
+	//case task_type::in_place:
 		callback(std::move(buffer_cache), bytes_transferred, copy_of_incoming_endpoint, 0);
-		break;
-	default:
-		break;
-	}
+	//	task_count--;
+	//	break;
+	//default:
+	//	break;
+	//}
 }

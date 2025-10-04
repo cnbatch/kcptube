@@ -4,6 +4,7 @@
 #include <thread>
 #include "tester.hpp"
 #include "../shares/data_operations.hpp"
+#include "../networks/dns_helper.hpp"
 
 using namespace std::placeholders;
 using namespace std::chrono;
@@ -17,6 +18,31 @@ test_mode::~test_mode()
 bool test_mode::start()
 {
 	printf("Testing...\n");
+
+	if (!current_settings.destination_dnstxt.empty())
+	{
+		std::vector<std::string> error_msg;
+		std::string dnstxt_content = dns_helper::query_dns_txt(current_settings.destination_dnstxt, error_msg);
+		if (!error_msg.empty())
+		{
+			for (auto &msg : error_msg)
+			{
+				std::cerr << msg << "\n";
+			}
+			return false;
+		}
+
+		auto [host_address, ip_address, port_num] = dns_helper::dns_split_address(dnstxt_content, error_msg);
+		if (error_msg.empty())
+		{
+			current_settings.destination_address_list.resize(1);
+			current_settings.destination_address_list.front() = ip_address.to_string();
+			current_settings.destination_ports.resize(1);
+			current_settings.destination_ports.front() = port_num;
+			target_address.resize(1);
+			target_address.front() = std::make_shared<asio::ip::address>(ip_address);
+		}
+	}
 
 	switch (current_settings.mode)
 	{
@@ -105,8 +131,7 @@ void test_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint
 	std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(kcp_mappings_ptr->egress_forwarder));
 	if (egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
 		return;
-	//std::shared_ptr<udp::endpoint> egress_target_endpoint_ptr = std::atomic_load(&(kcp_mappings_ptr->egress_target_endpoint));
-	udp::endpoint egress_target_endpoint = *std::atomic_load(&(kcp_mappings_ptr->egress_target_endpoint));
+	std::shared_ptr<udp::endpoint> egress_target_endpoint = std::atomic_load(&(kcp_mappings_ptr->egress_target_endpoint));
 	egress_forwarder->async_send_out(std::move(new_buffer), cipher_size, egress_target_endpoint);
 }
 
@@ -166,7 +191,6 @@ bool test_mode::handshake_timeout_detection(kcp_mappings *kcp_mappings_ptr)
 		return false;
 
 	auto func = [this, kcp_mappings_ptr]() { handshake_test_failure(kcp_mappings_ptr); };
-	//sequence_task_pool.push_task((size_t)kcp_mappings_ptr, func);
 	asio::post(io_context, func);
 	return true;
 }
@@ -189,9 +213,7 @@ std::shared_ptr<kcp_mappings> test_mode::create_handshake(size_t index, asio::ip
 	std::shared_ptr<forwarder> udp_forwarder = nullptr;
 	try
 	{
-		//auto bind_push_func = std::bind(&ttp::task_group_pool::push_task_forwarder, &sequence_task_pool, _1, _2, _3);
 		auto udp_func = std::bind(&test_mode::handle_handshake, this, _1, _2, _3, _4, _5);
-		//udp_forwarder = std::make_shared<forwarder>(io_context, bind_push_func, handshake_kcp, udp_func, conn_options);
 		udp_forwarder = std::make_shared<forwarder>(io_context, handshake_kcp, udp_func, conn_options);
 		if (udp_forwarder == nullptr)
 			return nullptr;

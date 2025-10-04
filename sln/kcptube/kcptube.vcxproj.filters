@@ -87,6 +87,9 @@
     <ClCompile Include="..\..\src\modes\tester.cpp">
       <Filter>Source Files\modes</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\networks\dns_helper.cpp">
+      <Filter>Source Files\networks</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\shares\share_defines.hpp">
@@ -112,9 +115,6 @@
     </ClInclude>
     <ClInclude Include="..\..\src\shares\simple_hashing.hpp">
       <Filter>Header Files\shares</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\3rd_party\thread_pool.hpp">
-      <Filter>Header Files\3rd_party</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\shares\configurations.hpp">
       <Filter>Header Files\shares</Filter>
@@ -142,6 +142,12 @@
     </ClInclude>
     <ClInclude Include="..\..\src\modes\tester.hpp">
       <Filter>Header Files\modes</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\3rd_party\task_thread_pool.hpp">
+      <Filter>Header Files\3rd_party</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\networks\dns_helper.hpp">
+      <Filter>Header Files\networks</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

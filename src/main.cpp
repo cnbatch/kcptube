@@ -47,35 +47,13 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-	//uint16_t thread_group_count = 2;
-	//int io_thread_count = std::thread::hardware_concurrency() == 1 ? 1 : 2;
-	//std::unique_ptr<ttp::task_thread_pool> parallel_pool_1;
-	//std::unique_ptr<ttp::task_thread_pool> parallel_pool_2;
-	//if (std::thread::hardware_concurrency() > 2)
-	//{
-	//	auto thread_counts = std::thread::hardware_concurrency();
-	//	thread_group_count = thread_counts;
-	//	io_thread_count = (int)round(log2(thread_counts));
-	//}
+	auto thread_count = std::thread::hardware_concurrency() == 1 ? 2 : std::thread::hardware_concurrency();
+	task_thread_pool::task_thread_pool parallel_pool(thread_count);
 
-	//if (std::thread::hardware_concurrency() > 1)
-	//{
-	//	parallel_pool_1 = std::make_unique<ttp::task_thread_pool>();
-	//	parallel_pool_2 = std::make_unique<ttp::task_thread_pool>();
-	//}
-
-	//asio::io_context ioc{ io_thread_count };
-	asio::io_context ioc;
+	asio::io_context ioc_light(1);
+	asio::io_context ioc_heavy(thread_count);
 
 	KCP::KCPUpdater kcp_updater;
-	//ttp::task_group_pool task_groups{ thread_group_count };
-	//task_pool_colloector task_pools =
-	//{
-	//	.parallel_encryption_pool = parallel_pool_1.get(),
-	//	.parallel_decryption_pool = parallel_pool_2.get(),
-	//	.listener_parallels = parallel_pool_1.get(),
-	//	.forwarder_parallels = parallel_pool_2.get()
-	//};
 
 	std::vector<client_mode> clients;
 	std::vector<relay_mode> relays;
@@ -142,18 +120,18 @@ int main(int argc, char *argv[])
 		{
 		case running_mode::client:
 			if (test_connection)
-				testers.emplace_back(test_mode(ioc, kcp_updater, /*task_groups,*/ settings));
+				testers.emplace_back(test_mode(ioc_light, kcp_updater, /*task_groups,*/ settings));
 			else
-				clients.emplace_back(client_mode(ioc, kcp_updater, /*task_groups, task_pools,*/ settings));
+				clients.emplace_back(client_mode(ioc_light, ioc_heavy, kcp_updater, parallel_pool, /*task_groups, task_pools,*/ settings));
 			break;
 		case running_mode::relay:
 			if (test_connection)
-				testers.emplace_back(test_mode(ioc, kcp_updater, /*task_groups,*/ settings));
+				testers.emplace_back(test_mode(ioc_light, kcp_updater, /*task_groups,*/ settings));
 			else
-				relays.emplace_back(relay_mode(ioc, kcp_updater, /*task_groups, task_pools,*/ settings));
+				relays.emplace_back(relay_mode(ioc_light, ioc_heavy, kcp_updater, parallel_pool, /*task_groups, task_pools,*/ settings));
 			break;
 		case running_mode::server:
-			servers.emplace_back(server_mode(ioc, kcp_updater, /*task_groups, task_pools,*/ settings));
+			servers.emplace_back(server_mode(ioc_light, ioc_heavy, kcp_updater, parallel_pool, /*task_groups, task_pools,*/ settings));
 			break;
 		default:
 			break;
@@ -165,7 +143,7 @@ int main(int argc, char *argv[])
 		for (test_mode &tester : testers)
 		{
 			if (tester.start())
-				ioc.run();
+				ioc_light.run();
 		}
 		return 0;
 	}
@@ -192,7 +170,14 @@ int main(int argc, char *argv[])
 	}
 
 	if (started_up)
-		ioc.run();
+	{
+		for (unsigned i = 0; i < thread_count; i++)
+		{
+			std::thread trd([&ioc_heavy]() { ioc_heavy.run(); });
+			trd.detach();
+		}
+		ioc_light.run();
+	}
 
 	return 0;
 }

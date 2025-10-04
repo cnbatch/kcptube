@@ -10,7 +10,8 @@
 class server_mode
 {
 	friend struct mux_tunnel;
-	asio::io_context &io_context;
+	asio::io_context &io_context_light;
+	asio::io_context &io_context_heavy;
 	KCP::KCPUpdater &kcp_updater;
 	user_settings current_settings;
 	connection_options conn_options;
@@ -53,6 +54,7 @@ class server_mode
 	//ttp::task_group_pool &sequence_task_pool;
 	//ttp::task_thread_pool *parallel_encryption_pool;
 	//ttp::task_thread_pool *parallel_decryption_pool;
+	task_thread_pool::task_thread_pool &parallel_pool;
 
 	std::unique_ptr<udp::endpoint> udp_target;
 
@@ -101,14 +103,17 @@ public:
 	server_mode(const server_mode &) = delete;
 	server_mode& operator=(const server_mode &) = delete;
 
-	server_mode(asio::io_context &io_context_ref, KCP::KCPUpdater &kcp_updater_ref, /*ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools,*/ const user_settings &settings)
-		: io_context(io_context_ref), kcp_updater(kcp_updater_ref),
-		timer_find_expires(io_context), timer_expiring_kcp(io_context),
-		timer_stun(io_context), timer_keep_alive(io_context),
-		timer_status_log(io_context),
+	server_mode(asio::io_context &io_context_light, asio::io_context &io_context_heavy, KCP::KCPUpdater &kcp_updater_ref, task_thread_pool::task_thread_pool &parallel_pool, /*ttp::task_group_pool &seq_task_pool, task_pool_colloector &task_pools,*/ const user_settings &settings) :
+		io_context_light(io_context_light),
+		io_context_heavy(io_context_heavy),
+		kcp_updater(kcp_updater_ref),
+		timer_find_expires(io_context_light), timer_expiring_kcp(io_context_light),
+		timer_stun(io_context_light), timer_keep_alive(io_context_light),
+		timer_status_log(io_context_light),
 		//sequence_task_pool(seq_task_pool),
 		//parallel_encryption_pool(task_pools.parallel_encryption_pool),
 		//parallel_decryption_pool(task_pools.parallel_decryption_pool),
+		parallel_pool(parallel_pool),
 		external_ipv4_port(0),
 		external_ipv4_address(0),
 		external_ipv6_port(0),
@@ -120,8 +125,9 @@ public:
 					  .fib_egress = current_settings.fib_egress }
 	{}
 
-	server_mode(server_mode &&existing_server) noexcept
-		: io_context(existing_server.io_context),
+	server_mode(server_mode &&existing_server) noexcept :
+		io_context_light(existing_server.io_context_light),
+		io_context_heavy(existing_server.io_context_heavy),
 		kcp_updater(existing_server.kcp_updater),
 		timer_find_expires(std::move(existing_server.timer_find_expires)),
 		timer_expiring_kcp(std::move(existing_server.timer_expiring_kcp)),
@@ -131,6 +137,7 @@ public:
 		//sequence_task_pool(existing_server.sequence_task_pool),
 		//parallel_encryption_pool(existing_server.parallel_encryption_pool),
 		//parallel_decryption_pool(existing_server.parallel_decryption_pool),
+		parallel_pool(existing_server.parallel_pool),
 		external_ipv4_port(existing_server.external_ipv4_port.load()),
 		external_ipv4_address(existing_server.external_ipv4_address.load()),
 		external_ipv6_port(existing_server.external_ipv6_port.load()),

@@ -502,7 +502,7 @@ namespace fecpp
 		std::vector<std::unique_ptr<uint8_t[]>> redundan;
 		for (size_t i = K; i != N; ++i)
 		{
-			redundan.emplace_back(std::make_unique_for_overwrite<uint8_t[]>(block_size));
+			redundan.emplace_back(std::make_unique<uint8_t[]>(block_size));
 			size_t index = i - K;
 			for (size_t j = 0; j != K; ++j)
 				addmul(redundan[index].get(), input + j * block_size,

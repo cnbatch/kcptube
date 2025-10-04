@@ -20,10 +20,9 @@
 #ifdef __cpp_lib_format
 #include <format>
 #endif
-#include "../3rd_party/thread_pool.hpp"
 
 constexpr std::string_view app_name = "kcptube";
-constexpr std::string_view app_version = "20250415";
+constexpr std::string_view app_version = "20251004";
 
 enum class running_mode { unknow, server, client, relay, relay_ingress, relay_egress };
 enum class kcp_mode { unknow, regular1, regular2, regular3, regular4, regular5, fast1, fast2, fast3, fast4, fast5, fast6, manual };
@@ -158,8 +157,11 @@ struct user_settings
 	std::vector<uint16_t> listen_ports;
 	std::vector<uint16_t> destination_ports;
 	std::vector<std::string> destination_address_list;
+	std::string destination_dnstxt;
 	std::string encryption_password;
 	std::string stun_server;
+	std::string update_ipv4_path;
+	std::string update_ipv6_path;
 	std::filesystem::path log_directory;
 	std::filesystem::path log_ip_address;
 	std::filesystem::path log_messages;
@@ -188,14 +190,6 @@ struct fec_container
 	uint8_t data[1];
 };
 #pragma pack(pop)
-
-//struct task_pool_colloector
-//{
-//	ttp::task_thread_pool *parallel_encryption_pool;
-//	ttp::task_thread_pool *parallel_decryption_pool;
-//	ttp::task_thread_pool *listener_parallels;
-//	ttp::task_thread_pool *forwarder_parallels;
-//};
 
 user_settings parse_from_args(const std::vector<std::string> &args, std::vector<std::string> &error_msg);
 std::set<uint16_t> port_range_to_vector(const std::string &input_str, std::vector<std::string> &error_msg, const std::string &acting_role);
