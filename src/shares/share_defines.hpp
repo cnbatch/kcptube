@@ -22,7 +22,7 @@
 #endif
 
 constexpr std::string_view app_name = "kcptube";
-constexpr std::string_view app_version = "20251004";
+constexpr std::string_view app_version = "20260111";
 
 enum class running_mode { unknow, server, client, relay, relay_ingress, relay_egress };
 enum class kcp_mode { unknow, regular1, regular2, regular3, regular4, regular5, fast1, fast2, fast3, fast4, fast5, fast6, manual };

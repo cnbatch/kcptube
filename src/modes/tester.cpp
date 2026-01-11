@@ -19,10 +19,43 @@ bool test_mode::start()
 {
 	printf("Testing...\n");
 
-	if (!current_settings.destination_dnstxt.empty())
+	std::string destination_dnstxt;
+
+	switch (current_settings.mode)
+	{
+	case running_mode::client:
+	{
+		destination_dnstxt = current_settings.destination_dnstxt;
+		destination_ports = current_settings.destination_ports;
+		destination_address_list = current_settings.destination_address_list;
+		encryption_password = current_settings.encryption_password;
+		encryption = current_settings.encryption;
+		break;
+	}
+	case running_mode::relay:
+	{
+		if (current_settings.egress == nullptr)
+		{
+			std::cerr << "Incorrect config file.";
+			return false;
+		}
+		destination_dnstxt = current_settings.egress->destination_dnstxt;
+		destination_ports = current_settings.egress->destination_ports;
+		destination_address_list = current_settings.egress->destination_address_list;
+		encryption_password = current_settings.egress->encryption_password;
+		encryption = current_settings.egress->encryption;
+		break;
+	}
+	default:
+		return false;
+		break;
+	}
+
+
+	if (!destination_dnstxt.empty())
 	{
 		std::vector<std::string> error_msg;
-		std::string dnstxt_content = dns_helper::query_dns_txt(current_settings.destination_dnstxt, error_msg);
+		std::string dnstxt_content = dns_helper::query_dns_txt(destination_dnstxt, error_msg);
 		if (!error_msg.empty())
 		{
 			for (auto &msg : error_msg)
@@ -35,45 +68,23 @@ bool test_mode::start()
 		auto [host_address, ip_address, port_num] = dns_helper::dns_split_address(dnstxt_content, error_msg);
 		if (error_msg.empty())
 		{
-			current_settings.destination_address_list.resize(1);
-			current_settings.destination_address_list.front() = ip_address.to_string();
-			current_settings.destination_ports.resize(1);
-			current_settings.destination_ports.front() = port_num;
+			destination_address_list.resize(1);
+			destination_address_list.front() = ip_address.to_string();
+			destination_ports.resize(1);
+			destination_ports.front() = port_num;
 			target_address.resize(1);
 			target_address.front() = std::make_shared<asio::ip::address>(ip_address);
 		}
 	}
 
-	switch (current_settings.mode)
-	{
-	case running_mode::client:
-	{
-		destination_ports = current_settings.destination_ports;
-		break;
-	}
-	case running_mode::relay:
-	{
-		if (current_settings.egress == nullptr)
-		{
-			std::cerr << "Incorrect config file.";
-			return false;
-		}
-		destination_ports = current_settings.egress->destination_ports;
-		break;
-	}
-	default:
-		return false;
-		break;
-	}
-
 	if (destination_ports.empty())
 		return false;
 
-	target_address.resize(current_settings.destination_address_list.size());
-	success_ports.resize(current_settings.destination_address_list.size());
-	failure_ports.resize(current_settings.destination_address_list.size());
+	target_address.resize(destination_address_list.size());
+	success_ports.resize(destination_address_list.size());
+	failure_ports.resize(destination_address_list.size());
 
-	for (size_t i = 0; i < current_settings.destination_address_list.size(); i++)
+	for (size_t i = 0; i < destination_address_list.size(); i++)
 	{
 		for (uint16_t destination_port : destination_ports)
 		{
@@ -127,7 +138,7 @@ int test_mode::kcp_sender(const char *buf, int len, void *user)
 
 void test_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<uint8_t[]> new_buffer, size_t buffer_size)
 {
-	auto [error_message, cipher_size] = encrypt_data(current_settings.encryption_password, current_settings.encryption, new_buffer.get(), (int)buffer_size);
+	auto [error_message, cipher_size] = encrypt_data(encryption_password, encryption, new_buffer.get(), (int)buffer_size);
 	std::shared_ptr<forwarder> egress_forwarder = std::atomic_load(&(kcp_mappings_ptr->egress_forwarder));
 	if (egress_forwarder == nullptr || !error_message.empty() || cipher_size == 0)
 		return;
@@ -152,7 +163,7 @@ std::unique_ptr<udp::endpoint> test_mode::update_udp_target(std::shared_ptr<forw
 	asio::error_code ec;
 	for (int i = 0; i <= gbv_retry_times; ++i)
 	{
-		const std::string &destination_address = current_settings.destination_address_list[index];
+		const std::string &destination_address = destination_address_list[index];
 		udp::resolver::results_type udp_endpoints = target_connector->get_remote_hostname(destination_address, 0, ec);
 		if (ec)
 		{
@@ -309,7 +320,7 @@ void test_mode::handle_handshake(std::shared_ptr<KCP::KCP> kcp_ptr, std::unique_
 	if (data == nullptr || data_size == 0 || kcp_ptr == nullptr)
 		return;
 
-	auto [error_message, plain_size] = decrypt_data(current_settings.encryption_password, current_settings.encryption, data.get(), (int)data_size);
+	auto [error_message, plain_size] = decrypt_data(encryption_password, encryption, data.get(), (int)data_size);
 
 	if (!error_message.empty())
 	{
@@ -374,7 +385,7 @@ void test_mode::PrintResults()
 		if (target == nullptr)
 			continue;
 
-		std::cout << "Connection Test Result #" + std::to_string(i) + " of \"" + current_settings.destination_address_list[i] << "\":\n";
+		std::cout << "Connection Test Result #" + std::to_string(i) + " of \"" + destination_address_list[i] << "\":\n";
 		std::cout << "Selected IP Address: " << *target << "\n";
 
 		if (success_ports[i].empty())
@@ -427,7 +438,7 @@ void test_mode::find_expires(const asio::error_code &e)
 {
 	if (e == asio::error::operation_aborted)
 		return;
-	
+
 	std::shared_lock locker_handshake{ mutex_handshakes };
 	if (handshakes.size() == 0)
 		return;

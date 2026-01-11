@@ -1055,7 +1055,7 @@ void tcp_server::acceptor_initialise(const tcp::endpoint &ep)
 #endif
 
 	tcp_acceptor.bind(ep);
-	tcp_acceptor.listen(tcp_acceptor.max_connections);
+	tcp_acceptor.listen(tcp_acceptor.max_listen_connections);
 }
 
 void tcp_server::start_accept()

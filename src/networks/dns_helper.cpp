@@ -54,14 +54,14 @@ dns_helper::dnstxt_results_t dns_helper::dns_split_address(const std::string &in
 				address_name.pop_back();
 
 				asio::error_code ec;
-				dnstxt_result.ip_address = asio::ip::address_v6::from_string(address_name, ec);
+				dnstxt_result.ip_address = asio::ip::make_address_v6(address_name, ec);
 				correct_address = !ec;
 			}
 		}
 		else
 		{
 			asio::error_code ec;
-			dnstxt_result.ip_address = asio::ip::address_v4::from_string(address_name, ec);
+			dnstxt_result.ip_address = asio::ip::make_address_v4(address_name, ec);
 			correct_address = !ec;
 		}
 		dnstxt_result.host_address = address_name;

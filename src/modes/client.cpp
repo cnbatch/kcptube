@@ -209,7 +209,7 @@ void client_mode::multiple_listening_tcp(user_settings::user_input_address_mappi
 
 		if (!local_address.empty())
 		{
-			asio::ip::address input_address = asio::ip::address::from_string(local_address);
+			asio::ip::address input_address = asio::ip::make_address(local_address);
 			if (current_settings.ip_version_only == ip_only_options::ipv4 && !input_address.is_v4())
 			{
 				std::string error_message = time_to_string_with_square_brackets() + "ipv4_only is set, ignoring IPv6 address" + local_address + "\n";
@@ -249,7 +249,7 @@ void client_mode::multiple_listening_udp(user_settings::user_input_address_mappi
 
 		if (!local_address.empty())
 		{
-			asio::ip::address input_address = asio::ip::address::from_string(local_address);
+			asio::ip::address input_address = asio::ip::make_address(local_address);
 			if (current_settings.ip_version_only == ip_only_options::ipv4 && !input_address.is_v4())
 			{
 				std::string error_message = time_to_string_with_square_brackets() + "ipv4_only is set, ignoring IPv6 address" + local_address + "\n";

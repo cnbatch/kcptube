@@ -30,7 +30,7 @@ encryption_algorithm=AES-GCM
 [forwarder]
 kcp=regular2
 inbound_bandwidth=300M
-outbound_bandwidth=300MM
+outbound_bandwidth=300M
 destination_port=13000-13010
 destination_address=87.65.43.21
 encryption_password=qwerty1234

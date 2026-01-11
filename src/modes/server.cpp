@@ -740,7 +740,7 @@ bool server_mode::create_new_udp_connection(std::shared_ptr<KCP::KCP> handshake_
 		if (user_input_port == 0 || user_input_address.empty())
 			return false;
 
-		asio::ip::address target_address = asio::ip::address::from_string(user_input_address);
+		asio::ip::address target_address = asio::ip::make_address(user_input_address);
 		if ((current_settings.ip_version_only == ip_only_options::ipv4 && target_address.is_v6()) ||
 			(current_settings.ip_version_only == ip_only_options::ipv6 && target_address.is_v4()))
 			return false;

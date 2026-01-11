@@ -13,6 +13,9 @@ class test_mode
 	user_settings current_settings;
 	connection_options conn_options;
 	std::vector<uint16_t> destination_ports;
+	std::vector<std::string> destination_address_list;
+	std::string encryption_password;
+	encryption_mode encryption;
 
 	std::shared_mutex mutex_handshakes;
 	std::unordered_map<kcp_mappings*, std::shared_ptr<kcp_mappings>> handshakes;

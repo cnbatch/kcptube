@@ -7,6 +7,7 @@
 | listen_port | 1 - 65535 |Yes|Port ranges can be specified when running as a server mode|
 | destination_port | 1 - 65535 |Yes|Port ranges can be specified when running as a client mode|
 | destination_address  | IP address, domain name |Yes|Brackets are not required when filling in an IPv6 address. Multiple addresses should be comma-separated.|
+| destination_dnstxt   | Domain name        | No    |Accepts a single domain name, for client use only. Retrieves the IP address and port from a DNS TXT record. When this parameter is used, destination_address and destination_port are not required.|
 | dport_refresh  | 20 - 65535 |No|The unit is ‘second’. Not writting this option means using the default value of 60 seconds. <br>1 to 20 is treated as 20 seconds; greater than 32767 is treated as 32767 seconds. <br>Set to 0 means disable this option.|
 | encryption_algorithm | XOR<br>AES-GCM<br>AES-OCB<br>chacha20<br>xchacha20<br>none |No    |XOR Only<br>AES-256-GCM-AEAD<br>AES-256-OCB-AEAD<br>ChaCha20-Poly1305<br>XChaCha20-Poly1305<br>No Encryption |
 | encryption_password  | Any character |Depends…|…on the setting of encryption_algorithm, if the value is set and it is neither `none` nor `XOR`, it is required|
@@ -14,6 +15,8 @@
 | keep_alive  | 0 - 65535 |No | The unit is ‘second’. The default value is 0, which means that Keep Alive is disabled. This option refers to Keep Alive between two KCP endpoints.<br>Can be enabled on any side. If no response is received after 30 seconds, the channel will be closed.|
 | mux_tunnels  | 0 - 65535 |No | The default value is 0, which means that multiplexing is disabled. This option means how many multiplexing tunnels between two KCP endpoints.<br>Client Mode only.|
 | stun_server  | STUN Server's address |No| Cannot be used if listen_port option is port range mode|
+| update_ipv4         | Path to an executable file | No   |Used for processing the public IPv4 address obtained from STUN. See documentation below for details.|
+| update_ipv6         | Path to an executable file | No   |Used for processing the public IPv6 address obtained from STUN. See documentation below for details.|
 | log_path  | The directory where the Logs are stored |No|Cannot point to the file itself|
 | fec  | uint8:uint8 |No|The format is `fec=D:R, for example `fec=20:4`. <br>Note: The maximum total value of D + R is 255 and cannot exceed this number.<br>A value of 0 on either side of the colon indicates that the option is not used. Must be the same value on both side.<br>Please refer to [The Usage of FEC](fec_en.md)|
 | mtu  | Positive Integer |No|MTU Value of current network, is to automatically calculate the value of `kcp_mtu`|
@@ -154,6 +157,32 @@ In most cases, setting `mux_tunnels` to 3 - 10 is enough, and there is no need t
 After obtaining the IP address and port after NAT hole punching for the first time, and after the IP address and port of NAT hole punching change, an ip_address.txt file will be created in the Log directory (overwrite if it exists), and the IP address and port will be written in.
 
 The obtained NAT hole punching address will be displayed on the console at the same time.
+
+### STUN Options
+
+These three parameters are limited to server and relay modes:
+- `stun_server`
+- `update_ipv4`
+- `update_ipv6`
+
+Once `update_ipv4` or `update_ipv6` is set, the program will execute the corresponding script, passing the IP address and port obtained from STUN to it.
+
+For example, given the following settings:
+```
+update_ipv4=/home/test/update_to_dnsv4
+update_ipv6=/home/test/update_to_dnsv6
+```
+
+If the address and port obtained from STUN are `130.131.132.133` and `23456` respectively, the file executed and the arguments passed will be:
+
+```
+/home/test/update_to_dnsv4 130.131.132.133:23456
+```
+
+If the address and port obtained are `2409:ABCD:FEDC:3210::1` and `23456` respectively, the file executed and the arguments passed will be:
+```
+/home/test/update_to_dnsv6 [2409:ABCD:FEDC:3210::1]:23456
+```
 
 # STUN Servers
 The STUN servers obtained from [NatTypeTeste](https://github.com/HMBSbige/NatTypeTester):

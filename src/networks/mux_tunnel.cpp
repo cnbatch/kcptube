@@ -406,7 +406,7 @@ void mux_tunnel::pre_connect_custom_address(protocol_type prtcl, kcp_mappings *k
 					asio::error_code ec;
 					mux_records_ptr = listener_ptr->create_mux_data_udp_connection(mux_connection_id, kcp_mappings_ptr->ingress_kcp);
 					udp::resolver::results_type udp_endpoints = mux_records_ptr->local_udp->get_remote_hostname(user_input_ip, user_input_port, ec);
-					asio::ip::address user_input_address = asio::ip::address::from_string(user_input_ip);
+					asio::ip::address user_input_address = asio::ip::make_address(user_input_ip);
 
 					if (ec || udp_endpoints.size() == 0 ||
 						(current_settings.ip_version_only == ip_only_options::ipv4 && user_input_address.is_v6()) ||
