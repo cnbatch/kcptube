@@ -931,7 +931,8 @@ void server_mode::data_sender(kcp_mappings *kcp_mappings_ptr, std::unique_ptr<ui
 
 void server_mode::fec_maker(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size)
 {
-	thread_local std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> send_cache;
+	thread_local std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> send_cache{ unsigned(current_settings.fec_data) + current_settings.fec_redundant };
+	send_cache.clear();
 	fec_control_data &fec_controllor = kcp_mappings_ptr->fec_ingress_control;
 	std::unique_lock fec_locker{ kcp_mappings_ptr->fec_ingress_control.mutex_fec_snd };
 

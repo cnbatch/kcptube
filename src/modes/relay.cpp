@@ -1429,7 +1429,8 @@ std::pair<bool, size_t> relay_mode::fec_find_missings(KCP::KCP *kcp_ptr, fec_con
 
 void relay_mode::fec_maker_via_listener(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size)
 {
-	thread_local std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> send_cache;
+	thread_local std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> send_cache{ unsigned(current_settings.ingress->fec_data) + current_settings.ingress->fec_redundant };
+	send_cache.clear();
 	fec_control_data &fec_controllor = kcp_mappings_ptr->fec_ingress_control;
 	std::unique_lock fec_locker{ kcp_mappings_ptr->fec_ingress_control.mutex_fec_snd };
 
@@ -1473,7 +1474,8 @@ void relay_mode::fec_maker_via_listener(kcp_mappings *kcp_mappings_ptr, const ui
 
 void relay_mode::fec_maker_via_forwarder(kcp_mappings *kcp_mappings_ptr, const uint8_t *input_data, int data_size)
 {
-	thread_local std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> send_cache;
+	thread_local std::vector<std::pair<std::unique_ptr<uint8_t[]>, size_t>> send_cache{ unsigned(current_settings.egress->fec_data) + current_settings.egress->fec_redundant };
+	send_cache.clear();
 	fec_control_data &fec_controllor = kcp_mappings_ptr->fec_egress_control;
 	std::unique_lock fec_locker{ kcp_mappings_ptr->fec_egress_control.mutex_fec_snd };
 
